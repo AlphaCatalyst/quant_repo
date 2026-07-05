@@ -26,6 +26,14 @@
    - 给出后续研究/复用优先级。
    - 区分“值得深读源码”“适合参考产品形态”“只适合做 skill 或 API schema 参考”。
 
+5. [agent-platform-interfaces.md](agent-platform-interfaces.md)
+   - 横向比较平台型工具如何接入 Codex、Claude Code、MCP、JSON CLI 和 LLM server。
+   - 说明 LLM 在研究规划、候选生成、工具调度、结果解释、风控审查中的合理位置。
+
+6. [agent-quant-os-blueprint.md](agent-quant-os-blueprint.md)
+   - 抽象 agent + quant OS 的核心组件、标准 pipeline、human-in-the-loop 节点和可持续路线。
+   - 给出合格形态、最小版本、成熟版本以及对 AlphaQuant 的落地建议。
+
 ## 总体结论
 
 这些仓库不是同一类东西。它们大致分成三条主线：

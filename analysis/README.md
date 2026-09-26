@@ -32,7 +32,7 @@
 
 6. [agent-quant-os-blueprint.md](agent-quant-os-blueprint.md)
    - 抽象 agent + quant OS 的核心组件、标准 pipeline、human-in-the-loop 节点和可持续路线。
-   - 给出合格形态、最小版本、成熟版本以及对 AlphaQuant 的落地建议。
+   - 给出合格形态、最小版本、成熟版本以及对 AlphaSieve 的落地建议。
 
 7. [landscape-update-2026-09.md](landscape-update-2026-09.md)
    - 2026-09 生态刷新记录：同步结果、新增 13 个仓库及理由、刻意未收录的项目、honest evaluation 论文结论、网页描述与代码不符的勘误。

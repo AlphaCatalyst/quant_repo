@@ -44,6 +44,10 @@
 - `QuantMind-qm2` / `kph`：trial ledger、locked holdout 预算、default-first 优化治理、harness 不重算（2026-09 补充）。
 - `FactorMiner`：经验记忆与四级 admission（2026-09 补充）。
 
+## 实现
+
+本设计的实现位于仓库根目录的 [`alphasieve/`](../alphasieve/README.md)（项目名 AlphaSieve）。
+
 ## 一句话定位
 
 低频量化研究 OS 应该把 AI 放在“生成候选、执行实验、整理证据、复用记忆”的位置，把系统放在“数据真相、门禁、状态机、审计、promotion 边界”的位置，把人放在“研究方向、风险判断、最终审批”的位置。

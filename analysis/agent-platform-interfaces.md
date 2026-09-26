@@ -154,7 +154,7 @@ MCP 类 repo 的价值不是“它自己有多智能”，而是把金融能力�
 - 返回稳定 JSON，而不是让 agent 解析自由文本。
 - 交易、写入、删除类工具有额外确认或 guard。
 
-对 AlphaQuant 这类低频研究 OS，MCP 最适合放在这些边界：
+对 AlphaSieve 这类低频研究 OS，MCP 最适合放在这些边界：
 
 - 数据查询：市场数据、财务数据、公告、研报、宏观。
 - 因子分析：IC、RankIC、分组收益、换手、暴露。
@@ -187,7 +187,7 @@ LLM 的职责是 monitor、analyze、propose、digest。它不能直接绕过 pr
 - tool discovery 弱于 MCP，需要 `CLAUDE.md` / `AGENTS.md` / help 文档写得很清楚。
 - 多工具参数组合复杂时，schema 校验体验不如 MCP。
 
-对 AlphaQuant，JSON CLI 是最小可行接口：`python -m alphaquant.cli factor eval --json ...`、`strategy backtest --json ...`、`experiment report --json ...` 比先做完整平台更务实。
+对 AlphaSieve，JSON CLI 是最小可行接口：`alphasieve factor eval --json ...`、`strategy backtest --json ...`、`experiment report --json ...` 比先做完整平台更务实。
 
 ## 6. Skill / SOP Packaging
 
@@ -232,7 +232,7 @@ Codex / Claude Code / optional LLM server
   -> Skill / AGENTS.md / workflow SOP
   -> JSON CLI first
   -> MCP tools for typed data and evaluation
-  -> deterministic AlphaQuant services
+  -> deterministic AlphaSieve services
   -> Qlib / SQLite / Parquet / reports / artifact registry
 ```
 

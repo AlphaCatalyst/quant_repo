@@ -557,7 +557,7 @@ Human researcher
 - 把 paper/live 当成研究 OS 的默认目标。
 - 人类只能看到最终答案，看不到中间过程。
 
-## 8. 对 AlphaQuant 的落地建议
+## 8. 对 AlphaSieve 的落地建议
 
 短期优先级：
 
@@ -581,4 +581,4 @@ Human researcher
 2. 如果需要产品化审查体验，再做 workbench UI；UI 重点是 evidence review，不是替代 CLI/MCP。
 3. paper/shadow 只作为下游桥接层；live execution 不属于当前研究 OS 的核心目标。
 
-最终定位应该是：AlphaQuant 不需要先做一个“大模型金融聊天平台”或“自动交易平台”，而应该先做一个低频量化研究 harness。随着 Codex/Claude Code 变强，真正会留下来的不是 agent wrapper，而是 FactorSpec、Evaluator、Artifact Registry、Evidence Gate、Memory 和 Human Promotion 这些研究真值层。
+最终定位应该是：AlphaSieve 不需要先做一个“大模型金融聊天平台”或“自动交易平台”，而应该先做一个低频量化研究 harness。随着 Codex/Claude Code 变强，真正会留下来的不是 agent wrapper，而是 FactorSpec、Evaluator、Artifact Registry、Evidence Gate、Memory 和 Human Promotion 这些研究真值层。

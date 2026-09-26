@@ -83,6 +83,10 @@ candidate
 
 失败、作废、重复、泄露、过拟合、数据缺陷都必须入库。否则 agent 会反复生成相同错误。
 
+### 3.5 按 verifier 分层让 agent loop
+
+量化研究容易打分、难以验证。agent 只在便宜的验证层（结构约束、开发窗口、样本内稳健）自由循环；搜索折扣、锁定留出、前瞻验证按预算消耗，且对 agent 不可见。agent 只提案，确定性后端裁决，人批准预算和资金。详见 [agent-loop-verification.md](agent-loop-verification.md)。
+
 ## 4. 阶段路线
 
 ### Phase 0: Research Ledger
@@ -94,6 +98,8 @@ candidate
 - `ResearchQuestion` schema。
 - `FactorSpec` schema。
 - `ExperimentRun` registry。
+- `TrialLedgerEntry` ledger：所有评估经唯一入口 append-only 入账。
+- 数据区间划分：development / sealed holdout，holdout 从第一天起封存。
 - factor card / experiment card 模板。
 - 失败原因 taxonomy。
 
@@ -108,6 +114,7 @@ candidate
 - 任意一次人工因子研究可以完整落成 card。
 - 失败实验不会丢失。
 - 同一个 factor id 不会被静默覆盖。
+- 任意时刻都能回答“这个研究问题下一共评估过多少个候选”。
 
 ### Phase 1: Data Truth + Fast Evaluation
 
@@ -138,12 +145,15 @@ candidate
 - neutralized IC。
 - cost-adjusted long-short。
 - correlation with existing factor pool。
-- permutation / bootstrap / DSR 的最小实现。
+- permutation / bootstrap / DSR 的最小实现，试验数取自 trial ledger。
+- default-first 参数治理：默认参数过门即冻结，失败只允许有限邻域救援，全量搜索只做诊断。
+- shortlist 锁定 + locked holdout 评估：打开前冻结 failure memory，读取计入预算，违规标记污染。
 
 验收：
 
 - 单次 Sharpe 或单年 IC 不能直接 promotion。
-- 每个 reviewable factor 都有 robustness summary。
+- 每个 reviewable factor 都有 robustness summary 和 holdout 结果。
+- holdout 指标不出现在 agent 可读的任何上下文中。
 
 ### Phase 3: Factor Lab
 
@@ -157,10 +167,13 @@ candidate
 - no-execute 默认边界。
 - sandboxed factor execution。
 - memory-aware prompt context。
+- ratchet 主循环：不可变 evaluator + 可编辑候选 + keep/discard，只运行在开发窗口。
+- 经验记忆：成功模板、禁区（与因子库高相关的因子族）、策略洞察。
 
 验收：
 
 - AI 只能提交 candidate，不自动 promotion。
+- evaluator 不在 agent 可写范围内；agent 无法读取 holdout / fresh 数据。
 - 每个候选都经过 schema、data availability、leakage、complexity、duplicate check。
 - 失败会进入 negative memory。
 
@@ -189,6 +202,7 @@ candidate
 交付：
 
 - paper portfolio。
+- fresh forward 观察：不回填、≥60 交易日、cohort 级统计；按决策来源（机器 / 人 / AI）分池追踪多个 horizon。
 - signal monitor。
 - drift / decay monitor。
 - rollback / retire。
@@ -223,6 +237,8 @@ candidate
 - 复杂交易执行。
 - broker adapter。
 - 高频或分钟级数据。
+- RFT 训练矿工模型：等 ledger 积累足够多经过验证的正负样本后再做，且 holdout 永不进入奖励。
+- 月频择时、单标的策略等独立观测量太少、verifier 统计功效低的问题。
 
 ## 6. 最小可用版本
 

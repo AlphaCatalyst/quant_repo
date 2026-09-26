@@ -258,6 +258,12 @@ draft
   -> evaluated
   -> robust_evaluating
   -> robust_failed
+  -> ledger_gated
+  -> shortlist_locked
+  -> holdout_evaluating
+  -> holdout_failed
+  -> holdout_contaminated
+  -> holdout_passed
   -> reviewable
   -> rejected
   -> needs_repair
@@ -265,6 +271,9 @@ draft
   -> shadow_promoted
   -> materialized
   -> shadow_trained
+  -> fresh_observing
+  -> fresh_failed
+  -> fresh_supported
   -> approved_for_paper
   -> paper_active
   -> retired
@@ -275,6 +284,11 @@ draft
 
 - `validation_failed` 不能直接进入 `evaluating`，必须 repair 或 override。
 - `evaluated` 不能直接 `shadow_promoted`，必须经过 review。
+- `ledger_gated` 表示通过按 trial ledger 折扣的 DSR / BH-FDR；进入 `holdout_evaluating` 前必须先 `shortlist_locked`，并冻结 failure memory。
+- `holdout_contaminated` 是终态：同批证据作废，不能 repair 后重新读取同一段 holdout。
+- 只有 `holdout_passed` 能进入 `reviewable`；holdout 指标只写入 ReviewPacket，不进入 agent 上下文。
+- `fresh_observing` 不回填历史，至少 60 个交易日；`fresh_supported` 不授予资金，`approved_for_paper` 必须人工审批。
+- 分层 verifier 与状态的对应关系见 [agent-loop-verification.md](agent-loop-verification.md) §7。
 - `approved_for_shadow` 不等于生产启用。
 - `paper_active` 不等于 live。
 - `rolled_back` 不能删除历史 artifact。

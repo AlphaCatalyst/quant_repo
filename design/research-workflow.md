@@ -11,12 +11,16 @@ Research Question
   -> Static Validation
   -> Fast Evaluation
   -> Robust Evaluation
+  -> Ledger Gate + Locked Holdout
   -> Model / Portfolio Test
   -> Review Gate
   -> Shadow Promotion
+  -> Fresh Forward
   -> Paper / Monitor
   -> Memory / Registry
 ```
+
+Static Validation 到 Robust Evaluation 只使用 development 窗口，是 agent 可以自由循环的区域；Ledger Gate、Locked Holdout 和 Fresh Forward 按预算消耗，对 agent 不可见。分层 verifier 的完整说明见 [agent-loop-verification.md](agent-loop-verification.md)。
 
 ## 1. Research Question
 
@@ -198,6 +202,29 @@ AI 可以生成 candidate，但必须遵守 spec。系统不能只保存一段 p
 - 中性化后消失：标记为 beta/style exposure。
 - 成本后失效：只能保留为 research note，不进 promotion。
 
+### 6.1 Ledger Gate + Locked Holdout
+
+目的：对搜索强度做折扣，并用从未被查看过的数据做一次性确认。
+
+检查项：
+
+- DSR / BH-FDR，试验数与方差取自 trial ledger。
+- 参数来源：默认参数，或有限次邻域救援；全量搜索得到的参数不合格。
+- shortlist 已锁定，failure memory 已冻结。
+- holdout 读取次数在预算内。
+
+输出：
+
+- ledger gate report。
+- holdout report（只写入 ReviewPacket）。
+- 状态：`holdout_passed` / `holdout_failed` / `holdout_contaminated`。
+
+失败处理：
+
+- ledger gate 不过：退回 development 窗口，候选与失败原因写入 memory。
+- holdout 失败：`holdout_failed`，不得在同一段 holdout 上 repair 后重测。
+- 违规读取或超预算：`holdout_contaminated`，同批证据作废。
+
 ## 7. Model / Portfolio Test
 
 目的：验证新因子是否对模型或组合有边际贡献。
@@ -290,6 +317,26 @@ approved_for_shadow
 - 未物化：pending_materialization。
 - 训练链路缺数据：blocked。
 - baseline comparison 不足：needs_more_evidence。
+
+### 9.1 Fresh Forward
+
+目的：用上线后才产生的数据做最终验证，这是唯一不受历史查看和 LLM 预训练污染的证据。
+
+检查项：
+
+- 不回填历史，观察期至少 60 个交易日。
+- cohort 级统计（HAC / BH），而不是逐个因子挑好看的。
+- 按决策来源（机器 / 人 / AI）分池，追踪 T+1/5/20/60 等多个 horizon。
+
+输出：
+
+- fresh cohort report。
+- 状态：`fresh_supported` / `fresh_failed`。
+
+失败处理：
+
+- `fresh_failed`：退役或降级为 research note，原因写入 memory。
+- `fresh_supported` 不自动进入 paper，仍需人工审批 `approved_for_paper`。
 
 ## 10. Paper / Monitor
 

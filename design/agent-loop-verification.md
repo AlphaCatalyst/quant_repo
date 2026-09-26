@@ -82,6 +82,43 @@ L5 前瞻验证   fresh forward / shadow 分池追踪，≥60 交易日         
 - harness 不重算：agent 侧工具只透传 JSON CLI，计算与 gate 判定只在后端；只读工具直通，写操作 fail-closed 审批（参考 `kph`）。
 - evaluator 放在 agent 可写范围之外，版本变更走人工 review。
 
+### 3.1 与“按环节分 agent”路线的区别
+
+常见做法是按流水线环节切 agent：idea agent 提假设、factor agent 写因子、model agent 训模型、eval agent 跑回测并给反馈（`RD-Agent`、`AlphaAgent` 早期形态都属于这一类）。本路线不按环节切，而是按**裁决权**和**验证预算**切：
+
+| 环节 | 按环节分 agent | 本路线 |
+|---|---|---|
+| 挖因子 | factor agent 生成并迭代 | agent 的主循环：提假设、写表达式、诊断失败；能否入库由 evaluator 与 gate 决定 |
+| 训模型 | model agent 调结构和超参 | 固定配置模型（如固定参数 LightGBM），用来衡量新因子的边际贡献，是 evaluator 的一部分，不是 agent 的优化对象 |
+| 跑回测 | eval agent 执行并解读 | 回测就是 verifier；agent 只能经 CLI 触发，只能读开发窗口结果，回测代码不在 agent 可写范围内 |
+
+按环节切的核心问题是：eval agent 本质上是 agent 在给 agent 打分，裁决权落在了会被“好看结果”奖励的一方，这正是过拟合和结论膨胀最常出现的地方。本路线中，训模型与跑回测属于 verifier，不交给 agent；模型固定配置也参考了 `QuantMind-qm2` 的 fixed configuration model program（不调超参、不按盲测结果选特征）。
+
+### 3.2 agent 的工作范围与自主 loop 对象的扩展
+
+agent 不只做挖因子。区分两件事：agent 能做什么，和 agent 能在什么对象上**自主循环**（结果直接进入 ledger 和 gate，不需要人逐次审）。
+
+| 工作 | agent 的角色 | 裁决方 | 是否在自主 loop 中 |
+|---|---|---|---|
+| 研究规划：从研报/论文提炼假设、拆研究问题 | 起草 | 人确认研究方向 | 否 |
+| 因子候选：表达式、实现、修复 | 主力 | evaluator + gate | 是（第一阶段唯一的 loop 对象） |
+| 失败诊断与记忆整理 | 主力 | memory schema 约束 | 是（只写 development 层记忆） |
+| evaluator / 回测 / 成本模型的工程开发 | 写代码 | 人 review + 版本化 | 否，属于工程变更 |
+| 对抗式审查（读 run history、code diff 挑毛病） | Reviewer agent | 仅作参考，不构成 gate | 否 |
+| 报告与 factor card 初稿 | 起草 | 人审阅结论 | 否 |
+| 数据源与字段建议 | 建议 | 人确认数据契约 | 否 |
+
+自主 loop 的对象按阶段扩展，每一层都要先有自己的 verifier、ledger 和 default-first 规则：
+
+```text
+阶段 1  因子候选                     verifier：IC/RankIC、去重、多窗口；固定下游模型
+阶段 2  因子组合 / 特征集             verifier：固定模型下的边际贡献、正交性
+阶段 3  模型配置（限定模型族）         verifier：同窗口 baseline 对比；默认配置过门即冻结
+阶段 4  组合构建规则（调仓、约束）     verifier：成本后组合回测、换手与容量
+```
+
+先只让因子循环，是因为因子同时满足三个条件：搜索空间可以用 DSL 圈住；验证便宜且统计功效高（截面几千只股票）；被证伪的成本低。越往后的对象搜索维度越大、验证越贵，过早放开会迅速耗光 holdout 预算。扩展到阶段 3 时，可以参考 `RD-Agent(Q)` 交替优化因子与模型的做法，但每一次模型改动同样计入 trial ledger。
+
 ## 4. 三层节奏
 
 | 循环 | 周期 | 内容 | 驱动者 |
@@ -145,4 +182,4 @@ trial ledger 与 sealed holdout 的划分属于 Phase 0：它们必须在第一�
 1. **L0 + L1**：固定的 A 股日频 evaluator + ratchet 主循环；同时建 trial ledger，封存 holdout 区间。
 2. **L2 + L3**：多窗口检验、default-first 参数治理、按 ledger 折扣的 DSR / BH-FDR。
 3. **L4 + L5**：holdout 预算与污染标记、fresh 分池追踪、人工 promotion。
-4. **扩展**：ledger 中积累足够多经过验证的正负样本后，再考虑 RFT 矿工与多 agent 分工（Lead / Reviewer / Miner）。
+4. **扩展**：按 §3.2 的顺序逐步放开自主 loop 对象（因子组合 → 模型配置 → 组合构建规则）；ledger 中积累足够多经过验证的正负样本后，再考虑 RFT 矿工与多 agent 分工（Lead / Reviewer / Miner）。

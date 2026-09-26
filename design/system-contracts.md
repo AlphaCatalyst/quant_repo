@@ -171,6 +171,42 @@ owner:
 status:
 ```
 
+### StrategySpec
+
+统一策略契约：所有兼容策略都表达为 Signal → Portfolio → Execution 三段。策略分档与取舍见 [strategy-scope.md](strategy-scope.md)。
+
+```yaml
+strategy_id:
+tier:                 # core / compatible
+benchmark:            # e.g. CSI300 / CSI500 / CSI1000
+universe:
+signals:
+  - signal_id:
+    shape:            # cross_sectional_score / time_series_exposure
+    source_type:      # factor / model / event / discretionary_human / discretionary_llm
+    source_ref:       # factor_id / model config version / event type / pool id
+    weight:
+portfolio:
+  method:             # top_k / optimizer / sleeve_blend
+  constraints:        # industry/style neutrality, single-name cap, turnover, capacity
+  rebalance:          # daily / weekly / monthly
+overlays:             # time_series_exposure signals applied to total exposure only
+execution:
+  settlement: T+1
+  untradable_rules:   # limit up/down, suspension
+  cost_model:
+  impact_model:
+mode:                 # backtest / paper / live
+owner:
+status:
+```
+
+约束：
+
+- `time_series_exposure` 信号只能出现在 `overlays`，不能改动截面选股信号。
+- `discretionary_*` 来源的信号在 `fresh_supported` 之前只能用于前瞻分池，不能进入 `paper` / `live` 模式。
+- `mode` 切换到 `live` 必须经过人工审批，agent 只能提交 proposal。
+
 ### ExperimentRun
 
 ```yaml

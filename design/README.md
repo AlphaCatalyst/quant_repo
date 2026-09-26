@@ -26,6 +26,10 @@
    - 让 agent 自主 loop 的路线：量化“容易打分、难以验证”，因此用 L0–L5 分层 verifier 管理 agent 的自由度与验证预算。
    - 说明角色边界、三层节奏、优化目标、问题选择、风险对策，以及与 roadmap 阶段和因子状态机的对应关系。
 
+5. [strategy-scope.md](strategy-scope.md)
+   - Agent Trader 兼容哪些策略：核心截面选股（指数增强）、兼容事件驱动 / 轮动配置 / 择时叠加 / 主观对照，暂不支持的类型及原因。
+   - 定义统一策略契约 Signal → Portfolio → Execution，以及各档策略与 agent loop、执行边界的关系。
+
 ## 参考来源
 
 本设计基于 `analysis/` 中对 open_source repo 的归纳（2026-09 刷新后为 43 个），尤其参考：

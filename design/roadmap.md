@@ -20,7 +20,7 @@ research question
 
 - 自动实盘下单。
 - 让 agent 绕过 review 直接发布交易信号。
-- 为了覆盖所有资产类别而牺牲低频股票研究口径。
+- 为了覆盖所有资产类别而牺牲低频股票研究口径（策略分档与暂不支持的类型见 [strategy-scope.md](strategy-scope.md)）。
 - 重型多用户 SaaS 平台。
 - 只有聊天界面、没有 artifact 和 registry 的 research assistant。
 

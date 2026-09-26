@@ -176,6 +176,13 @@ Skill / AGENTS.md / workflow SOP
 - benchmark-relative return、beta、tracking error。
 - trade count、单票集中度、行业集中度、风险预算。
 
+搜索强度与泄漏（2026-09 补充）：
+
+- 泄漏隔离必须是结构性的：agent 只能通过注册过的类型化工具构造因子/策略，前视在工具层不可表达。统计校正替代不了这一层，honest evaluation 论文中故意植入的泄漏 oracle（Sharpe 35）能完整通过 DSR 与 PBO。
+- 所有评估必须经唯一入口并写入 trial ledger；DSR/PBO 的试验数和 Sharpe 方差取自 ledger，agent 搜得越多门槛越高。
+- 证据分级：development、adaptive discovery、locked holdout、blind、fresh forward 分开计数；holdout 打开前锁定 shortlist 并冻结 failure memory，读取次数计入预算（`QuantMind-qm2`、`kph`）。
+- 参数治理：default-first，默认参数过门即冻结，失败只允许有限邻域救援，全量搜索只做诊断（`QuantMind-qm2`）。
+
 Risk gate：
 
 - 默认拒绝不完整证据。
@@ -402,6 +409,7 @@ research candidate
 | Evaluation harness | 模型不能自己证明 alpha，有效性必须由固定 evaluator 给出 | IC/RankIC、group return、OOS、rolling、portfolio backtest |
 | Artifact registry | 长任务和自动搜索会产生大量中间结果，没有 artifact 就无法复盘 | run id、data version、code version、metrics、chart、stderr |
 | Evidence gate | agent 会更会“解释”，所以更要防止没有证据的解释 | 结论必须引用指标、artifact、代码版本、数据版本 |
+| Trial ledger | agent 搜索越快，“最好结果是运气”的概率越高 | 唯一评估入口、全量试验记录、按 ledger 折扣的 DSR/PBO、holdout 读取预算 |
 | Failure memory | 自动探索规模越大，失败样本越有价值 | duplicate factor、leakage case、bad regime、overfit pattern |
 | Human research ownership | agent 可以执行研究，但不能替人决定目标函数和研究价值 | research direction、data contract、promotion decision |
 
@@ -413,6 +421,10 @@ research candidate
 - `QuantDesk`：agent turn、run history、code diff、Risk Manager review。
 - `QuantMind-yj_exp`：FactorSpec/ABI、artifact registry、lineage、promotion gate、sandbox。
 - `langalpha`：sandbox 内执行数据处理、workspace memory、大结果不进上下文。
+- `QuantMind-qm2`（2026-09）：Decision/Control/Execution 分离、locked holdout / rolling blind / fresh 证据分级、default-first 优化治理、搜索暴露账本。
+- `kph`（2026-09）：harness 只透传 JSON CLI、不重算，写操作 fail-closed 审批，holdout burn budget。
+- `FactorMiner`（2026-09）：经验记忆（成功模板 + 禁区）与四级 admission 级联。
+- `Auto-Quant`（2026-09）：不可变 evaluator + 可编辑工件 + keep/discard ratchet 的极简闭环，以及 oracle-gaming 的实证教训。
 
 ### 5.3 会成为过渡层的东西
 
@@ -510,6 +522,7 @@ Human researcher
 - `factor eval --json`。
 - `strategy backtest --json`。
 - artifact registry。
+- trial ledger：所有评估经唯一入口入账，promotion 时按试验数折扣。
 - factor card / strategy card。
 - failure memory。
 - research promotion gate。
@@ -539,6 +552,8 @@ Human researcher
 - 只有收益图，没有 OOS 和成本。
 - 只有 agent 结论，没有 artifact evidence。
 - 只有自动挖掘，没有 quota 和停止条件。
+- 只报告最好的一次结果，不记录搜索了多少次。
+- holdout 可以被反复查看，没有读取预算或污染标记。
 - 把 paper/live 当成研究 OS 的默认目标。
 - 人类只能看到最终答案，看不到中间过程。
 
@@ -550,7 +565,8 @@ Human researcher
 2. 把 factor/strategy workflow 写成 skills 和报告模板。
 3. 做 FactorSpec、StrategySpec、ExperimentSpec 的 schema 和 registry。
 4. 把 IC、RankIC、group return、turnover、exposure、OOS 变成固定 gate。
-5. 增加 human promotion request，而不是自动把好结果升级成策略。
+5. 从第一天就记录 trial ledger，并预留 locked holdout；gate 的 DSR/多重检验以 ledger 为准。
+6. 增加 human promotion request，而不是自动把好结果升级成策略。
 
 中期优先级：
 

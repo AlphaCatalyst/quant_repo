@@ -189,6 +189,28 @@ status:
 failure_reason:
 ```
 
+### TrialLedgerEntry
+
+每一次评估（包括失败、被丢弃、agent 中途放弃的候选）都经唯一评估入口写入一条，append-only。
+
+```yaml
+trial_id:
+run_id:
+question_id:
+candidate_hash:
+evidence_tier:        # development / adaptive_discovery / locked_holdout / blind / fresh_forward
+data_window:
+metrics:
+selected:             # 是否进入 shortlist
+created_by:           # agent / human / scheduler
+created_at:
+```
+
+约束：
+
+- DSR、PBO、BH-FDR 的试验数和方差只从 ledger 统计，不接受人工估计。
+- 读取 `locked_holdout` 前必须先锁定 shortlist；每次读取计入 holdout 预算，超额即标记污染。
+
 ### ReviewPacket
 
 ```yaml
@@ -295,6 +317,9 @@ Gate 分三层。
 - max drawdown within policy。
 - no single-year dependence。
 - no single-industry dependence。
+- deflated Sharpe / BH-FDR 通过，试验数取自 TrialLedgerEntry。
+- locked holdout 未被污染，且读取次数在预算内。
+- 参数为默认值，或只经过有限邻域救援；全量参数搜索的结果不能作为晋升依据。
 
 Gate 输出：
 

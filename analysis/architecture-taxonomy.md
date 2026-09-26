@@ -1,6 +1,6 @@
 # Architecture Taxonomy
 
-本文件从架构形态分析 `/data/codebase/quant_repo/open_source` 中的项目。分类依据不是语言或框架，而是它们把“量化”拆成什么问题、把 AI/agent 放在哪个环节、如何处理数据、回测、风控和执行边界。
+本文件从架构形态分析 `/data/codebase/quant_repo/open_source` 中的项目（2026-09-26 快照，43 个仓库，9 类）。分类依据不是语言或框架，而是它们把“量化”拆成什么问题、把 AI/agent 放在哪个环节、如何处理数据、回测、风控和执行边界。
 
 ## 1. Qlib/因子研究型 R&D Agent
 
@@ -10,6 +10,12 @@
 - `QuantaAlpha`
 - `QuantGPT`
 - `QuantMind-yj_exp`
+- `QuantMind-qm2`
+- `FactorMiner`
+- `AlphaEvo`
+- `QuantEvolver`
+- `AlphaAgent`
+- `EvoQuant`
 - `automated-quant-research`
 - `Qlib-with-Claudex`
 
@@ -40,6 +46,12 @@ research direction / paper / prompt
 - `QuantMind-yj_exp` 把因子研究产品化为 Factor Lab：FactorSpec/ABI、静态校验、leakage check、pandas/hardened evaluator、artifact registry、memory-aware planning、Codex admission、Docker sandbox、promotion gate 和 Qlib backtest adapter 边界都拆成模块。
 - `automated-quant-research` 是更轻量的商品期货版本：Claude 生成 DSL factor sets，LightGBM 训练，rolling walk-forward，robustness verdict。
 - `Qlib-with-Claudex` 更像把 Qlib + RD-Agent 组合成可跑的实验模板和 Claude 工作流，不是独立研究平台。
+- `QuantMind-qm2` 把自主 campaign 放进 Decision/Control/Execution 三层：Codex 只产出结构化决策，locked holdout、rolling blind、fresh cohort 和 default-first 优化治理由代码强制执行。
+- `FactorMiner` 用 Ralph Loop（retrieve → generate → 四级 evaluate → admit → distill）和经验记忆（成功模板 + 禁区）应对因子库变大后的相关性红海。
+- `AlphaEvo` 让 LLM 只做种子和结构变异，GP/EoH 在四个时间窗口上按 IC 与 IC gap 决定存亡。
+- `QuantEvolver` 把可执行评估变成 RFT/GRPO 奖励，用参数更新替代无限增长的 prompt 反馈。
+- `AlphaAgent` 当前是 A 股 Tushare panel + DSL + memmap FactorZoo + 交付门，LLM 挖掘只是可选层。
+- `EvoQuant` 把研报复现放在前端：研报入库 → 文献检索 → anchor-first 构思 → Research Artifact entry point → IC runtime。
 
 量化思路：
 
@@ -65,6 +77,9 @@ research direction / paper / prompt
 - `QuantMind-yj_exp`
 - `AgentQuant`
 - `AI-Trader`
+- `deepseek-harness-quant`
+- `kph`
+- `TradingAgents`
 
 面向的问题：
 
@@ -94,6 +109,10 @@ user goal
 - `QuantMind-yj_exp` 的 Factor Lab workbench 强调人类可审查的研究过程：batch draft、admission、execution、evaluation、memory、portfolio backtest、promotion request 都有独立 UI 面板和本地 artifact。
 - `AgentQuant` 是小而清晰的 ReAct 研究循环：analyze -> hypothesize -> backtest -> reflect -> store，SQLite memory 记录策略经验。
 - `AI-Trader` 更偏 agent-native 社区/信号平台：agent 发布信号、参与讨论、copy trading、paper trading 和排行榜。
+- `deepseek-harness-quant` 把 A 股低频研究台切成驱动层（LLM）/ 写死引擎 / 事实层，Pitch 人工审批是唯一买入来源，五池远期验证按决策来源追踪 T+1/5/20/60。
+- `kph` 是确定性研究后端 + 外挂 harness：harness 工具只透传 `kp --json` CLI，只读直通、写操作 fail-closed 审批，计算和 gate 判定永不在 agent 侧发生。
+- `TradingAgents` 是多角色辩论决策图，2026 年的版本重点补了 PIT、SEC as-filed、ticker×date 网格评估和 append-only decision log。
+- 2026-09 起，`AgentQuant` 的记忆升级为按 `as_of` 召回的 MemoryService，`langalpha` 增加 automations 与 computers，`OpenAlice` 增加 AutoQuant 工作区模板。
 
 量化思路：
 
@@ -118,6 +137,7 @@ user goal
 - `QuantDinger`
 - `cbt-framework`
 - `revolut-x-api`
+- `ai-hedge-fund`
 
 面向的问题：
 
@@ -146,6 +166,8 @@ strategy code / agent proposal
 - `QuantDinger` 是 Flask + Vue + Postgres + Redis 的自托管平台，强调 strategy/backtest 和 live capital 的代码路径隔离。
 - `cbt-framework` 是 Claude Code 命令式框架，用 slash command 组织发现、研究、EDA、构建、回测、优化、上线。
 - `revolut-x-api` 是加密交易所 API/CLI/MCP/skill 组合，偏交易连接器和 grid strategy backtest。
+- `ai-hedge-fund` v2 把 Fund 做成一等对象：YAML mandate + pods/AlphaModel + Broker protocol，回测和实盘只换 clock 与 broker，走同一个 `run_cycle`。
+- 2026-09 起，`mmr` 在 live 栈旁长出 `trader/simulation/` 截面研究核（PIT universe、walk-forward、PBO/DSR）；`lumibot` 的 AI agents 有了 skills、eval cases 和 fill 回传；`QuantMind` 主线升级为内嵌 RD-Agent/TradingAgents 的 QuantMind 2.0 平台。
 
 量化思路：
 
@@ -261,6 +283,8 @@ platform docs
 - `Vibe-Trading`
 - `QuantMind`
 - `QuantMind-yj_exp`
+- `AlphaAgent`
+- `deepseek-harness-quant`
 
 面向的问题：
 
@@ -285,6 +309,9 @@ market-specific data adapters
 - `llm-quant` 虽然偏 ETF/宏观/结构套利，但研究治理很强：四 track、DSR、CPCV、perturbation、append-only registry、paper trading gate。
 - `Vibe-Trading` 的数据 fallback 链对 A/HK/US/crypto 做了市场级路由，适合参考多市场数据策略。
 - `QuantMind-yj_exp` 对本地行情表、feature snapshot Parquet 和 Qlib provider 做 evaluator 输入兜底，同时统一 symbol 口径、factor values 入库和训练快照物化，适合作为 data truth 到 feature catalog 的桥接参考。
+- `AlphaAgent` 用 Tushare 两段式数据管线（在线拉缓存、离线建 panel）+ ZZ1000 并集宇宙 + MLS-FMB 交付门，是 A 股截面因子对象化的现成样本。
+- `deepseek-harness-quant` 把 T+1 开盘成交、一字板过滤、Beneish 排雷写进写死引擎，数据只经 `data/cache.py` 单一 PIT 入口。
+- 2026-09 起 `quant-ashare` 删除了执行、组合优化、公司行为等模块，上文描述的部分能力已不在当前代码中。
 
 量化思路：
 
@@ -298,7 +325,74 @@ market-specific data adapters
 - 数据源 fallback 要有优先级、限流风险和 provenance。
 - 失败和作废实验应作为一等研究资产保存。
 
-## 7. Resource Index / Catalog
+## 7. Minimal Research Harness（autoresearch 范式）
+
+代表项目：
+
+- `Auto-Quant`
+- `autoresearch-trading`
+
+面向的问题：
+
+- 不搭平台，如何让 code agent 在无人值守下迭代策略或模型，同时不被评估器“骗”。
+
+典型架构：
+
+```text
+program.md（人类方向与约束）
+  -> agent 修改唯一可编辑工件（strategy.py / strategies/）
+  -> 不可变 evaluator（run.py / trading.py）
+  -> 单标量或多策略摘要
+  -> git keep / discard ratchet
+  -> results.tsv / retrospective（跨版本失败记忆）
+```
+
+关键设计：
+
+- `Auto-Quant` 实证了 oracle-gaming：单文件变异时表面 Sharpe 1.44、真实约 0.19；改为 3 个策略槽对照 + `val.py` OOS 后 gaming 变得可见。
+- `autoresearch-trading` 把结构和参数拆开：LLM 只改离散结构，BiteOpt 在每个 walk-forward fold 内优化连续参数。
+
+适合借鉴：
+
+- 这是蓝图“最小合格版本”的极简形态，适合作为外环快速试错。
+- 缺少 artifact registry、trial ledger 和 promotion gate，不能直接当研究 OS 的内环。
+
+## 8. Evaluation Integrity / Statistical Gate
+
+代表项目：
+
+- `QuantMind-qm2`
+- `kph`
+- `mmr`（`trader/simulation/`）
+- `llm-quant`
+- `deflated-sharpe`
+- `AlphaBench`
+
+面向的问题：
+
+- agent 搜索越多，最好结果越容易是运气；如何让报告出来的指标对搜索强度和信息泄漏诚实。
+
+典型架构：
+
+```text
+typed / registry-validated tools（前视在构造上不可表达）
+  -> 唯一评估入口 + trial ledger
+  -> 证据分级：development / holdout / blind / fresh
+  -> DSR / PBO / BH-FDR / bootstrap（N、V 取自 ledger）
+  -> gate 输出只代表可进入人工 review
+```
+
+关键设计：
+
+- 外部参考 [What survives honest evaluation?](https://arxiv.org/abs/2608.27734) 证明两层缺一不可：泄漏 oracle（Sharpe 35）能通过 DSR/PBO，所以必须有工具层泄漏隔离；同时必须用完整 trial ledger 折扣搜索强度。
+- `QuantMind-qm2` 的 locked holdout / rolling blind / fresh lock 与搜索暴露账本；`kph` 的 holdout burn budget 与内容寻址 replay。
+- `mmr` 用 `tests/invariants` 把研究算术钉成规格；`deflated-sharpe` 提供可嵌入的 DSR/MBL/BH 纯函数；`AlphaBench` 的 Assay 后端提供可切换的 PIT 评估引擎。
+
+适合借鉴：
+
+- gate 设计从“单次指标阈值”升级为“证据分级 + 搜索强度折扣 + 泄漏隔离”。
+
+## 9. Resource Index / Catalog
 
 代表项目：
 

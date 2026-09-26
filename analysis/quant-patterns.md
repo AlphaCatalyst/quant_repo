@@ -36,6 +36,12 @@
    - `RD-Agent` 有 based experiments 和 SOTA factor combination。
    - `QuantGPT` 记录 rules/findings/failures。
    - `QuantMind-yj_exp` 把 experiment memory、failure memory、hypothesis memory、watchlist memory 和 lineage/report 都做成独立模块。
+   - `FactorMiner` 把经验记忆拆成 formation / evolution / retrieval，显式记录成功模板和“禁区”（与库内高相关的因子族），并在相关过高但显著更强时替换旧因子。
+   - `QuantEvolver` 走另一条路：把 novelty、family、残差互补写进 RFT 奖励，让记忆进入模型参数而不是 prompt。
+
+   LLM 与搜索器分工（2026-09 补充）：
+   - `AlphaEvo`：LLM 负责种子和结构变异，GP/EoH 按四个时间窗口的 IC 与 IC gap 决定存亡。
+   - `autoresearch-trading`：LLM 只改离散结构，连续参数交给 BiteOpt 在 walk-forward fold 内优化。
 
 4. **用演化而不是一次性 prompt**
    - mutation：窗口、算子、复杂度、方向调整。
@@ -94,13 +100,22 @@ factor idea
    - `llm-quant` 记录被证伪的 mechanism families。
    - `QuantGPT` 维护 failures knowledge base。
    - `quant-ashare` 把泄露导致的漂亮数字作废写进 README。
+   - `deepseek-harness-quant` 公开留档被证伪的假设；`Auto-Quant` 用 `versions/*/retrospective.md` 冻结每一版的失败教训。
+
+5. **搜索强度折扣与证据隔离（2026-09 补充）**
+   - honest evaluation 论文：所有评估进 trial ledger，DSR/PBO 按 ledger 折扣；泄漏必须在工具层结构性排除，因为泄漏 oracle 能通过统计检验。
+   - `QuantMind-qm2`：locked holdout 前锁 shortlist 并冻结 failure memory，rolling blind 60 日盲窗 + BH，fresh forward 不回填；default-first 优化，全量搜索只做诊断。
+   - `kph`：sealed holdout burn budget，内容寻址 replay。
+   - `mmr`：`trader/simulation/` 的 selection-bias、lookahead check、PBO/DSR gauntlet，用 `tests/invariants` 固化研究算术。
+   - `Auto-Quant`：单一可编辑文件 + 单一 oracle 会被 agent 钻空子（表面 Sharpe 1.44、真实约 0.19），多策略对照与独立 OOS 才能让 gaming 可见。
 
 适合复用的门槛：
 
 - 样本分割：train/valid/test 或 rolling windows。
 - 因子稳定性：年度 IC、正 IC 占比、RankIC IR、IC decay。
 - 策略稳定性：trade count、turnover、max drawdown、cost-adjusted return。
-- 多重测试：DSR 或至少 permutation/bootstrap。
+- 多重测试：DSR 或至少 permutation/bootstrap，试验数取自 trial ledger（`deflated-sharpe` 可直接嵌入）。
+- 证据隔离：locked holdout 读取预算、blind 窗口、fresh forward 观察。
 - 审计：每次参数变更、代码 diff、run artifact、结论都要保存。
 
 ## 3. Agent Research Loop

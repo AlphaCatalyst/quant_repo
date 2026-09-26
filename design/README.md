@@ -24,7 +24,7 @@
 
 ## 参考来源
 
-本设计基于 `analysis/` 中对 29 个 open_source repo 的归纳，尤其参考：
+本设计基于 `analysis/` 中对 open_source repo 的归纳（2026-09 刷新后为 43 个），尤其参考：
 
 - `RD-Agent`：Qlib-first scenario、experiment、runner。
 - `QuantaAlpha`：factor evolution、trajectory、regulator。
@@ -33,6 +33,8 @@
 - `QuantDesk`：Analyst/Risk Manager 分工、run history + code diff review。
 - `langalpha` / `Vibe-Trading`：persistent workspace、artifact、tool routing。
 - `joinquant-skill` / `finlab-ai` / `worldquant-skill`：平台 SOP、模板、lint。
+- `QuantMind-qm2` / `kph`：trial ledger、locked holdout 预算、default-first 优化治理、harness 不重算（2026-09 补充）。
+- `FactorMiner`：经验记忆与四级 admission（2026-09 补充）。
 
 ## 一句话定位
 

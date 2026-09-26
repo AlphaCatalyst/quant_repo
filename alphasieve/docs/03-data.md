@@ -4,73 +4,81 @@
 
 ## 1. 数据源
 
-第一阶段以 Tushare Pro 为主数据源，接口层抽象为 `Provider`，后续可替换或补充自有数据库。
+第一阶段使用免费数据源 BaoStock（无需 token），实现在 `src/alphasieve/data/providers/baostock.py`，同步逻辑在 `src/alphasieve/data/sync.py`。接口层按 provider 抽象，后续可替换为 Tushare 或自有数据库（见 [10-decisions.md](10-decisions.md) D-18）。
 
-| 数据 | Tushare 接口 | 用途 |
+| 数据 | BaoStock 接口 | 用途 |
 |---|---|---|
-| 股票列表、上市/退市日期 | `stock_basic` | 股票池、上市天数过滤、幸存者偏差处理 |
-| 名称变更（ST 标记） | `namechange` | ST / *ST 过滤 |
-| 日线行情 | `daily` | 开高低收、成交量额 |
-| 复权因子 | `adj_factor` | 后复权价格计算 |
-| 每日指标 | `daily_basic` | 换手率、市值、估值 |
-| 涨跌停价 | `stk_limit` | 可交易性（涨停买不进、跌停卖不出） |
-| 停复牌 | `suspend_d` | 可交易性 |
-| 指数成分与权重 | `index_weight` | 沪深 300 / 中证 500 / 中证 1000 的历史成分（PIT） |
-| 指数日线 | `index_daily` | 基准收益 |
-| 行业分类 | `index_classify` + `index_member`（申万） | 行业中性化、行业暴露 |
-| 财务指标与报表 | `fina_indicator`、`income`、`balancesheet`、`cashflow` | 基本面因子（按公告日 PIT） |
-| 业绩预告 / 快报 | `forecast`、`express` | 后续事件驱动（第一阶段只落库） |
+| 交易日历 | `query_trade_dates` | 标签、embargo、上市天数 |
+| 股票列表、上市/退市日期 | `query_stock_basic` | 上市天数过滤、幸存者偏差处理 |
+| 日线行情（不复权） | `query_history_k_data_plus`（`adjustflag=3`） | 开高低收、成交量额、换手率、PE/PB/PS、`tradestatus`（停牌）、`isST` |
+| 复权因子 | `query_adjust_factor` | 后复权价格 = 不复权价格 × `backAdjustFactor` |
+| 沪深 300 / 中证 500 成分 | `query_hs300_stocks(date)`、`query_zz500_stocks(date)` | 按月初快照的历史成分（PIT） |
+| 指数日线 | `query_history_k_data_plus`（sh.000300 / sh.000905 / sh.000906） | 基准收益 |
+| 行业分类 | `query_stock_industry` | 证监会行业，**只有当前快照，非 PIT** |
+| 季度财务 | `query_profit_data`、`query_growth_data` | ROE、净利率、EPS TTM、净利润同比等，带 `pubDate`（PIT） |
 
-每个数据集的拉取记录（接口、参数、拉取时间、行数、哈希）写入 `data_snapshots` 表，作为 provenance。
+每次拉取写入 `data_snapshots` 表（数据集、参数、行数、内容哈希）作为 provenance；原始数据先落本地，再镜像到 Ceph。个股日线从 2011-01-01 起拉取，为 2012 年开始的 dev 窗口提供滚动窗口预热。
 
 ### 1.1 数据源分工
 
 | 来源 | 角色 | 说明 |
 |---|---|---|
-| Tushare Pro | 主源（结构化行情、财务、成分、行业） | 部分接口（如 `stk_limit`、`index_weight`、财务报表）需要相应积分权限，接入前确认账号权限与调用频率上限 |
-| westock-data（腾讯自选股数据，本机已有 skill） | 交叉校验源；后续事件数据源 | `kline` 支持按日期范围拉取，可抽样对账价格与成交；研报、公告、新闻用于后续事件驱动。批量拉取能力与历史指数成分的 PIT 口径需实测 |
-| Qlib 社区 A 股数据 | 快速启动与交叉校验 | 可用于在 Tushare 接入完成前先跑通 M2；财务 PIT 与可交易性字段不完整，不作为权威源 |
-| 商业数据（Wind、聚源、米筐等） | 可选升级 | 若 Tushare 权限或质量不足再评估 |
+| BaoStock | 主源 | 免费；单只股票 15 年日线一次查询约 4.5 秒，同步使用 6 个进程、支持断点续传 |
+| westock-data（腾讯自选股数据） | 交叉校验源；后续事件数据源 | 实测 `kline` 默认返回前复权价格，现金分红按减法调整、送转股按比例缩放，指定不复权会报服务错误；因此对账比较“按比例缩放后的日价格变动”与成交量（单位为手），见 `tests/test_real_data.py` |
+| Tushare Pro / 商业数据 | 可选升级 | 需要中证 1000 历史成分、申万 PIT 行业、交易所涨跌停价时再评估 |
 
 原则：同一字段只有一个权威源；其他来源只做对账（见 [12-testing.md](12-testing.md) T3）。
+
+### 1.2 第一版的已知局限
+
+写入 panel 的 `meta.json` 的 `warnings`：
+
+- 股票池为中证 800（沪深 300 ∪ 中证 500）：免费源只有这两个指数的历史成分；中证 1000 待找到可靠的历史成分来源再加。
+- 行业分类为证监会口径的当前快照，不是 PIT；中性化与行业暴露可能有轻微前视。
+- 涨跌停价由板块规则推算，不是交易所公布值（规则见 §3）。
+- 流通市值由 `收盘价 × 成交量 / 换手率` 反推，停牌日沿用最近值。
 
 ## 2. Panel
 
 ### 2.1 主 panel
 
-- 粒度：交易日 × 股票，Parquet 按年份分区。
-- 主键：`trade_date`、`ts_code`。
+- 粒度：交易日 × 股票，长表存为 `panel/<tier>/panel.parquet`，附 `meta.json`（窗口、字段、签名、warnings）与 `benchmark.parquet`；构建逻辑在 `src/alphasieve/data/panel.py`。
+- 主键：`date`、`code`（BaoStock 代码格式，如 `sh.600000`）。
 - 字段分组：
 
-| 组 | 字段示例 |
+| 组 | 字段 |
 |---|---|
-| 价格 | `open`、`high`、`low`、`close`、`vwap`（后复权）、`adj_factor` |
-| 量额 | `volume`、`amount`、`turnover_rate`、`turnover_rate_f` |
-| 规模估值 | `total_mv`、`circ_mv`、`pe_ttm`、`pb`、`ps_ttm` |
-| 可交易性 | `is_suspended`、`is_limit_up_open`、`is_limit_down_open`、`is_st`、`days_listed`、`tradable_buy`、`tradable_sell` |
-| 分类 | `sw_l1`、`sw_l2` |
-| 成分 | `in_hs300`、`in_zz500`、`in_zz1000`（当日有效成分） |
-| 基本面（PIT 对齐后） | `roe_ttm`、`gross_margin`、`revenue_yoy` 等 |
+| 价格（后复权） | `open`、`high`、`low`、`close`、`vwap`、`adj_factor`；不复权原值 `*_raw`、`preclose` |
+| 量额 | `volume`、`amount`、`turnover_rate` |
+| 规模估值 | `circ_mv`、`float_shares`、`pe_ttm`、`pb_mrq`、`ps_ttm` |
+| 可交易性 | `is_suspended`、`is_st`、`days_listed`、`limit_up`、`limit_down`、`is_limit_up_open`、`is_limit_down_open`、`tradable_buy`、`tradable_sell` |
+| 分类 | `industry`（证监会，非 PIT） |
+| 成分 | `in_hs300`、`in_zz500`、`in_csi800`、`has_member_snapshot`、`in_universe` |
+| 基本面（PIT 对齐后） | `roe_avg`、`np_margin`、`eps_ttm`、`yoy_ni`、`yoy_equity`、`yoy_asset` 及对应报告期 |
+| 收益与标签 | `ret_1d`、`label_1d`、`label_5d`、`label_10d`、`label_20d` |
 
 ### 2.2 标签
 
-- 默认标签：`ret_{h}d_open_to_open` = T+1 开盘买入、T+1+h 开盘卖出的收益，h ∈ {1, 5, 10, 20}。
+- `label_{h}d` = T+1 开盘买入、T+1+h 开盘卖出的收益（后复权），h ∈ {1, 5, 10, 20}。
 - 买入日若 `tradable_buy = false`（停牌、开盘涨停），该样本标签记为缺失，不参与评估。
+- 标签先在全量数据上计算，再按区间末尾做 embargo（见 §4），dev 标签不会用到 holdout 价格。
 - 标签的截面变换（排名、标准化）在评估层完成，panel 只存原始收益。
 
 ### 2.3 股票池
 
-- 每个交易日的股票池 = 当日有效指数成分 ∩ 非 ST ∩ 上市满 60 个交易日 ∩ 当日未停牌。
+- `in_universe` = 当月中证 800 成分 ∩ 非 ST ∩ 上市满 60 个交易日 ∩ 当日未停牌。
 - 已退市股票保留在历史 panel 中，避免幸存者偏差。
 
 ## 3. PIT 与可交易性规则
 
 | 规则 | 实现 |
 |---|---|
-| 财务数据 | 以公告日 `ann_date` 为可得日；可得日为交易日且公告在收盘后时，从下一个交易日起可用。第一阶段统一按“公告日次一交易日起可用”保守处理 |
-| 财务重述 | 使用首次公告值；重述值以其自身公告日生效 |
-| 指数成分 | 使用 `index_weight` 当期快照，不用最新成分回填历史 |
-| 行业分类 | 使用分类的生效起止日期 |
+| 财务数据 | 以 `pubDate` 为公告日，从公告日之后的第一个交易日起可用 |
+| 财务重述 | 每个报告期只用首次公告值；晚于更新报告期公告的旧报告期数据被忽略，数据不会“倒退” |
+| 指数成分 | 每月初查询一次成分快照，适用于当月所有交易日；不用最新成分回填历史 |
+| 行业分类 | 第一版只有当前快照（非 PIT，见 §1.2） |
+| 涨跌停价 | 按前收盘价推算：主板 10%、ST 5%、创业板 2020-08-24 起 20%、科创板 20%、北交所 30%，四舍五入到分；上市前 5 个交易日不设限 |
+| 停牌 | `tradestatus = 0` 或成交量为 0 |
 | 复权 | 后复权价格用于收益计算；因子若使用价格水平（非比率），必须在 DSL 中显式声明 |
 | 全样本统计 | 禁止；标准化、去极值只能在截面内或用过去窗口完成（L0 检查） |
 
@@ -79,22 +87,24 @@
 | 区间 | 默认范围 | 可访问角色 | 用途 |
 |---|---|---|---|
 | dev | 2012-01-01 至 2022-12-31 | agent、human、system | L1、L2、L3 的全部计算；agent 循环只在这里 |
-| holdout | 2023-01-01 至项目启动日 | system（评估）；human 只看评估结果 | L4 锁定留出，按批次开启，读取计预算 |
+| holdout | 2023-01-01 至 2026-09-25（配置值；该区间最后一个交易日为 2026-09-24） | system（评估）；human 只看评估结果 | L4 锁定留出，按批次开启，读取计预算 |
 | fresh | 项目启动日之后 | system（评估）；human 只看评估结果 | L5 前瞻验证，不回填 |
 
-- 区间边界写在 `config/splits.yaml`，项目启动时由 human 确认并锁定；锁定后修改需要人工审批并记录，且会让已有的 holdout 证据全部标记为 `contaminated`。
-- dev、holdout、fresh 分别物化到不同目录（见 [02-architecture.md](02-architecture.md) §4）；data 层的读取函数带角色参数，agent 角色只能拿到 dev。
-- 标签跨区间：dev 末尾若干天的标签需要用到 holdout 首段价格，这些样本在 dev 评估中剔除（embargo = 最大标签周期 + 1 天）。
+- 区间边界写在 `src/alphasieve/configs/splits.yaml`（可用 `ALPHASIEVE_CONFIG_DIR` 覆盖），项目启动时由 human 确认并锁定；锁定后修改需要人工审批并记录，且会让已有的 holdout 证据全部标记为 `contaminated`。
+- dev、holdout、fresh 分别物化到不同目录（见 [02-architecture.md](02-architecture.md) §4），holdout 目录权限为 0700；`data/access.py` 的 `load_panel` 按角色检查：dev 对 agent / human / system 开放，holdout / fresh 只允许 system 读取。
+- 每个区间的 panel 都包含从 2011-01-01 起的预热数据，指标只在区间窗口内计算。
+- 标签跨区间：窗口末尾 `1 + h` 个交易日的 `label_{h}d` 置为缺失（embargo 按周期分别计算），dev 标签不使用 holdout 价格。
 - 已知局限：LLM 预训练语料可能覆盖 holdout 期间的市场信息；只有 fresh 区间对此免疫。这也是 L5 不可省略的原因。
 
 ## 5. 数据质量检查
 
-每次更新 panel 后运行，结果写入 `data_quality_reports`，前端数据页展示：
+每次构建 panel 后运行（`data/quality.py`），结果写入 `data/quality/<tier>.json`，`alphasieve data status` 展示摘要：
 
-- 覆盖率：每日股票池中有行情、有标签、有基本面的比例。
-- 异常：价格跳变与复权因子不一致、成交量为零但未标停牌、涨跌停价缺失。
-- 时效：最新交易日与数据最新日期的差距。
-- 一致性：指数成分数量与官方口径偏差。
+- 股票池规模下限（每日 ≥ 100）。
+- 覆盖率：股票池内收盘价覆盖率（≥ 99%）、`label_5d` 覆盖率中位数（≥ 90%）。
+- 异常率：非正价格、单日收益超过 45%、流通市值缺失（≤ 0.1%）。
+- 成分快照缺失的月份数（= 0）。
+- 时效：最新数据日期与窗口最后一个交易日的差距。
 
 检查失败的日期在 panel 中打标记，评估时按 `missing_policy` 处理。
 

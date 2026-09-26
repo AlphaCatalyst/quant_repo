@@ -1,0 +1,40 @@
+# Known factors used as the baseline library and for gate calibration.
+# They are not research discoveries: seeding does not write trials.
+version: 1
+seeds:
+  - {name: seed_reversal_5d, expression: "ts_sum(ret_1d, 5)", direction: -1,
+     cell: {domain: price, form: reversal, scale: short}, hypothesis: short-term reversal}
+  - {name: seed_reversal_20d, expression: "ts_sum(ret_1d, 20)", direction: -1,
+     cell: {domain: price, form: reversal, scale: medium}, hypothesis: one-month reversal}
+  - {name: seed_momentum_120_20, expression: "ts_sum(ret_1d, 120) - ts_sum(ret_1d, 20)", direction: 1,
+     cell: {domain: price, form: change_momentum, scale: long}, hypothesis: intermediate momentum skipping the last month}
+  - {name: seed_vol_20d, expression: "ts_std(ret_1d, 20)", direction: -1,
+     cell: {domain: price, form: volatility_stability, scale: medium}, hypothesis: low volatility}
+  - {name: seed_vol_60d, expression: "ts_std(ret_1d, 60)", direction: -1,
+     cell: {domain: price, form: volatility_stability, scale: medium}, hypothesis: low volatility}
+  - {name: seed_max_ret_20d, expression: "ts_max(ret_1d, 20)", direction: -1,
+     cell: {domain: price, form: skew_tail, scale: medium}, hypothesis: lottery demand}
+  - {name: seed_turnover_20d, expression: "ts_mean(turnover_rate, 20)", direction: -1,
+     cell: {domain: turnover_liquidity, form: level, scale: medium}, hypothesis: low turnover}
+  - {name: seed_turnover_shock, expression: "ts_mean(turnover_rate, 5) / ts_mean(turnover_rate, 60)", direction: -1,
+     cell: {domain: turnover_liquidity, form: change_momentum, scale: medium}, hypothesis: abnormal turnover reverts}
+  - {name: seed_amihud, expression: "amihud_20d", direction: 1,
+     cell: {domain: turnover_liquidity, form: level, scale: medium}, hypothesis: illiquidity premium}
+  - {name: seed_size, expression: "log(circ_mv)", direction: -1,
+     cell: {domain: size_value, form: level, scale: short}, hypothesis: small size premium}
+  - {name: seed_book_to_price, expression: "1 / pb_mrq", direction: 1,
+     cell: {domain: size_value, form: level, scale: short}, hypothesis: value}
+  - {name: seed_earnings_yield, expression: "1 / pe_ttm", direction: 1,
+     cell: {domain: size_value, form: level, scale: short}, hypothesis: value}
+  - {name: seed_vwap_dev_5d, expression: "ts_mean(vwap_dev, 5)", direction: -1,
+     cell: {domain: price, form: reversal, scale: short}, hypothesis: close above vwap reverts}
+  - {name: seed_overnight_20d, expression: "ts_mean(overnight_ret, 20)", direction: -1,
+     cell: {domain: price, form: level, scale: medium}, hypothesis: overnight overreaction}
+  - {name: seed_intraday_20d, expression: "ts_mean(intraday_ret, 20)", direction: -1,
+     cell: {domain: price, form: reversal, scale: medium}, hypothesis: intraday reversal}
+  - {name: seed_pv_corr_20d, expression: "ts_corr(close, volume, 20)", direction: -1,
+     cell: {domain: price, form: correlation_beta, scale: medium}, hypothesis: price-volume divergence}
+  - {name: seed_volume_ratio, expression: "ts_mean(volume, 5) / ts_mean(volume, 20)", direction: -1,
+     cell: {domain: volume, form: change_momentum, scale: medium}, hypothesis: volume spikes revert}
+  - {name: seed_range_20d, expression: "ts_mean((high - low) / close, 20)", direction: -1,
+     cell: {domain: price, form: volatility_stability, scale: medium}, hypothesis: low range}

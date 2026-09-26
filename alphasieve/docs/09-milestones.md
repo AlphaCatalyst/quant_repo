@@ -26,6 +26,8 @@ M0 基础 ──▶ M1 数据 ──▶ M2 因子评估 ──┬──▶ M3 Ag
 - 存储根目录配置：`ALPHASIEVE_HOT_ROOT`、`ALPHASIEVE_STORE_ROOT`、`ALPHASIEVE_ARCHIVE_ROOT`；Ceph 挂载保护与 SQLite 定时备份（见 [03-data.md](03-data.md) §8）。
 - 合成 fixture panel 生成器（`tests/fixtures/synth.py`），供 T1、T2、T4 使用。
 
+实现状态（2026-09-26）：已完成。Ceph 挂载保护以“挂载点必须是 mountpoint”检查实现；SQLite 定时备份随 M3 orchestrator 实现。
+
 验收：
 - `alphasieve ledger verify --json` 能检测被篡改的记录（测试中构造篡改）。
 - 以 agent 角色调用 human 专属命令返回退出码 4。
@@ -36,9 +38,9 @@ M0 基础 ──▶ M1 数据 ──▶ M2 因子评估 ──┬──▶ M3 Ag
 目标：可信的 A 股日频 panel，三个区间物理隔离。
 
 任务：
-- Tushare Provider：按 [03-data.md](03-data.md) §1 的接口拉取，写 raw Parquet 与 `data_snapshots`。
-- panel 构建：后复权价格、可交易性字段、指数成分 PIT、申万行业、基本面按公告日对齐。
-- 标签：`ret_{1,5,10,20}d_open_to_open`，不可买入样本置缺失。
+- BaoStock Provider（D-18）：按 [03-data.md](03-data.md) §1 的接口拉取，写 raw Parquet 与 `data_snapshots`，多进程、断点续传。
+- panel 构建：后复权价格、可交易性字段（推算涨跌停）、中证 800 成分 PIT、证监会行业（非 PIT）、基本面按公告日对齐。
+- 标签：`label_{1,5,10,20}d`（T+1 开盘到 T+1+h 开盘），不可买入样本置缺失。
 - 区间切分与 embargo；dev / holdout / fresh 分目录物化；data 层按角色访问。
 - 数据质量检查与报告；`data status`、`data describe`、`data sample` 命令。
 - 原始数据权威副本写入 Ceph，本地物化工作 panel；跨源对账（westock-data 或 Qlib 社区数据抽样）。
@@ -46,9 +48,13 @@ M0 基础 ──▶ M1 数据 ──▶ M2 因子评估 ──┬──▶ M3 Ag
 - 每日增量更新任务（先以脚本形式，M3 接入 orchestrator）。
 
 验收：
-- 抽查 20 个已知事件（ST、停牌、涨停、退市、指数调样、财报公告日）与 panel 字段一致。
-- 以 agent 角色读取 holdout 区间返回退出码 4；文件权限测试通过。
-- 基本面字段在公告日之前为缺失（不变量测试）。
+- 合成数据上覆盖停牌、涨停开盘、ST、拆股、新股、退市、成分 PIT、财务 PIT、embargo（`tests/test_m1_data.py`）。
+- 真实数据上核对已知事件：2015-07 股灾大面积停牌、2020-02-03 大面积跌停开盘、国庆休市、中国平安连续在沪深 300、沪深 300 成分变化集中在 1/7 月快照（对应 6/12 月调样）、推算涨停价与实际涨停收盘一致、茅台除息日复权连续（`tests/test_real_data.py`）。
+- 与 westock-data 抽样对账日价格变动与成交量。
+- 以 agent 角色读取 holdout 区间被拒绝；holdout 目录权限为 0700。
+- 基本面字段在公告日之后的第一个交易日才更新（不变量测试）。
+
+实现状态（2026-09-26）：已完成。中证 1000、申万 PIT 行业、fresh 区间物化与每日增量调度推迟（后者随 M3 orchestrator）。
 
 ## M2 · 因子评估内核（M）
 
@@ -62,6 +68,8 @@ M0 基础 ──▶ M1 数据 ──▶ M2 因子评估 ──┬──▶ M3 Ag
 - 阈值校准：用一组基础量价因子（Alpha158 子集）在 dev 区间的分布校准 L1/L2 阈值，写入 `gate_policy.yaml` v1；跑首次 T6 校准（零假设模拟与植入信号）。
 - 搜索空间：`SearchSpace` 配置与版本、派生变量库 v1、覆盖坐标与候选落格、E2 模板（残差动量、特质波动、Amihud 等）、种子库（Alpha158、GTJA191）（见 [11-factor-search-space.md](11-factor-search-space.md)）。
 - B1、B2 回测实现（见 [13-backtest.md](13-backtest.md)）。
+
+实现状态（2026-09-26）：DSL（36 个算子、L0 白名单与复杂度检查、规范化哈希）、派生变量 dv1、SearchSpace 与落格、评估器（L1 指标、B2、中性化、四子窗口、ridge 边际贡献）、唯一评估入口与 ledger、L0–L2 gate、状态机、`factor` / `library` / `gate calibrate` 命令、18 个经典量价种子因子已完成。推迟：E2 模板、Alpha158 / GTJA191 种子库、`gate_policy.yaml` v1（校准报告只给建议值，修改需人工 review）。
 - 命令：`factor validate`、`factor eval`、`factor show/list`、`library list/corr`、`ledger stats`。
 
 验收：
@@ -196,6 +204,8 @@ M0 基础 ──▶ M1 数据 ──▶ M2 因子评估 ──┬──▶ M3 Ag
 - 行业 / ETF 轮动配置层。
 - Reviewer agent。
 - 是否引入 QuantDesk 式平台外壳（见 [10-decisions.md](10-decisions.md)）。
+
+M0–M2 的验收记录见 [acceptance-m0-m2.md](acceptance-m0-m2.md)。
 
 ## 通用完成标准（每个里程碑都适用）
 

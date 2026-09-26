@@ -1,0 +1,32 @@
+version: 1
+search_space_id: ss-ashare-daily-v1
+expressiveness: [E1]
+derived_version: dv1
+windows: [3, 5, 10, 20, 40, 60, 120, 250]
+complexity:
+  max_nodes: 30
+  max_depth: 8
+  max_terminals: 4
+domains:
+  price: [open, high, low, close, vwap, ret_1d, excess_ret_1d, overnight_ret, intraday_ret, vwap_dev]
+  volume: [volume, amount]
+  turnover_liquidity: [turnover_rate, amihud_20d]
+  size_value: [circ_mv, pe_ttm, pb_mrq, ps_ttm]
+  profitability: [roe_avg, np_margin, eps_ttm]
+  growth: [yoy_ni, yoy_equity, yoy_asset]
+forms:
+  - level
+  - change_momentum
+  - reversal
+  - volatility_stability
+  - skew_tail
+  - correlation_beta
+  - residual_idio
+  - group_relative
+  - conditional_interaction
+  - decay_weighted
+scales: [short, medium, long, quarterly]
+scale_bounds:
+  short: 10
+  medium: 60
+  long: 250

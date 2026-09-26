@@ -1,0 +1,12 @@
+version: 1
+b2:
+  rebalance_every: 5          # trading days
+  top_fraction: 0.2
+  one_way_cost: 0.0015        # charged on sum(|delta weight|)
+b3:
+  commission: 0.00025
+  commission_min: 5.0
+  stamp_duty_sell: 0.0005
+  transfer_fee: 0.00001
+  slippage: 0.0005
+  impact_k: 0.5

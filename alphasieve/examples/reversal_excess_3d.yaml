@@ -1,0 +1,11 @@
+name: reversal_excess_3d
+expression: ts_sum(excess_ret_1d, 3)
+direction: -1
+horizon: 5
+hypothesis: >
+  Stocks with high 3-day returns relative to the CSI 800 cross-section tend to give back part of the move
+  over the following week (short-term overreaction).
+cell:
+  domain: price
+  form: reversal
+  scale: short

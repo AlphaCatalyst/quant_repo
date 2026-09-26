@@ -28,6 +28,7 @@ AlphaSieve 是一个由 agent 驱动的低频量化研究系统：agent 大量�
 | [12-testing.md](docs/12-testing.md) | 系统测试 T0–T8 与 gate 校准 |
 | [13-backtest.md](docs/13-backtest.md) | 回测 B1–B5 与 A 股成交规则 |
 | [14-agent-execution.md](docs/14-agent-execution.md) | agent 执行后端：本机 CLI、Cursor、Nexus Cloud |
+| [acceptance-m0-m2.md](docs/acceptance-m0-m2.md) | M0–M2 验收记录 |
 
 设计论证在仓库的 [design/](../design/README.md)，调研依据在 [analysis/](../analysis/README.md)。
 
@@ -59,6 +60,26 @@ alphasieve/
 ```bash
 cd alphasieve
 uv sync
-uv run alphasieve version --json
-uv run pytest
+uv run pytest                                   # 合成数据上的全部测试
+ALPHASIEVE_RUN_REALDATA=1 ALPHASIEVE_RUN_NETWORK=1 uv run pytest tests/test_real_data.py   # 真实数据核对
+uv run ruff check src tests
 ```
+
+## 快速上手（M0–M2）
+
+存储根目录默认为本地 `/data/alphasieve`（`ALPHASIEVE_HOT_ROOT`）与 Ceph `/mnt/private_felixjjiang/alphasieve`（`ALPHASIEVE_STORE_ROOT`）；角色由 `ALPHASIEVE_ROLE` 指定（默认 `human`）。
+
+```bash
+uv run alphasieve init --json                                  # 建目录与状态库
+uv run alphasieve data sync --dataset core --workers 6 --json  # BaoStock：成分、日线、指数（可续传）
+uv run alphasieve data sync --dataset financials --json        # 季度财务（较慢，可续传）
+uv run alphasieve data build-panel --json                      # 构建 dev / holdout panel 与质量报告
+uv run alphasieve data status --json
+uv run alphasieve library seed --json                          # 载入 18 个经典量价种子因子
+uv run alphasieve factor validate examples/reversal_excess_3d.yaml --json
+ALPHASIEVE_ROLE=agent uv run alphasieve factor eval examples/reversal_excess_3d.yaml --json
+uv run alphasieve ledger stats --json && uv run alphasieve ledger verify --json
+uv run alphasieve gate calibrate --random 200 --json            # 阈值校准报告
+```
+
+因子候选用 YAML 描述（字段见 `FactorSpec`，示例在 `examples/`）。`factor eval` 的退出码：0 表示通过 L0–L2，3 表示未通过 gate（结果已入账），4 表示角色无权限。

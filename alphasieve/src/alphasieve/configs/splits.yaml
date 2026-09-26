@@ -1,0 +1,11 @@
+version: 1
+locked: false
+universe: csi800
+dev:
+  start: "2012-01-01"
+  end: "2022-12-31"
+holdout:
+  start: "2023-01-01"
+  end: "2026-09-25"
+fresh:
+  start: "2026-09-28"

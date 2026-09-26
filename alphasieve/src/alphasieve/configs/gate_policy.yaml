@@ -1,0 +1,19 @@
+# v0: placeholder thresholds from docs/04-research-core.md section 4.
+# Calibrated suggestions are written to the gate calibration report; changing
+# this file is an engineering change that requires human review.
+# L0 structural limits (windows, complexity, terminals) live in search_space.yaml.
+version: 0
+l1:
+  min_coverage: 0.80
+  min_ic_mean: 0.02          # directional: sign must match the declared direction
+  min_icir: 0.25
+  max_library_corr: 0.60
+  replacement_icir_ratio: 1.30
+  min_valid_dates: 250
+l2:
+  subwindows: 4
+  min_subwindows_same_sign: 3
+  min_neutral_ratio: 0.5
+  min_cost_adjusted_excess: 0.0
+  min_marginal_ic: 0.0
+  max_neighborhood_trials: 7

@@ -65,13 +65,13 @@ design 中已定义：`ResearchQuestion`、`DataContract`、`FactorSpec`、`Stra
 
 ## 4. Gate 与默认阈值
 
-阈值是初始占位值，写在版本化的 `config/gate_policy.yaml`，M2 结束前用基础因子集（例如 Alpha158 在同一区间上的分布）校准。gate policy 的修改是工程变更，需要人工 review；每条 trial 记录其使用的 policy 版本。
+阈值是初始占位值，写在版本化的 `src/alphasieve/configs/gate_policy.yaml`（L0 的窗口、复杂度与终端变量限制在 `search_space.yaml`），M2 结束前用基础因子集（例如 Alpha158 在同一区间上的分布）校准。gate policy 的修改是工程变更，需要人工 review；每条 trial 记录其使用的 policy 版本。
 
 | 层 | 检查 | 默认阈值 | 失败后状态 |
 |---|---|---|---|
 | L0 结构约束 | 语法、类型、白名单、窗口上限、复杂度、PIT 字段声明 | 见 §2 | `validation_failed` |
 | L1 开发窗口 | 覆盖率 | ≥ 0.80 | `evaluation_failed` |
-| | \|RankIC 均值\| | ≥ 0.02 | |
+| | RankIC 均值（按声明方向调整后） | ≥ 0.02；方向与假设相反的候选直接失败 | |
 | | ICIR | ≥ 0.25 | |
 | | 与因子库最大相关 | ≤ 0.60（超过但 ICIR 高出 30% 以上时标记为“替换候选”） | |
 | L2 样本内稳健 | 4 个不重叠子窗口中 RankIC 同号的个数 | ≥ 3 | `robust_failed` |

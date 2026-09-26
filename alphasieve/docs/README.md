@@ -20,6 +20,7 @@
 | [12-testing.md](12-testing.md) | 系统测试 T0–T8：不变量测试、数据验证、金标对照、gate 校准、红队测试 |
 | [13-backtest.md](13-backtest.md) | 回测 B1–B5：成交规则、成本模型、组合构建、滚动样本外、敏感性检查 |
 | [14-agent-execution.md](14-agent-execution.md) | 用哪种 agent 执行：本机 Claude Code / Codex、Cursor、Nexus Cloud 的分工与规则 |
+| [acceptance-m0-m2.md](acceptance-m0-m2.md) | M0–M2 验收记录：真实数据同步结果、测试、端到端评估、gate 校准 |
 
 ## 阅读顺序
 

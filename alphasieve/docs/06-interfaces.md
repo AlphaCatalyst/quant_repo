@@ -47,14 +47,21 @@ AlphaSieve 有两个入口：JSON CLI（agent 与人共用）和 HTTP API（前�
 | 命令 | 角色 | 说明 |
 |---|---|---|
 | `version` | A H S | 版本信息 |
+| `init` | H S | 创建存储目录与状态库，显示配置版本 |
+| `schema export --out DIR` | H S | 导出契约的 JSON Schema |
+| `data sync --dataset core\|financials\|...` | H S | 从 BaoStock 拉取原始数据（断点续传），并镜像到 Ceph |
+| `data build-panel` | H S | 构建 dev / holdout panel 与质量报告 |
 | `data status` | A H S | 数据最新日期、区间边界、质量检查摘要 |
 | `data describe <field>` | A H S | 字段含义、覆盖率、分布（仅 dev） |
-| `data sample --fields ... --date ...` | A H | 抽样查看 dev 区间数据（行数上限） |
+| `data sample --fields ... --date ...` | A H | 抽样查看 dev 区间数据（单次最多 200 行；agent 不能取标签字段） |
 | `factor validate <spec.yaml>` | A H | 只跑 L0，不计 trial |
 | `factor eval <spec.yaml>` | A H | 跑 L0–L2，写 ledger，返回指标与 gate 结果 |
 | `factor show <factor_id>[@version]` | A H | 因子定义、状态、dev 指标（agent 看不到 holdout/fresh 字段） |
 | `factor list [--state ...] [--campaign ...]` | A H | 列表 |
 | `library list` / `library corr <factor_id>` | A H | 因子库成员与相关性 |
+| `library seed` | H S | 把 `configs/seeds.yaml` 中的经典因子载入基线因子库（不写 trial） |
+| `ledger verify` | A H S | 校验 ledger 哈希链与 started / 结果记录的配对 |
+| `gate calibrate --random N` | H S | 零假设模拟、植入信号检出率、种子分布阈值建议，结果写 artifact |
 | `ledger stats [--campaign ...]` | A H | trial 数、失败原因分布、当前 DSR 门槛 |
 | `memory show [--scope ...]` | A H | 经验记忆 |
 | `report submit <file.md>` | A | 提交阶段报告 |

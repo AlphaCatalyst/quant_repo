@@ -1,0 +1,11 @@
+name: turnover_adjusted_reversal
+expression: cs_rank(ts_sum(ret_1d, 5)) * cs_rank(ts_mean(turnover_rate, 5) / ts_mean(turnover_rate, 60))
+direction: -1
+horizon: 5
+hypothesis: >
+  Short-term winners that also saw abnormal turnover are more likely to be driven by attention and noise
+  trading, so the reversal should be stronger when price and turnover spikes coincide.
+cell:
+  domain: price
+  form: conditional_interaction
+  scale: medium

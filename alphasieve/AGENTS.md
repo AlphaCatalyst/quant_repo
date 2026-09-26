@@ -1,6 +1,6 @@
 # AGENTS.md
 
-面向在本目录工作的 code agent（Claude Code、Codex 等）的约束。
+面向在本目录工作的 code agent（Claude Code、Codex 等）的约束。开发前先读 [docs/README.md](docs/README.md)；当前里程碑与验收标准见 [docs/09-milestones.md](docs/09-milestones.md)。
 
 ## 边界
 

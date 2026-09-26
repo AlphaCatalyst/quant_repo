@@ -197,8 +197,8 @@ loop 的目标不是“找到 Sharpe 最高的策略”，而是：
 |---|---|---|
 | L0 | Phase 1 | `validating` → `validated` / `validation_failed` |
 | L1 | Phase 1 + Phase 3（agent 主循环） | `evaluating` → `evaluated` / `evaluation_failed` |
-| L2 | Phase 2 | `robust_evaluating` → `robust_failed` |
-| L3 | Phase 2 | `ledger_gated` → `shortlist_locked` |
+| L2 | Phase 2 | `robust_evaluating` → `robust_failed` / `robust_passed` |
+| L3 | Phase 2 | `robust_passed` → `ledger_failed` / `ledger_gated` → `shortlist_locked` |
 | L4 | Phase 2 | `holdout_evaluating` → `holdout_passed` / `holdout_failed` / `holdout_contaminated` → `reviewable` |
 | L5 | Phase 4–5 | `shadow_trained` → `fresh_observing` → `fresh_supported` / `fresh_failed` →（人工）`approved_for_paper` |
 

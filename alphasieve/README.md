@@ -8,12 +8,24 @@ AlphaSieve 是一个由 agent 驱动的低频量化研究系统：agent 大量�
 - agent 只提案，确定性后端裁决，人批准预算与资金。
 - 第一阶段只做 A 股日频截面选股（指数增强），agent 的自主 loop 对象只有因子候选。
 
-设计文档：
+## 文档
 
-- [../design/agent-loop-verification.md](../design/agent-loop-verification.md)：分层 verifier（L0–L5）、角色边界、因子与模型联合优化
-- [../design/system-contracts.md](../design/system-contracts.md)：核心对象、因子状态机、gate 与 artifact 契约
-- [../design/strategy-scope.md](../design/strategy-scope.md)：兼容的策略类型与统一策略契约
-- [../design/roadmap.md](../design/roadmap.md)：阶段路线
+实现文档在 [docs/](docs/README.md)：
+
+| 文档 | 内容 |
+|---|---|
+| [01-product.md](docs/01-product.md) | 用户与角色、核心场景、范围、成功标准 |
+| [02-architecture.md](docs/02-architecture.md) | 组件、进程、存储、技术选型、隔离边界 |
+| [03-data.md](docs/03-data.md) | 数据源、panel、PIT、dev / holdout / fresh 区间 |
+| [04-research-core.md](docs/04-research-core.md) | 研究对象、因子 DSL、指标、gate 阈值、ledger、状态机、回测 |
+| [05-agent-harness.md](docs/05-agent-harness.md) | agent 循环、workspace、调度、记忆、可见性 |
+| [06-interfaces.md](docs/06-interfaces.md) | JSON CLI、HTTP API、事件流、artifact |
+| [07-frontend.md](docs/07-frontend.md) | 前端定位、页面、组件、技术栈 |
+| [08-progress-and-interaction.md](docs/08-progress-and-interaction.md) | 进展展示、停滞诊断、指令与审批流程、通知 |
+| [09-milestones.md](docs/09-milestones.md) | 里程碑、任务与验收 |
+| [10-decisions.md](docs/10-decisions.md) | 决策记录与待定问题 |
+
+设计论证在仓库的 [design/](../design/README.md)，调研依据在 [analysis/](../analysis/README.md)。
 
 ## 目录结构
 
@@ -29,9 +41,14 @@ alphasieve/
     backtest/     A 股日频截面执行模拟（T+1、涨跌停与停牌、成本）
     cli/          JSON CLI（agent 与人共用的唯一操作入口）
   tests/
+  docs/           实现文档
   data/           本地数据（不入库）
   artifacts/      运行产物（不入库）
+  state/          SQLite 状态库（不入库）
+  workspaces/     campaign 工作区（不入库）
 ```
+
+后续里程碑新增的模块（models、campaigns、agent、memory、review、fresh、api、orchestrator）与前端工程 `web/` 见 [docs/02-architecture.md](docs/02-architecture.md) §2。
 
 ## 开发
 

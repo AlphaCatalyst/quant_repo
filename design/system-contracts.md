@@ -294,6 +294,8 @@ draft
   -> evaluated
   -> robust_evaluating
   -> robust_failed
+  -> robust_passed
+  -> ledger_failed
   -> ledger_gated
   -> shortlist_locked
   -> holdout_evaluating
@@ -320,6 +322,7 @@ draft
 
 - `validation_failed` 不能直接进入 `evaluating`，必须 repair 或 override。
 - `evaluated` 不能直接 `shadow_promoted`，必须经过 review。
+- `robust_passed` 表示通过 L2、等待批次 L3；L3 需要整批 trial 计数，未通过为 `ledger_failed`。
 - `ledger_gated` 表示通过按 trial ledger 折扣的 DSR / BH-FDR；进入 `holdout_evaluating` 前必须先 `shortlist_locked`，并冻结 failure memory。
 - `holdout_contaminated` 是终态：同批证据作废，不能 repair 后重新读取同一段 holdout。
 - 只有 `holdout_passed` 能进入 `reviewable`；holdout 指标只写入 ReviewPacket，不进入 agent 上下文。

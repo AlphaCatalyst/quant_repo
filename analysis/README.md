@@ -37,6 +37,9 @@
 7. [landscape-update-2026-09.md](landscape-update-2026-09.md)
    - 2026-09 生态刷新记录：同步结果、新增 13 个仓库及理由、刻意未收录的项目、honest evaluation 论文结论、网页描述与代码不符的勘误。
 
+8. [factor-model-co-optimization-research.md](factor-model-co-optimization-research.md)
+   - 因子与模型联合优化的研究综述：agent 框架的交替调度、挖掘与组合联合方法、模型侧证据（目标设计、复杂度争议、TSFM、增量学习、regime 失效）、已发表系统中的评估泄漏。
+
 ## 总体结论
 
 这些仓库不是同一类东西。它们大致分成三条主线：

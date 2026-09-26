@@ -89,10 +89,10 @@ L5 前瞻验证   fresh forward / shadow 分池追踪，≥60 交易日         
 | 环节 | 按环节分 agent | 本路线 |
 |---|---|---|
 | 挖因子 | factor agent 生成并迭代 | agent 的主循环：提假设、写表达式、诊断失败；能否入库由 evaluator 与 gate 决定 |
-| 训模型 | model agent 调结构和超参 | 固定配置模型（如固定参数 LightGBM），用来衡量新因子的边际贡献，是 evaluator 的一部分，不是 agent 的优化对象 |
+| 训模型 | model agent 调结构和超参 | 分两件事：模型**重训**随因子库自动进行，是确定性流水线任务；模型**设计**（目标、损失、集成、模型族内配置）在外环受约束地交给 agent，见 §3.3 |
 | 跑回测 | eval agent 执行并解读 | 回测就是 verifier；agent 只能经 CLI 触发，只能读开发窗口结果，回测代码不在 agent 可写范围内 |
 
-按环节切的核心问题是：eval agent 本质上是 agent 在给 agent 打分，裁决权落在了会被“好看结果”奖励的一方，这正是过拟合和结论膨胀最常出现的地方。本路线中，训模型与跑回测属于 verifier，不交给 agent；模型固定配置也参考了 `QuantMind-qm2` 的 fixed configuration model program（不调超参、不按盲测结果选特征）。
+按环节切的核心问题是：eval agent 本质上是 agent 在给 agent 打分，裁决权落在了会被“好看结果”奖励的一方，这正是过拟合和结论膨胀最常出现的地方。本路线中，跑回测属于 verifier，不交给 agent；模型重训属于流水线；模型设计可以由 agent 提案，但走更慢的循环、更小的动作空间，并与因子共用同一本 trial ledger。第一阶段先固定模型配置，是为了把收益变化归因到因子上，参考 `QuantMind-qm2` 的 fixed configuration model program（不调超参、不按盲测结果选特征）。
 
 ### 3.2 agent 的工作范围与自主 loop 对象的扩展
 
@@ -103,6 +103,8 @@ agent 不只做挖因子。区分两件事：agent 能做什么，和 agent 能�
 | 研究规划：从研报/论文提炼假设、拆研究问题 | 起草 | 人确认研究方向 | 否 |
 | 因子候选：表达式、实现、修复 | 主力 | evaluator + gate | 是（第一阶段唯一的 loop 对象） |
 | 失败诊断与记忆整理 | 主力 | memory schema 约束 | 是（只写 development 层记忆） |
+| 模型设计：预测目标、损失函数、集成方式、模型族内配置 | 提案 | 同窗口 baseline 对比 + trial ledger | 阶段 3 起（见 §3.3） |
+| 模型重训与组合权重更新 | 不参与 | 确定性流水线 | 否，随因子库自动执行 |
 | evaluator / 回测 / 成本模型的工程开发 | 写代码 | 人 review + 版本化 | 否，属于工程变更 |
 | 对抗式审查（读 run history、code diff 挑毛病） | Reviewer agent | 仅作参考，不构成 gate | 否 |
 | 报告与 factor card 初稿 | 起草 | 人审阅结论 | 否 |
@@ -111,13 +113,38 @@ agent 不只做挖因子。区分两件事：agent 能做什么，和 agent 能�
 自主 loop 的对象按阶段扩展，每一层都要先有自己的 verifier、ledger 和 default-first 规则：
 
 ```text
-阶段 1  因子候选                     verifier：IC/RankIC、去重、多窗口；固定下游模型
+阶段 1  因子候选                     verifier：IC/RankIC、去重、多窗口；参考模型组上的边际贡献
 阶段 2  因子组合 / 特征集             verifier：固定模型下的边际贡献、正交性
-阶段 3  模型配置（限定模型族）         verifier：同窗口 baseline 对比；默认配置过门即冻结
+阶段 3  模型设计（目标、损失、集成、   verifier：同窗口 baseline 对比；默认配置过门即冻结
+        限定模型族内配置）
 阶段 4  组合构建规则（调仓、约束）     verifier：成本后组合回测、换手与容量
 ```
 
-先只让因子循环，是因为因子同时满足三个条件：搜索空间可以用 DSL 圈住；验证便宜且统计功效高（截面几千只股票）；被证伪的成本低。越往后的对象搜索维度越大、验证越贵，过早放开会迅速耗光 holdout 预算。扩展到阶段 3 时，可以参考 `RD-Agent(Q)` 交替优化因子与模型的做法，但每一次模型改动同样计入 trial ledger。
+从阶段 1 起，下游模型就按固定配置随因子库定期滚动重训；放开的是“模型设计”这一搜索维度，而不是“模型是否更新”。
+
+先只让因子循环，是因为因子同时满足三个条件：搜索空间可以用 DSL 圈住；验证便宜且统计功效高（截面几千只股票）；被证伪的成本低。越往后的对象搜索维度越大、验证越贵，过早放开会迅速耗光 holdout 预算。扩展到阶段 3 时，按 §3.3 做因子与模型的交替优化。
+
+### 3.3 因子与模型联合优化
+
+难点在于耦合：因子的价值依赖模型（线性无效的因子在树模型里可能有效，边际贡献还依赖已有因子），模型的最优配置又依赖因子集；同时搜索会让试验数成倍增长，在同一段数据上既选因子又调模型会叠加选择偏差。相关研究与实践见 [../analysis/factor-model-co-optimization-research.md](../analysis/factor-model-co-optimization-research.md)。
+
+**先区分两类模型动作：**
+
+| 动作 | 内容 | 执行者 | 何时开始 |
+|---|---|---|---|
+| 重训 | 固定配置在滚动窗口上重训；组合层按近期 IC/ICIR 重选与重加权（参考 AlphaForge）；可选 DDG-DA / DoubleAdapt 式的样本重加权或增量更新 | 确定性流水线，定时执行 | 阶段 1 |
+| 设计 | 预测目标、损失函数、集成方式、模型族内的配置 | agent 提案，evaluator 裁决 | 阶段 3 |
+
+**联合优化的做法：**
+
+1. **两个时间尺度交替，而不是同时搜索。** 因子在内环快速迭代，模型设计在外环慢速迭代；每轮只动一边。方向由调度器决定：参考 R&D-Agent(Q) 的两臂 contextual Thompson sampling（以当前绩效向量为 context），加上同一方向连续探索的上限；并参考 AutoScientist-Quant，让调度器以剩余预算为条件，且包含 STOP。
+2. **因子评估对模型稳健。** 以对下游组合的边际贡献评价因子（参考 AlphaGen），并在一组参考模型（ridge、默认参数 GBDT、排序模型）上交叉检验；只在单一模型上有效的因子降级处理。这样外环改模型时，不必把因子库全部重评。
+3. **模型侧动作空间有优先级。** 预测目标与损失函数 > 集成方式 > 模型结构。依据：Cakici & Zaremba（2026）显示目标变换（排名/标准化）是截面收益预测中影响最大的设计选择；LambdaRankIC 直接优化 Rank IC；“复杂度红利”（Kelly et al., JF 2024）受到 Nagel（2025）、Buncic（2025）等质疑；时间序列基础模型在截面 alpha 上尚未稳定超过工程化 GBDT。复杂模型和 TSFM 只作为候选，不作为默认方向。
+4. **结构与参数分离。** agent 只改离散结构（目标、损失、集成、模型族）；连续超参交给贝叶斯优化等确定性优化器，并在 walk-forward 每个训练段内部完成（参考 FactorEngine 的宏观/微观协同进化、`autoresearch-trading`）。
+5. **嵌套 walk-forward，反馈窗口与报告窗口分离。** 因子筛选与模型调参都在每个 fold 的训练段内完成，外层验证段只用于评估，holdout 对两者同样封存。evaluator 需要不变量测试，保证指标只在声明的区间计算：AutoScientist-Quant 发现 AlphaAgent、QuantaAlpha、R&D-Agent(Q) 共用的评估代码曾按全样本计算指标，FactorEngine 也为对比重新切分了挖掘窗口。
+6. **统一 ledger，分开预算。** 因子改动和模型改动都作为 `TrialLedgerEntry` 记入同一本 ledger；因子方向与模型方向的试验预算、holdout 读取次数分别计数。
+7. **晋升单位是一对版本。** 晋升对象是（因子集版本，模型配置版本），与同窗口、同配置的 baseline 比较；任一侧变化都要重新经过 L3、L4，不能沿用上一对组合的证据。
+8. **部署期加策略级门控。** 截面排序模型会在 regime 切换时整体失效（参考 *When Alpha Breaks*，arXiv 2603.13252），L5 之后需要“今天是否交易”的信任门，而不只是逐个信号的监控。
 
 ## 4. 三层节奏
 
@@ -179,7 +206,7 @@ trial ledger 与 sealed holdout 的划分属于 Phase 0：它们必须在第一�
 
 ## 8. 落地顺序
 
-1. **L0 + L1**：固定的 A 股日频 evaluator + ratchet 主循环；同时建 trial ledger，封存 holdout 区间。
+1. **L0 + L1**：固定的 A 股日频 evaluator + ratchet 主循环；同时建 trial ledger，封存 holdout 区间；下游固定配置模型接入定期滚动重训，因子评估使用参考模型组。
 2. **L2 + L3**：多窗口检验、default-first 参数治理、按 ledger 折扣的 DSR / BH-FDR。
 3. **L4 + L5**：holdout 预算与污染标记、fresh 分池追踪、人工 promotion。
-4. **扩展**：按 §3.2 的顺序逐步放开自主 loop 对象（因子组合 → 模型配置 → 组合构建规则）；ledger 中积累足够多经过验证的正负样本后，再考虑 RFT 矿工与多 agent 分工（Lead / Reviewer / Miner）。
+4. **扩展**：按 §3.2 的顺序逐步放开自主 loop 对象（因子组合 → 模型设计 → 组合构建规则），模型设计阶段按 §3.3 与因子交替优化；ledger 中积累足够多经过验证的正负样本后，再考虑 RFT 矿工与多 agent 分工（Lead / Reviewer / Miner）。

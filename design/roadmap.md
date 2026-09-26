@@ -183,7 +183,8 @@ candidate
 
 交付：
 
-- baseline model。
+- baseline model，按固定配置随因子库定期滚动重训。
+- 参考模型组（ridge、默认 GBDT、排序模型）上的边际贡献对比。
 - baseline + candidate factor 对比。
 - feature snapshot materialization。
 - shadow training。
@@ -193,6 +194,7 @@ candidate
 验收：
 
 - 新因子必须证明 marginal value，而不是只证明单因子好看。
+- 模型设计改动（目标、损失、集成、模型族内配置）与因子改动交替进行、共用 trial ledger，晋升单位是（因子集版本，模型配置版本），见 [agent-loop-verification.md](agent-loop-verification.md) §3.3。
 - promotion 只进入 shadow，不进入 live。
 
 ### Phase 5: Paper Boundary

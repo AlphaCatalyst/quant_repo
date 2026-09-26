@@ -223,6 +223,7 @@
 
 - 发布 1.0.0；新增 `utils/archive.py`、`artifact_transport.py`、log server 鉴权/trusted origins、反序列化校验，主要是执行沙箱与 log UI 的安全硬化。
 - Qlib factor/model 主路径无大改，`fin_quant` 仍只支持日频；上文 scenario/coder/runner 描述继续有效。
+- 外部评估提示：AutoScientist-Quant（arXiv 2608.28632）指出 RD-Agent(Q) 的循环在其报告的窗口上选择因子，并发现 AlphaAgent/QuantaAlpha/RD-Agent(Q) 共用的评估代码曾按全样本计算指标；FactorEngine（arXiv 2603.16365）对比时也为其重新切分了挖掘窗口。复用 `fin_quant` 时应先确认反馈窗口与报告窗口分离。详见 [factor-model-co-optimization-research.md](factor-model-co-optimization-research.md)。
 
 ### FactorMiner
 

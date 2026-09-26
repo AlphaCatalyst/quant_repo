@@ -24,6 +24,10 @@ AlphaSieve 是一个由 agent 驱动的低频量化研究系统：agent 大量�
 | [08-progress-and-interaction.md](docs/08-progress-and-interaction.md) | 进展展示、停滞诊断、指令与审批流程、通知 |
 | [09-milestones.md](docs/09-milestones.md) | 里程碑、任务与验收 |
 | [10-decisions.md](docs/10-decisions.md) | 决策记录与待定问题 |
+| [11-factor-search-space.md](docs/11-factor-search-space.md) | 因子搜索空间：表达能力分级、派生变量、覆盖坐标 |
+| [12-testing.md](docs/12-testing.md) | 系统测试 T0–T8 与 gate 校准 |
+| [13-backtest.md](docs/13-backtest.md) | 回测 B1–B5 与 A 股成交规则 |
+| [14-agent-execution.md](docs/14-agent-execution.md) | agent 执行后端：本机 CLI、Cursor、Nexus Cloud |
 
 设计论证在仓库的 [design/](../design/README.md)，调研依据在 [analysis/](../analysis/README.md)。
 

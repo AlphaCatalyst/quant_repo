@@ -40,11 +40,26 @@ verifier 统计功效最高、最贴近 A 股实盘约束；其他策略按 [des
 **D-12 状态机补充 `robust_passed` 与 `ledger_failed`**
 L3 需要整批 trial 计数，不能在单次评估中执行；通过 L2 的候选先进入 `robust_passed` 等待批次 gate。已同步到 [design/system-contracts.md](../../design/system-contracts.md)。
 
+**D-13 存储分四层：git / 本地热存储 / Ceph / taijifs**
+沿用 scicomp-foundry 的做法。SQLite 状态库与工作 panel 放本地盘（`/data/alphasieve/`），原始数据权威副本、artifact、transcript、备份放 Ceph（`/mnt/private_felixjjiang/alphasieve/`），发布归档放 taijifs。SQLite 不放 ceph-fuse。详见 [03-data.md](03-data.md) §8。
+
+**D-14 研究循环执行后端：先本机 Claude Code / Codex，后 Nexus Cloud**
+Cursor（含 subagent）用于开发 AlphaSieve 本身，不作为研究循环后端，因为难以施加操作系统用户隔离与 CLI 白名单，也无法由 orchestrator 无人值守调度。Nexus Cloud 用于广度搜索，云端结果只作筛查，本机 canonical 重验为权威，任务内 trial 全部入账、按 batch 计数。详见 [14-agent-execution.md](14-agent-execution.md)。
+
+**D-15 因子搜索空间用表达能力分级 + 覆盖坐标定义**
+E1 公式、E2 模板、E3 受限程序、E4 学习型、E5 文本事件；覆盖坐标为数据域 × 变换形态 × 时间尺度。窗口参数离散化；扩大搜索空间由人决定。详见 [11-factor-search-space.md](11-factor-search-space.md)。
+
+**D-16 回测分 B1–B5 五级，引擎自研并用 Qlib 交叉验证**
+详见 [13-backtest.md](13-backtest.md)。
+
+**D-17 系统测试分 T0–T8 九级，其中不变量测试与 gate 校准是必需项**
+verifier 本身的正确性要靠测试证明；gate 阈值用零假设模拟与植入信号校准。详见 [12-testing.md](12-testing.md)。
+
 ## 待定问题
 
 | 编号 | 问题 | 影响 | 计划决定时间 |
 |---|---|---|---|
-| Q-1 | 数据源是否只用 Tushare，还是接入自有行情库作为主源 | M1 Provider 设计、数据授权 | M1 开始前 |
+| Q-1 | 数据源是否只用 Tushare，还是接入自有行情库作为主源；Tushare 账号积分是否覆盖 `stk_limit`、`index_weight`、财务报表等接口 | M1 Provider 设计、数据授权 | M1 开始前 |
 | Q-2 | holdout 区间长度（默认 2023-01-01 至项目启动日）是否足够 | L4 统计功效 | M1 结束时 |
 | Q-3 | gate 阈值的校准基准：Alpha158 子集还是自有因子库 | L1/L2 通过率 | M2 结束时 |
 | Q-4 | agent 默认使用哪个模型、单 campaign 费用上限 | 预算默认值 | M3 开始前 |
@@ -52,3 +67,6 @@ L3 需要整批 trial 计数，不能在单次评估中执行；通过 L2 的候
 | Q-6 | 是否需要多用户部署（团队共享一台服务器）以及认证方式 | API 认证、部署 | F2 开始前 |
 | Q-7 | 通知渠道：企业微信机器人还是企业微信应用消息 | 通知实现 | F2 |
 | Q-8 | paper 组合的资金规模与基准选择 | M7 策略设定 | M7 开始前 |
+| Q-9 | dev panel 能否随任务镜像进入 Nexus Cloud 沙盒（数据授权与合规） | M5 能否启动 | M5 开始前 |
+| Q-10 | westock-data 能否批量拉取历史日线、是否提供历史指数成分（PIT） | 交叉校验源与事件数据源的可行性 | M1 期间实测 |
+| Q-11 | E3 受限程序因子的沙箱实现：进程级限制还是容器 | M4 的 E3 任务 | M4 开始前 |

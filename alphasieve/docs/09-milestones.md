@@ -5,10 +5,12 @@
 ## 依赖关系
 
 ```text
-M0 基础 ──▶ M1 数据 ──▶ M2 因子评估 ──┬──▶ M3 Agent 循环 ──▶ M4 稳健性与留出 ──▶ M6 策略与模型 ──▶ M7 前瞻与 paper ──▶ M8 扩展
-                                      │                           │
+M0 基础 ──▶ M1 数据 ──▶ M2 因子评估 ──┬──▶ M3 Agent 循环 ──▶ M4 稳健性与留出 ──┬──▶ M6 策略与模型 ──▶ M7 前瞻与 paper ──▶ M8 扩展
+                                      │                                         └──▶ M5 Nexus 广度搜索
                                       └──▶ F1 前端只读 ──────────▶ F2 前端交互 ─────────────────────────▶ F3 前端完整
 ```
+
+测试任务按 [12-testing.md](12-testing.md) §4 随各里程碑落地，不单列里程碑。
 
 ## M0 · 基础（S）
 
@@ -20,7 +22,9 @@ M0 基础 ──▶ M1 数据 ──▶ M2 因子评估 ──┬──▶ M3 Ag
 - `ledger/`：append-only 写入、哈希链、校验命令。
 - `artifacts`：内容寻址存储、manifest 规范化与哈希。
 - `cli/`：响应信封、退出码、角色解析、审计事件写入。
-- `config/`：`splits.yaml`、`gate_policy.yaml`、`models.yaml` 的加载与版本号。
+- `config/`：`splits.yaml`、`gate_policy.yaml`、`models.yaml`、`costs.yaml` 的加载与版本号。
+- 存储根目录配置：`ALPHASIEVE_HOT_ROOT`、`ALPHASIEVE_STORE_ROOT`、`ALPHASIEVE_ARCHIVE_ROOT`；Ceph 挂载保护与 SQLite 定时备份（见 [03-data.md](03-data.md) §8）。
+- 合成 fixture panel 生成器（`tests/fixtures/synth.py`），供 T1、T2、T4 使用。
 
 验收：
 - `alphasieve ledger verify --json` 能检测被篡改的记录（测试中构造篡改）。
@@ -37,6 +41,8 @@ M0 基础 ──▶ M1 数据 ──▶ M2 因子评估 ──┬──▶ M3 Ag
 - 标签：`ret_{1,5,10,20}d_open_to_open`，不可买入样本置缺失。
 - 区间切分与 embargo；dev / holdout / fresh 分目录物化；data 层按角色访问。
 - 数据质量检查与报告；`data status`、`data describe`、`data sample` 命令。
+- 原始数据权威副本写入 Ceph，本地物化工作 panel；跨源对账（westock-data 或 Qlib 社区数据抽样）。
+- 已知事件清单 `tests/data_events.yaml`。
 - 每日增量更新任务（先以脚本形式，M3 接入 orchestrator）。
 
 验收：
@@ -53,7 +59,9 @@ M0 基础 ──▶ M1 数据 ──▶ M2 因子评估 ──┬──▶ M3 Ag
 - 评估器：覆盖率、RankIC、ICIR、正比例、分组收益、多头超额、换手代理、库相关、中性化后 RankIC、成本后多头超额、四子窗口。
 - 唯一评估入口 + ledger 写入；L0、L1、L2 gate（边际贡献先用 ridge 单模型）。
 - 评估不变量测试：指标只在声明区间计算；标签不前视（打乱未来标签后 IC 应接近 0）；embargo 生效；同输入同输出。
-- 阈值校准：用一组基础量价因子（Alpha158 子集）在 dev 区间的分布校准 L1/L2 阈值，写入 `gate_policy.yaml` v1。
+- 阈值校准：用一组基础量价因子（Alpha158 子集）在 dev 区间的分布校准 L1/L2 阈值，写入 `gate_policy.yaml` v1；跑首次 T6 校准（零假设模拟与植入信号）。
+- 搜索空间：`SearchSpace` 配置与版本、派生变量库 v1、覆盖坐标与候选落格、E2 模板（残差动量、特质波动、Amihud 等）、种子库（Alpha158、GTJA191）（见 [11-factor-search-space.md](11-factor-search-space.md)）。
+- B1、B2 回测实现（见 [13-backtest.md](13-backtest.md)）。
 - 命令：`factor validate`、`factor eval`、`factor show/list`、`library list/corr`、`ledger stats`。
 
 验收：
@@ -81,7 +89,8 @@ M0 基础 ──▶ M1 数据 ──▶ M2 因子评估 ──┬──▶ M3 Ag
 任务：
 - Campaign / Turn / Directive / AgentRequest 对象与命令；停止条件与预算。
 - orchestrator：任务表、调度循环、并发上限、异常处理与自动暂停。
-- agent 适配器：Claude Code 与 Codex；工具权限配置；独立操作系统用户运行；transcript 采集与费用统计。
+- 执行器抽象 `AgentExecutor` 与本机后端：Claude Code 与 Codex；工具权限配置；独立操作系统用户运行；transcript 采集与费用统计（见 [14-agent-execution.md](14-agent-execution.md)）。
+- campaign 创建时选择搜索空间格子；brief.md 渲染 SearchSpace 可读版本。
 - workspace 模板：`program.md.j2`、brief / memory / directives 刷新；turn 后自动 commit。
 - 记忆 v1：成功模板、禁区、洞察的提炼与展示；`memory show`。
 - 事件表与 SSE 推送（为 F2 准备）。
@@ -102,11 +111,30 @@ M0 基础 ──▶ M1 数据 ──▶ M2 因子评估 ──┬──▶ M3 Ag
 - shortlist 锁定与记忆冻结；HoldoutRequest；holdout 评估作业；读取预算与污染判定。
 - Review Packet 生成（Markdown + 结构化 JSON）；评审决定与 PromotionRecord；状态机完整实现。
 - 命令：`shortlist lock`、`holdout request/approve/reject`、`review show/decide`。
+- E3 受限程序因子：PITView、静态检查、截断不变性测试、沙箱资源上限。
+- L3 的 T6 校准（贪心搜索模拟）。
 
 验收：
 - 端到端：campaign 结束 → shortlist → 审批 → holdout 评估 → Review Packet → 决定，全程状态与事件正确。
 - 第二次读取同一 shortlist 的 holdout 被拒绝；超预算读取导致 `holdout_contaminated`。
 - holdout 指标不出现在 agent 可访问的任何命令输出与 workspace 文件中（自动化检查）。
+
+## M5 · Nexus 广度搜索（M）
+
+依赖：M4；数据合规确认（[10-decisions.md](10-decisions.md) Q-9）。
+
+目标：在 Nexus Cloud 上并行运行多个 miner 任务，按覆盖矩阵做广度探索，本机权威重验。
+
+任务：
+- Nexus 执行器：任务镜像构建（alphasieve 包 + dev panel 快照，构建后扫描确认不含 holdout / fresh）、batch 提交、轮询、collect。
+- 任务内：沙盒 CLI、任务内 trial 日志（哈希链）、任务内 verifier。
+- 本机 ingest：任务内全部 trial 写入权威 ledger；batch 级 DSR 计数；canonical 重验与不一致标记。
+- planner：按覆盖矩阵为 batch 选格子。
+- 参考 scicomp-foundry 的 authoring factory 与 cloud measure 工具链。
+
+验收：
+- 用假任务结果的集成测试：日志缺失或哈希链断裂的任务，其候选全部作废。
+- 一个 20 任务的真实 batch 跑通，所有 trial 可追溯到任务、模型、镜像 digest；canonical 重验与云端结论不一致的候选被标记。
 
 ## F2 · 前端交互（L）
 
@@ -118,6 +146,7 @@ M0 基础 ──▶ M1 数据 ──▶ M2 因子评估 ──┬──▶ M3 Ag
 - 指令面板（含防泄漏检查提示）。
 - 审批中心；HoldoutRequest 决定页；Review Packet 评审页；Agent 请求回复。
 - SSE 订阅与 query 失效刷新；停滞诊断展示；日报查看。
+- 搜索空间覆盖矩阵视图（数据域 × 变换形态 × 时间尺度），campaign 创建时按格子选择范围。
 - 企业微信通知。
 
 验收：

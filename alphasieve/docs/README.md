@@ -16,12 +16,16 @@
 | [08-progress-and-interaction.md](08-progress-and-interaction.md) | 如何展示进展、人与 agent 如何交互、审批流、通知 |
 | [09-milestones.md](09-milestones.md) | 里程碑、任务分解、验收标准、依赖顺序 |
 | [10-decisions.md](10-decisions.md) | 关键决策记录（ADR）与待定问题 |
+| [11-factor-search-space.md](11-factor-search-space.md) | agent 挖因子的空间怎么给定：表达能力分级、派生变量库、覆盖坐标、SearchSpace 配置 |
+| [12-testing.md](12-testing.md) | 系统测试 T0–T8：不变量测试、数据验证、金标对照、gate 校准、红队测试 |
+| [13-backtest.md](13-backtest.md) | 回测 B1–B5：成交规则、成本模型、组合构建、滚动样本外、敏感性检查 |
+| [14-agent-execution.md](14-agent-execution.md) | 用哪种 agent 执行：本机 Claude Code / Codex、Cursor、Nexus Cloud 的分工与规则 |
 
 ## 阅读顺序
 
 - 第一次了解项目：01 → 02 → 09。
-- 开始写后端：02 → 03 → 04 → 06。
-- 开始写 agent 循环：04 → 05 → 06。
+- 开始写后端：02 → 03 → 04 → 11 → 13 → 06 → 12。
+- 开始写 agent 循环：04 → 11 → 05 → 14 → 06。
 - 开始写前端：01 → 07 → 08 → 06。
 
 ## 术语

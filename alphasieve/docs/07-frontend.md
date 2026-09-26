@@ -29,6 +29,8 @@ Campaigns
 因子库 Factors
   ├─ 列表（按状态 / 族 / campaign 筛选）
   └─ 详情：定义 | 证据 | 边际贡献 | 相关性 | 谱系 | trial 历史 | 评审
+搜索空间 Coverage
+  └─ 覆盖矩阵（数据域 × 变换形态 × 时间尺度）、SearchSpace 版本
 审批中心 Inbox
   └─ HoldoutRequest | Review Packet | Agent 请求 | 告警
 Review Packet（评审页）
@@ -122,6 +124,7 @@ L3     3 ▏ (批次 gate 未运行)
 
 ### 4.6 其他页面
 
+- **搜索空间**：覆盖矩阵热力图，每格显示尝试数 / L2 通过数 / 入库数 / 禁区标记，可按时间范围与 campaign 筛选；点格子进入该格的候选列表；创建 campaign 时在此选择格子范围（定义见 [11-factor-search-space.md](11-factor-search-space.md)）。
 - **Ledger**：只读表格，按 campaign、因子、证据等级、gate 结果、创建者筛选；可导出 CSV；显示哈希链校验状态。
 - **策略**（M6）：StrategySpec 列表；回测净值与基准、超额、跟踪误差、信息比率、换手、行业偏离。
 - **前瞻**（M7）：cohort 列表；每个 cohort 自锁定日以来的累计超额；机器 / 人 / AI 信号池对比；regime 信任门状态。

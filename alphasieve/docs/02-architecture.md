@@ -42,7 +42,8 @@
 | backtest | `src/alphasieve/backtest/` | A 股日频截面执行模拟、指数增强组合构建 |
 | models | `src/alphasieve/models/`（M6 新增） | 固定配置模型、滚动重训、参考模型组 |
 | campaigns | `src/alphasieve/campaigns/`（M3 新增） | Campaign、Turn、Directive、预算与停止条件 |
-| agent | `src/alphasieve/agent/`（M3 新增） | agent 适配器（Claude Code / Codex）、prompt 组装、transcript 解析 |
+| agent | `src/alphasieve/agent/`（M3 新增） | agent 执行器抽象（本机 Claude Code / Codex，M5 起 Nexus Cloud）、prompt 组装、transcript 解析，见 [14-agent-execution.md](14-agent-execution.md) |
+| search_space | `src/alphasieve/search_space/`（M2 新增） | SearchSpace 配置、派生变量库、覆盖坐标与落格，见 [11-factor-search-space.md](11-factor-search-space.md) |
 | memory | `src/alphasieve/memory/`（M3 新增） | 经验记忆：成功模板、禁区、洞察；冻结与解冻 |
 | review | `src/alphasieve/review/`（M4 新增） | Review Packet 生成、审批记录、PromotionRecord |
 | fresh | `src/alphasieve/fresh/`（M7 新增） | fresh cohort、前瞻分池、regime 信任门 |
@@ -65,16 +66,25 @@
 
 ## 4. 存储
 
+存储分为 git、本地热存储、Ceph、taijifs 四层，存放位置与理由见 [03-data.md](03-data.md) §8。下面是本地热存储根目录（`ALPHASIEVE_HOT_ROOT`，生产环境为 `/data/alphasieve/`）的结构；artifact 与 transcript 写入 Ceph（`ALPHASIEVE_STORE_ROOT`）。
+
 ```text
-alphasieve/
-  state/alphasieve.db        SQLite：元数据、ledger、任务表、事件、审批（WAL 模式）
+<HOT_ROOT>/
+  state/alphasieve.db        SQLite：元数据、ledger、任务表、事件、审批（WAL 模式；每小时备份到 Ceph）
   data/
-    raw/tushare/<api>/        原始拉取结果（Parquet）
+    raw/tushare/<api>/        原始拉取的本地工作副本（权威副本在 Ceph）
     panel/dev/                开发窗口 panel（agent 可经 CLI 访问）
     panel/holdout/            留出区间 panel（仅 system 角色可读）
     panel/fresh/              前瞻区间 panel（仅 system 角色可读）
-  artifacts/<artifact_id>/    内容寻址的运行产物：manifest.json、metrics.json、图表、日志
+  cache/factors/              因子值缓存（库成员与 robust_passed 候选）
   workspaces/<campaign_id>/   每个 campaign 一个 git 仓库，agent 的工作目录
+
+<STORE_ROOT>/（Ceph）
+  raw/                        原始数据权威副本
+  artifacts/<artifact_id>/    内容寻址的运行产物：manifest.json、metrics.json、图表、日志
+  artifacts/turns/            agent transcript
+  backups/state/              SQLite 备份
+  reports/                    日报与批次报告
 ```
 
 - **SQLite 表**（主要）：`research_questions`、`data_contracts`、`factor_specs`、`trials`（ledger）、`campaigns`、`turns`、`directives`、`shortlists`、`holdout_requests`、`review_packets`、`decisions`、`promotion_records`、`strategy_specs`、`fresh_cohorts`、`memory_items`、`events`、`jobs`、`users`。
@@ -90,10 +100,11 @@ alphasieve/
 | 数据处理 | pandas + pyarrow，重查询用 DuckDB | Parquet 原生；DuckDB 适合在 panel 与 artifact 上做即席查询 |
 | schema | pydantic v2 | 契约校验与 JSON Schema 导出（前端类型也由此生成） |
 | 模型 | LightGBM / XGBoost / scikit-learn（ridge） | 固定配置基线与参考模型组 |
+| 回测 | 自研向量化（B1、B2）+ 自研逐日模拟器（B3–B5） | A 股规则固定，自研便于写不变量测试；用 Qlib 回测交叉验证，见 [13-backtest.md](13-backtest.md) |
 | 统计 gate | `deflated-sharpe` + 自研 | DSR、BH-FDR |
 | API | FastAPI + uvicorn | 与核心同语言；自动 OpenAPI |
 | 前端 | React + TypeScript + Vite；TanStack Query / Router；ECharts；Tailwind + shadcn/ui | 见 [07-frontend.md](07-frontend.md) |
-| agent runtime | Claude Code CLI、Codex CLI | 不自研，见 [05-agent-harness.md](05-agent-harness.md) |
+| agent runtime | 本机 Claude Code CLI、Codex CLI；规模化阶段 Nexus Cloud | 不自研，见 [05-agent-harness.md](05-agent-harness.md)、[14-agent-execution.md](14-agent-execution.md) |
 | 依赖管理 | uv（Python）、pnpm（前端） | |
 
 ## 6. 安全与隔离边界

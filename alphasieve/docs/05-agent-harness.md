@@ -16,6 +16,8 @@ class AgentAdapter(Protocol):
 
 `TurnContext` 包含 workspace 路径、prompt、允许的工具、超时、模型；`TurnResult` 包含退出状态、transcript 路径、token 与费用、agent 自述的摘要。
 
+执行后端的选型（本机 Claude Code / Codex、Cursor、Nexus Cloud）与上云时的 ledger 规则见 [14-agent-execution.md](14-agent-execution.md)；agent 可探索的因子空间见 [11-factor-search-space.md](11-factor-search-space.md)。
+
 ## 2. Campaign Workspace
 
 每个 campaign 在 `workspaces/<campaign_id>/` 下有一个独立 git 仓库，是 agent 的 cwd：

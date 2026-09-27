@@ -287,3 +287,22 @@ def cmd_orchestrator_report(args, ctx) -> CommandResult:
     from alphasieve.agents.orchestrator import write_report
 
     return CommandResult(data={"report": write_report(ctx.settings, ctx.conn, args.campaign)})
+
+
+def _configure_search(p):
+    _campaign_arg(p, required=True)
+    p.add_argument("--trials", type=int, default=100)
+    p.add_argument("--method", default="random", choices=["random", "evolve"])
+    p.add_argument("--population", type=int, default=24)
+    p.add_argument("--concurrency", type=int, default=8)
+    p.add_argument("--seed", type=int, default=0)
+
+
+@command("search run", HUMAN_SYSTEM, configure=_configure_search, needs_store=True,
+         help="programmatic search in a 'program' campaign; evaluations go through the evaluation queue")
+def cmd_search_run(args, ctx) -> CommandResult:
+    from alphasieve.evaluation.service import queue_executor
+    from alphasieve.search.generator import run_search
+
+    return CommandResult(data=run_search(ctx.settings, args.campaign, args.trials, args.method, args.population,
+                                         args.concurrency, args.seed, executor=queue_executor(ctx.settings)))

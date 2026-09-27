@@ -172,3 +172,27 @@ def test_null_simulation_pass_rate_is_low(dev, panel_settings):
     result = null_simulation(dev, load_search_space(panel_settings), policy, {}, {}, n=40, seed=3)
     assert result["n"] == 40
     assert result["l1_pass_rate"] <= 0.15
+
+
+def test_concurrent_registration_allocates_distinct_ids(panel_settings):
+    import threading
+
+    from alphasieve.factors.registry import register
+
+    ids, errors = [], []
+
+    def reg(i):
+        try:
+            local = connect(panel_settings.state_db)
+            spec = FactorSpec(**{**REVERSAL, "name": f"concurrent_{i}", "expression": f"ts_sum(ret_1d, {i + 3})"})
+            ids.append(register(local, spec, f"expr{i}", f"hash{i}", "system")[0])
+            local.close()
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    threads = [threading.Thread(target=reg, args=(i,)) for i in range(12)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert not errors and len(set(ids)) == 12

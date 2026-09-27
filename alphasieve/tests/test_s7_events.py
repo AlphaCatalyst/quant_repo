@@ -96,3 +96,12 @@ def test_programmatic_search_has_its_own_accounting(panel_settings):
     from alphasieve.errors import AlphaSieveError
     with pytest.raises(AlphaSieveError):
         run_search(system, "c-not-prog", trials=1)
+
+
+def test_cli_exposes_new_commands():
+    from alphasieve.cli.main import build_parser
+
+    parser = build_parser()
+    for argv in (["search", "run", "x"], ["factor", "expand", "t.yaml"], ["strategy", "backtest"],
+                 ["evalsvc", "status"], ["data", "sync", "--dataset", "intraday", "--universe", "hs300_2020"]):
+        assert parser.parse_args(argv)

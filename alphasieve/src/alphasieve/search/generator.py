@@ -117,6 +117,8 @@ def run_search(settings, campaign_id: str, trials: int, method: str = "random", 
             return {"expression": expr, "outcome": result.get("outcome"), "icir": icir}
         except AlphaSieveError as exc:
             return {"expression": expr, "error": exc.code}
+        except Exception as exc:  # noqa: BLE001
+            return {"expression": expr, "error": f"{type(exc).__name__}: {str(exc)[:200]}"}
         finally:
             local.close()
 

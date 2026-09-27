@@ -8,28 +8,44 @@ from alphasieve.util import canonical_json, utcnow_iso
 
 def register(conn: sqlite3.Connection, spec: FactorSpec, canonical: str, candidate_hash: str,
              created_by: str) -> tuple[str, int, bool]:
-    """Return (factor_id, version, created). Identical candidates are deduplicated by hash."""
-    existing = conn.execute(
-        "SELECT factor_id, version FROM factor_specs WHERE candidate_hash = ? ORDER BY factor_id, version LIMIT 1",
-        (candidate_hash,),
-    ).fetchone()
-    if existing:
-        return existing["factor_id"], existing["version"], False
-    same_name = conn.execute(
-        "SELECT factor_id, MAX(version) AS v FROM factor_specs WHERE name = ? GROUP BY factor_id", (spec.name,)
-    ).fetchone()
-    if same_name:
-        factor_id, version = same_name["factor_id"], same_name["v"] + 1
-    else:
-        count = conn.execute("SELECT COUNT(DISTINCT factor_id) AS n FROM factor_specs").fetchone()["n"]
-        factor_id, version = f"F-{count + 1:06d}", 1
-    conn.execute(
-        "INSERT INTO factor_specs (factor_id, version, candidate_hash, name, spec_json, canonical_expression, state,"
-        " created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?)",
-        (factor_id, version, candidate_hash, spec.name, canonical_json(spec.model_dump()), canonical, created_by,
-         utcnow_iso()),
-    )
-    return factor_id, version, True
+    """Return (factor_id, version, created). Identical candidates are deduplicated by hash.
+
+    Runs in one write transaction so concurrent evaluations cannot allocate the same id.
+    """
+    own_tx = not conn.in_transaction
+    if own_tx:
+        conn.execute("BEGIN IMMEDIATE")
+    try:
+        existing = conn.execute(
+            "SELECT factor_id, version FROM factor_specs WHERE candidate_hash = ? ORDER BY factor_id, version LIMIT 1",
+            (candidate_hash,),
+        ).fetchone()
+        if existing:
+            result = (existing["factor_id"], existing["version"], False)
+        else:
+            same_name = conn.execute(
+                "SELECT factor_id, MAX(version) AS v FROM factor_specs WHERE name = ? GROUP BY factor_id",
+                (spec.name,),
+            ).fetchone()
+            if same_name:
+                factor_id, version = same_name["factor_id"], same_name["v"] + 1
+            else:
+                count = conn.execute("SELECT COUNT(DISTINCT factor_id) AS n FROM factor_specs").fetchone()["n"]
+                factor_id, version = f"F-{count + 1:06d}", 1
+            conn.execute(
+                "INSERT INTO factor_specs (factor_id, version, candidate_hash, name, spec_json, canonical_expression,"
+                " state, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?)",
+                (factor_id, version, candidate_hash, spec.name, canonical_json(spec.model_dump()), canonical,
+                 created_by, utcnow_iso()),
+            )
+            result = (factor_id, version, True)
+        if own_tx:
+            conn.execute("COMMIT")
+        return result
+    except Exception:
+        if own_tx:
+            conn.execute("ROLLBACK")
+        raise
 
 
 def parse_ref(ref: str) -> tuple[str, int | None]:

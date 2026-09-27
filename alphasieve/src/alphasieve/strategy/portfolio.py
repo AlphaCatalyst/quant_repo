@@ -2,7 +2,8 @@
 
 Per rebalance date: the benchmark is the cap-weighted universe; industry weights stay within ``industry_dev``
 of the benchmark and tilt towards industries with higher average score rank; inside an industry the highest
-scores are held with equal weights capped at ``name_cap``; the move from the previous weights is scaled down so
+scores are held with equal weights (at most ``name_cap`` each), and finally every active weight is kept
+within +-``name_cap`` of the benchmark weight; the move from the previous weights is scaled down so
 one-way turnover stays within ``turnover_cap``. Long only, fully invested.
 """
 
@@ -103,6 +104,21 @@ def enforce_industries(w: np.ndarray, bench: np.ndarray, groups: np.ndarray, dev
     return w
 
 
+def enforce_active_names(w: np.ndarray, bench: np.ndarray, cap: float) -> np.ndarray:
+    """Keep every active weight within +-cap of the benchmark weight (long only)."""
+    lo, hi = np.maximum(bench - cap, 0.0), bench + cap
+    for _ in range(50):
+        w = np.clip(w, lo, hi)
+        gap = 1.0 - w.sum()
+        if abs(gap) < 1e-12:
+            break
+        room = (hi - w) if gap > 0 else (w - lo)
+        if room.sum() <= 0:
+            break
+        w = w + gap * room / room.sum()
+    return w
+
+
 def build_weights(scores: pd.DataFrame, panel: Panel, rebalance_every: int = 5, industry_dev: float = 0.03,
                   name_cap: float = 0.02, turnover_cap: float = 0.30, size_limit: float = 0.3) -> pd.DataFrame:
     dates, codes = panel.dates, panel.codes
@@ -127,6 +143,7 @@ def build_weights(scores: pd.DataFrame, panel: Panel, rebalance_every: int = 5, 
         w = np.clip(prev + lam * (target - prev), 0, None)
         w = enforce_industries(w / w.sum(), bench, groups, industry_dev)
         w = enforce_size(w, bench, z, size_limit)
+        w = enforce_active_names(w, bench, name_cap)
         rows[dates[t]] = w
         prev = w
     return pd.DataFrame.from_dict(rows, orient="index", columns=codes)
@@ -146,7 +163,9 @@ def weight_diagnostics(weights: pd.DataFrame, panel: Panel, turnover_cap: float 
     active_size = ((weights - bench) * size_z.fillna(0)).sum(axis=1)
     raw_turnover = turnover
     return {"rebalances": int(len(weights)), "names_held_mean": float((weights > 0).sum(axis=1).mean()),
-            "max_name_weight": float(weights.max().max()), "max_industry_deviation": float(ind_dev),
+            "max_name_weight": float(weights.max().max()),
+            "max_active_name_weight": float((weights - bench).abs().max().max()),
+            "max_industry_deviation": float(ind_dev),
             "one_way_turnover_mean": float(turnover.mean()) if len(turnover) else 0.0,
             "one_way_turnover_max": float(turnover.max()) if len(turnover) else 0.0,
             "active_size_exposure_mean": float(active_size.mean()),

@@ -103,6 +103,7 @@
   - GPT-6 Sol 从第 12 个 turn 起所有请求都被 OpenAI 以“prompt flagged as potentially violating our usage policy”拒绝。独立探测时连“Reply with the single word ok.”也被拒绝，说明是账号或通道层面的拦截，与 campaign 内容无关。
   - 连续 3 个失败 turn 后，campaign 按设计自动暂停。
 - 尚未结题：没有做 L3，也没有生成 HoldoutRequest。
+- 15:30 探测时 GPT-6 Sol 已恢复，campaign 已恢复运行（仅用 Codex）。第一次恢复时发现连续失败计数在恢复后没有清零，orchestrator 一启动就又暂停了；已修复并加了测试，现在恢复运行后从零开始计数。
 
 ## 7. 操作手册
 

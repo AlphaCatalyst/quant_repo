@@ -141,9 +141,14 @@ def build_weights(scores: pd.DataFrame, panel: Panel, rebalance_every: int = 5, 
         oneway = 0.5 * np.abs(target - prev).sum()
         lam = 1.0 if prev.sum() == 0 or oneway <= turnover_cap else turnover_cap / oneway
         w = np.clip(prev + lam * (target - prev), 0, None)
-        w = enforce_industries(w / w.sum(), bench, groups, industry_dev)
-        w = enforce_size(w, bench, z, size_limit)
-        w = enforce_active_names(w, bench, name_cap)
+        w = w / w.sum()
+        for _ in range(8):
+            w = enforce_industries(w, bench, groups, industry_dev)
+            w = enforce_size(w, bench, z, size_limit)
+            w = enforce_active_names(w, bench, name_cap)
+            dev = max(abs(w[groups == g].sum() - bench[groups == g].sum()) for g in np.unique(groups))
+            if dev <= industry_dev + 1e-6:
+                break
         rows[dates[t]] = w
         prev = w
     return pd.DataFrame.from_dict(rows, orient="index", columns=codes)

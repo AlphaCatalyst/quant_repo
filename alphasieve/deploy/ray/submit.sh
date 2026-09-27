@@ -3,6 +3,8 @@
 # Usage: deploy/ray/submit.sh <job-name> <alphasieve args...>
 # The code is uploaded with the job; data and outputs live under ALPHASIEVE_REMOTE_ROOT on taijifs.
 # Only the dev panel may exist under the remote root: holdout and fresh data never leave the local host.
+# RunLab tracking: put WANDB_API_KEY=... in <remote root>/secrets/runlab.env (chmod 600); it is read on the node
+# and never passed through Ray job arguments, which are visible on the shared dashboard.
 set -euo pipefail
 here="$(cd "$(dirname "$0")/../.." && pwd)"
 name="${1:?job name}"; shift
@@ -19,7 +21,12 @@ script=$(cat <<EOF
 set -euo pipefail
 export UV_INDEX_URL=https://mirrors.tencent.com/pypi/simple/ UV_LINK_MODE=copy
 venv=/tmp/alphasieve-venv-\$(sha256sum pyproject.toml | cut -c1-12)
-[ -x "\$venv/bin/alphasieve" ] || { uv venv -q -p 3.12 "\$venv" && uv pip install -q --python "\$venv/bin/python" -e . ; }
+[ -x "\$venv/bin/alphasieve" ] || { uv venv -q -p 3.12 "\$venv" && uv pip install -q --python "\$venv/bin/python" -e ".[tracking]" ; }
+if [ -r ${remote_root}/secrets/runlab.env ]; then
+  set -a; . ${remote_root}/secrets/runlab.env; set +a
+  export ALPHASIEVE_TRACKING=runlab WANDB_BASE_URL=\${WANDB_BASE_URL:-http://runlab.woa.com} WANDB_SILENT=true
+fi
+export ALPHASIEVE_JOB_ID=${job_id}
 export ALPHASIEVE_ROLE=system ALPHASIEVE_USER=ray:${job_id} ALPHASIEVE_STORE_MOUNT=
 export ALPHASIEVE_HOT_ROOT=${remote_root}/hot ALPHASIEVE_STORE_ROOT=${remote_root}/store
 if [ -e "\$ALPHASIEVE_HOT_ROOT/data/panel/holdout" ] || [ -e "\$ALPHASIEVE_HOT_ROOT/data/panel/fresh" ]; then

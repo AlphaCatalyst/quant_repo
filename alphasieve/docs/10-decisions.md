@@ -107,6 +107,12 @@ verifier 本身的正确性要靠测试证明；gate 阈值用零假设模拟与
 - 本机写入 taijifs 较慢（700MB 约 7 分钟），大文件尽量在平台一侧生成。
 - 隔离：holdout 与 fresh 数据不离开本机。提交脚本发现远端有 holdout 或 fresh panel 就拒绝运行。平台任务的状态库与本机主 ledger 是分开的：平台上做的评估不计入 campaign 的 trial，也不能代替本机评估入口的记账。以后如果要把平台评估纳入 campaign，需要先定义合并规则。
 - 适用范围：门槛校准与随机因子模拟、模型层滚动训练、M5 广度搜索。agent 循环仍然在本机运行。
+- 实验追踪（RunLab，`http://runlab.woa.com`，org=taiji）：
+  - 实测 RunLab 兼容 WandB 协议（wandb SDK 加 `/graphql`，太极账号登录，API Key 在页面菜单“API Key”中生成）；
+  - 平台节点用 http 能访问，https 连不上；本机访问返回 403，因此只有平台任务往 RunLab 写数据。
+  - 平台任务里预置的是别人任务的 SwanLab 配置（项目 `lzn-debug`，指向 `train-exp.taiji.woa.com`），没有任何 RunLab / WandB 配置，也不使用这份 SwanLab 配置。
+  - 接入方式：把 `WANDB_API_KEY=...` 写进 `/taijifs_zw35/r2/felixjjiang/alphasieve/secrets/runlab.env`（目录权限 700）。提交脚本在节点上读取这个文件，开启 `ALPHASIEVE_TRACKING=runlab`；密钥不走 Ray 任务参数，因为共享 dashboard 上的任务参数所有人都能看到。
+  - 每个平台任务结束后记一个 run：名字是任务号，config 为命令参数与代码版本，summary 为结果中的全部数值。holdout、评审、campaign 相关命令和 agent 角色一律不记。
 
 ## 待定问题
 

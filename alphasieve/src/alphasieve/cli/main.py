@@ -75,6 +75,15 @@ def main(argv: list[str] | None = None) -> int:
             pass
         finally:
             ctx.close()
+    if ctx is not None and error is None:
+        try:
+            from alphasieve import tracking
+
+            run_id = tracking.record(name, _audit_args(args), out, ctx.settings)
+            if run_id:
+                out["warnings"] = [*out["warnings"], f"tracked on RunLab as run {run_id}"]
+        except Exception as exc:  # noqa: BLE001
+            out["warnings"] = [*out["warnings"], f"RunLab tracking failed: {type(exc).__name__}: {exc}"]
     if getattr(args, "json", False):
         print(json.dumps(out, ensure_ascii=False, default=str))
     else:

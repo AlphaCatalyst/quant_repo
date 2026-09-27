@@ -98,3 +98,18 @@ planner（本机）：按覆盖矩阵选 K 个格子，生成 K 个 MinerTask
 - 参考 scicomp-foundry 的实测：不同模型在同一任务上的强弱并不一致，单模型会同时高估和低估难度；因此研究循环中保留至少两种模型与两种 harness。
 - 默认模型、接入方式与试点费用约束见 [10-decisions.md](10-decisions.md) D-20：主力 Codex + GPT-6 Sol，第二通道 Claude Code + Claude Opus 5（经 AIHub）。
 - 模型切换不改变任何评估逻辑；trial 记录模型信息，用于事后分析“哪种模型提出的候选更能通过 holdout”。
+
+## 平台批量任务（D-23）
+
+用于扩大试验规模：只用 dev 数据，不涉及 holdout 与 agent。
+
+```bash
+cd /data/codebase/quant_repo/alphasieve
+deploy/ray/submit.sh calib gate calibrate --random 2000     # 任意 alphasieve 命令
+ls /taijifs_zw35/r2/felixjjiang/alphasieve/runs/             # 每个任务的 result.json
+ray job list --address http://28.83.35.117:8081              # 任务状态；日志用 ray job logs <job_id>
+```
+
+- 代码随任务上传；平台上按 `pyproject.toml` 建环境，同一依赖版本会复用。
+- 数据在 `/taijifs_zw35/r2/felixjjiang/alphasieve/hot/`，目前只有 dev panel；平台任务有自己的状态库，与本机主 ledger 分开。
+- 放了 RunLab 密钥文件后，每个任务自动在 RunLab 记一个 run，见 D-23。

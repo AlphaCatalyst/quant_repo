@@ -1,4 +1,5 @@
 import json
+import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -8,6 +9,8 @@ import pandas as pd
 from alphasieve.config import Settings
 from alphasieve.errors import AlphaSieveError, not_found, permission_denied
 
+# float64 by default (exact parity with the v1 evaluation); float32 halves the wide-table cache of a worker.
+WIDE_DTYPE = np.float32 if os.environ.get("ALPHASIEVE_WIDE_DTYPE") == "float32" else np.float64
 TIER_READERS = {"dev": ("agent", "human", "system"), "holdout": ("system",), "fresh": ("system",)}
 
 
@@ -51,7 +54,7 @@ class Panel:
             column = self.long[field]
             numeric = pd.api.types.is_numeric_dtype(column) or pd.api.types.is_bool_dtype(column)
             if numeric and self._unique:
-                grid = np.full((len(self.dates), len(self.codes)), np.nan)
+                grid = np.full((len(self.dates), len(self.codes)), np.nan, dtype=WIDE_DTYPE)
                 grid[self._row, self._col] = column.to_numpy(dtype=float, na_value=np.nan)
                 self._wide[field] = pd.DataFrame(grid, index=self.dates, columns=self.codes)
             else:

@@ -139,3 +139,22 @@ def test_fast_wide_matches_unstack(dev):
             series = series.astype(float)
         ref = series.unstack("code").reindex(index=dev.dates, columns=dev.codes)
         pd.testing.assert_frame_equal(dev.wide(field), ref.astype(float), check_names=False)
+
+
+def test_float32_wide_tables_stay_close(panel_settings, monkeypatch):
+    import alphasieve.data.access as access
+
+    def metrics_with(dtype):
+        monkeypatch.setattr(access, "WIDE_DTYPE", dtype)
+        access._read.cache_clear()
+        panel = load_panel(panel_settings, "dev")
+        factor, inp = _inputs(panel, panel_settings, "ts_sum(excess_ret_1d, 3)")
+        m = core.l1_metrics(factor, inp, {})
+        return panel.wide("close"), m
+
+    close64, m64 = metrics_with(np.float64)
+    close32, m32 = metrics_with(np.float32)
+    assert close32.dtypes.iloc[0] == np.float32 and close64.dtypes.iloc[0] == np.float64
+    assert close32.to_numpy().nbytes == close64.to_numpy().nbytes // 2
+    assert m32["ic_mean"] == pytest.approx(m64["ic_mean"], abs=1e-4)
+    assert m32["icir"] == pytest.approx(m64["icir"], abs=1e-3)

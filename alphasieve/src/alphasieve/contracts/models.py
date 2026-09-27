@@ -79,6 +79,7 @@ class TrialLedgerEntry(_Model):
     outcome: str | None = None
     created_by: Role
     artifact_id: str | None = None
+    turn_id: str | None = None   # not part of the hash chain (added after M2)
 
 
 class Budgets(_Model):
@@ -112,6 +113,7 @@ class Campaign(_Model):
     budgets: Budgets = Field(default_factory=Budgets)
     stop: StopConditions = Field(default_factory=StopConditions)
     agents: list[AgentSlot]
+    lanes: int = Field(1, ge=1, le=16)   # concurrent turns per round; focus cells are dealt across lanes
 
 
 MODELS = (ResearchQuestion, DataContract, FactorSpec, TrialLedgerEntry, Campaign, Cell)

@@ -157,7 +157,7 @@ def evaluate_spec(settings: Settings, conn: sqlite3.Connection, spec: FactorSpec
     factor_id, version, created = register(conn, spec, canonical, candidate_hash, role)
     base = dict(trial_id=trial_id, campaign_id=campaign_id, factor_id=factor_id, version=version,
                 candidate_hash=candidate_hash, evidence_tier=tier, gate_policy_version=policy["version"],
-                search_space_version=space.version_tag, created_by=role)
+                search_space_version=space.version_tag, created_by=role, turn_id=settings.turn)
     append_trial(conn, TrialLedgerEntry(record_kind="started", **base))
     result = {"trial_id": trial_id, "factor_id": factor_id, "version": version, "candidate_hash": candidate_hash,
               "canonical": canonical, "evidence_tier": tier, "gates": {}, "window": None,

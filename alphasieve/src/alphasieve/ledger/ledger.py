@@ -51,6 +51,7 @@ def append_trial(conn: sqlite3.Connection, entry: TrialLedgerEntry) -> dict:
         "created_by": entry.created_by,
         "artifact_id": entry.artifact_id,
         "created_at": utcnow_iso(),
+        "turn_id": entry.turn_id,
     }
     conn.execute("BEGIN IMMEDIATE")
     try:

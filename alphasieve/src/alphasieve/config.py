@@ -25,7 +25,8 @@ class Settings:
     role: str
     user: str
     campaign: str | None = None
-    trial_ceiling: int | None = None
+    turn: str | None = None
+    turn_allowance: int | None = None
 
     @property
     def state_db(self) -> Path:
@@ -88,7 +89,8 @@ def get_settings(role: str | None = None) -> Settings:
         role=role,
         user=os.environ.get("ALPHASIEVE_USER", getpass.getuser()),
         campaign=os.environ.get("ALPHASIEVE_CAMPAIGN") or None,
-        trial_ceiling=int(ceiling) if (ceiling := os.environ.get("ALPHASIEVE_TRIAL_CEILING")) else None,
+        turn=os.environ.get("ALPHASIEVE_TURN") or None,
+        turn_allowance=int(a) if (a := os.environ.get("ALPHASIEVE_TURN_ALLOWANCE")) else None,
     )
 
 

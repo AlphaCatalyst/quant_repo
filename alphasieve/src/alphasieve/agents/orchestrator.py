@@ -4,7 +4,9 @@ import fcntl
 import json
 import math
 import re
+import threading
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import UTC, datetime
 
@@ -41,22 +43,8 @@ def parse_insights(summary: str) -> list[str]:
     return [ln for ln in lines if ln][:MAX_INSIGHTS_PER_TURN]
 
 
-def _max_seq(conn) -> int:
-    return conn.execute("SELECT COALESCE(MAX(seq), 0) FROM trials").fetchone()[0]
-
-
 def _max_event(conn) -> int:
     return conn.execute("SELECT COALESCE(MAX(seq), 0) FROM events").fetchone()[0]
-
-
-def _new_robust(conn, campaign_id: str, since_seq: int) -> int:
-    before = {r[0] for r in conn.execute(
-        "SELECT candidate_hash FROM trials WHERE campaign_id = ? AND seq <= ? AND outcome = 'robust_passed'",
-        (campaign_id, since_seq))}
-    after = {r[0] for r in conn.execute(
-        "SELECT candidate_hash FROM trials WHERE campaign_id = ? AND seq > ? AND outcome = 'robust_passed'"
-        " AND evidence_tier = 'dev'", (campaign_id, since_seq))}
-    return len(after - before)
 
 
 def write_report(settings: Settings, conn, campaign_id: str) -> str:
@@ -87,30 +75,67 @@ def write_report(settings: Settings, conn, campaign_id: str) -> str:
     return str(out_dir / f"daily-{today}.md")
 
 
-def run_turn(settings: Settings, conn, campaign_id: str, executor_for: Callable) -> dict:
+def _turn_trials(conn, turn_id: str) -> int:
+    return conn.execute("SELECT COUNT(*) FROM trials WHERE turn_id = ? AND record_kind IN ('completed', 'failed')",
+                        (turn_id,)).fetchone()[0]
+
+
+def _turn_new_robust(conn, campaign_id: str, turn_id: str) -> int:
+    mine = {r[0] for r in conn.execute("SELECT DISTINCT candidate_hash FROM trials WHERE turn_id = ?"
+                                        " AND outcome = 'robust_passed'", (turn_id,))}
+    earlier = {r[0] for r in conn.execute(
+        "SELECT DISTINCT candidate_hash FROM trials WHERE campaign_id = ? AND outcome = 'robust_passed'"
+        " AND (turn_id IS NULL OR turn_id != ?) AND seq < (SELECT COALESCE(MIN(seq), 1e18) FROM trials"
+        " WHERE turn_id = ?)", (campaign_id, turn_id, turn_id))}
+    return len(mine - earlier)
+
+
+def plan_round(conn, campaign_id: str, max_new: int | None = None) -> list[dict]:
     campaign = service.get_campaign(conn, campaign_id)
     spec = campaign["spec"]
     budget = stats.budget_status(conn, campaign_id)
-    index = budget["turns"]["used"] + 1
+    remaining_turns = budget["turns"]["budget"] - budget["turns"]["used"]
+    remaining_trials = budget["trials"]["budget"] - service.started_trials(conn, campaign_id)
+    lanes = max(1, min(spec.lanes, remaining_turns, max_new if max_new is not None else spec.lanes))
     disabled = campaign["stats"].get("disabled_agents", {})
     available = [a for a in spec.agents if a.harness not in disabled]
-    slot = available[(index - 1) % len(available)]
-    allowance = turn_allowance(budget)
+    allowance = max(1, min(turn_allowance(budget), remaining_trials // lanes if lanes > 1 else remaining_trials))
+    plans = []
+    for k in range(lanes):
+        index = budget["turns"]["used"] + 1 + k
+        cells = spec.cells[k::lanes] if spec.lanes > 1 else spec.cells
+        plans.append({"index": index, "slot": available[(index - 1) % len(available)], "allowance": allowance,
+                      "lane": k if spec.lanes > 1 else None, "cells": cells or spec.cells})
+    return plans
+
+
+def run_turn(settings: Settings, campaign_id: str, plan: dict, executor_for: Callable) -> dict:
+    conn = connect(settings.state_db)
+    try:
+        return _run_turn(settings, conn, campaign_id, plan, executor_for)
+    finally:
+        conn.close()
+
+
+def _run_turn(settings: Settings, conn, campaign_id: str, plan: dict, executor_for: Callable) -> dict:
+    campaign = service.get_campaign(conn, campaign_id)
+    spec = campaign["spec"]
+    index, slot, allowance, lane = plan["index"], plan["slot"], plan["allowance"], plan["lane"]
     turn_id = f"{campaign_id}-t{index:03d}"
-    ws = workspace.prepare(settings, conn, campaign_id, index, allowance)
+    ws = workspace.prepare(settings, conn, campaign_id, index, allowance, lane, plan["cells"])
     transcript = settings.transcripts_dir / campaign_id / f"{turn_id}.jsonl"
-    since_seq, since_event = _max_seq(conn), _max_event(conn)
+    since_event = _max_event(conn)
     guard = integrity.snapshot(conn, settings)
-    trials_before = budget["trials"]["used"]
+    trials_before = len(service.completed_trials(conn, campaign_id))
     conn.execute("INSERT INTO turns (turn_id, campaign_id, turn_index, harness, model, status, started_at,"
                  " transcript_path, prompt_version, trials_before) VALUES (?, ?, ?, ?, ?, 'running', ?, ?, ?, ?)",
-                 (turn_id, campaign_id, index, slot.harness, slot.model, utcnow_iso(), str(transcript), "v1",
+                 (turn_id, campaign_id, index, slot.harness, slot.model, utcnow_iso(), str(transcript), "v2",
                   trials_before))
     service.consume_directives(conn, campaign_id, turn_id)
     ctx = TurnContext(campaign_id=campaign_id, turn_id=turn_id, turn_index=index, workspace=ws,
                       prompt=PROMPT.format(turn=index, campaign=campaign_id, allowance=allowance), model=slot.model,
                       effort=slot.effort, timeout_s=spec.budgets.turn_minutes * 60, transcript_path=transcript,
-                      trial_ceiling=trials_before + allowance)
+                      trial_allowance=allowance)
     try:
         result: TurnResult = executor_for(slot.harness).run(ctx)
     except Exception as exc:  # noqa: BLE001
@@ -118,9 +143,10 @@ def run_turn(settings: Settings, conn, campaign_id: str, executor_for: Callable)
     findings = integrity.compare(guard, integrity.snapshot(conn, settings))
     findings += integrity.scan_commands(result.commands, result.reads, ws)
     findings += integrity.agent_events_with_other_roles(conn, since_event, turn_id)
+    turn_trials = _turn_trials(conn, turn_id)
     trials_after = len(service.completed_trials(conn, campaign_id))
-    new_robust = _new_robust(conn, campaign_id, since_seq)
-    status = "failed" if result.status in ("failed", "timeout") and trials_after == trials_before else "completed"
+    new_robust = _turn_new_robust(conn, campaign_id, turn_id)
+    status = "failed" if result.status in ("failed", "timeout") and turn_trials == 0 else "completed"
     error = result.error
     if findings:
         status, error = "integrity_violation", "; ".join(findings)[:2000]
@@ -133,19 +159,21 @@ def run_turn(settings: Settings, conn, campaign_id: str, executor_for: Callable)
             memory.add_insight(conn, campaign_id, text, turn_id)
     workspace.commit(ws, f"turn {index} ({slot.harness}/{slot.model}): {status}")
     record_event(conn, settings, "turn.finished", object_type="campaign", object_id=campaign_id,
-                 payload={"turn_id": turn_id, "status": status, "harness_status": result.status,
-                          "trials": trials_after - trials_before, "new_robust": new_robust})
+                 payload={"turn_id": turn_id, "status": status, "harness_status": result.status, "lane": lane,
+                          "trials": turn_trials, "new_robust": new_robust})
     if status == "failed" and result.error and UNAVAILABLE.search(result.error):
-        disabled = {**disabled, slot.harness: result.error[:300]}
+        disabled = {**service.get_campaign(conn, campaign_id)["stats"].get("disabled_agents", {}),
+                    slot.harness: result.error[:300]}
         service.update_stats(conn, campaign_id, disabled_agents=disabled)
         record_event(conn, settings, "agent.disabled", status="error", object_type="campaign", object_id=campaign_id,
                      payload={"harness": slot.harness, "turn_id": turn_id, "error": result.error[:300]})
     if findings:
-        service.set_status(conn, settings, campaign_id, "paused", "integrity violation")
+        if service.get_campaign(conn, campaign_id)["status"] == "running":
+            service.set_status(conn, settings, campaign_id, "paused", "integrity violation")
         record_event(conn, settings, "integrity.violation", status="error", object_type="campaign",
                      object_id=campaign_id, payload={"turn_id": turn_id, "findings": findings[:20]})
-    return {"turn_id": turn_id, "status": status, "harness_status": result.status,
-            "trials": trials_after - trials_before, "new_robust": new_robust, "error": error}
+    return {"turn_id": turn_id, "status": status, "harness_status": result.status, "lane": lane,
+            "trials": turn_trials, "new_robust": new_robust, "error": error}
 
 
 def run_campaign(settings: Settings, campaign_id: str, max_turns: int | None = None,
@@ -159,11 +187,13 @@ def run_campaign(settings: Settings, campaign_id: str, max_turns: int | None = N
     except BlockingIOError:
         raise AlphaSieveError("CONFLICT", f"an orchestrator is already running campaign {campaign_id}") from None
     executors: dict[str, object] = {}
+    executors_lock = threading.Lock()
 
     def default_executor(harness: str):
-        if harness not in executors:
-            executors[harness] = make_executor(settings, harness)
-        return executors[harness]
+        with executors_lock:
+            if harness not in executors:
+                executors[harness] = make_executor(settings, harness)
+            return executors[harness]
 
     executor_for = executor_for or default_executor
     conn = connect(settings.state_db)
@@ -197,7 +227,12 @@ def run_campaign(settings: Settings, campaign_id: str, max_turns: int | None = N
             if max_turns is not None and len(turns) >= max_turns:
                 outcome = {"stopped": "max_turns for this run reached"}
                 break
-            turns.append(run_turn(settings, conn, campaign_id, executor_for))
+            plans = plan_round(conn, campaign_id, None if max_turns is None else max_turns - len(turns))
+            if len(plans) == 1:
+                turns.append(run_turn(settings, campaign_id, plans[0], executor_for))
+            else:
+                with ThreadPoolExecutor(max_workers=len(plans)) as pool:
+                    turns += list(pool.map(lambda pl: run_turn(settings, campaign_id, pl, executor_for), plans))
             write_report(settings, conn, campaign_id)
         write_report(settings, conn, campaign_id)
         return {"campaign_id": campaign_id, "turns": turns, "outcome": json.loads(json.dumps(outcome, default=str))}

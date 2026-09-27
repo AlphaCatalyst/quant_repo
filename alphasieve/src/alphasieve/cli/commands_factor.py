@@ -82,6 +82,26 @@ def cmd_factor_eval(args, ctx) -> CommandResult:
     return CommandResult(data=result, artifacts=artifacts, warnings=result["cell"].get("warnings", []), error=error)
 
 
+@command("factor expand", AGENT_HUMAN, configure=_configure_eval, needs_store=True,
+         help="expand a template with a small parameter grid and evaluate every variant (each is a trial)")
+def cmd_factor_expand(args, ctx) -> CommandResult:
+    from alphasieve.evaluation.expand import FactorTemplate, evaluate_template
+    from alphasieve.evaluation.service import queue_executor
+
+    path = Path(args.spec)
+    if not path.exists():
+        raise validation_error(f"template file {args.spec} not found")
+    try:
+        template = FactorTemplate(**yaml.safe_load(path.read_text(encoding="utf-8")))
+    except (yaml.YAMLError, TypeError, ValidationError) as exc:
+        raise validation_error(f"invalid factor template: {exc}") from None
+    campaign_id = args.campaign or ctx.settings.campaign
+    if ctx.settings.role == "agent" and campaign_id != ctx.settings.campaign:
+        raise AlphaSieveError("PERMISSION_DENIED", "agent may only evaluate inside its assigned campaign")
+    result = evaluate_template(ctx.settings, ctx.conn, template, campaign_id, executor=queue_executor(ctx.settings))
+    return CommandResult(data=result)
+
+
 def _configure_show(p):
     p.add_argument("ref", help="factor id, optionally with @version")
 

@@ -119,12 +119,24 @@ def ensure_can_evaluate(conn: sqlite3.Connection, settings: Settings, campaign_i
     spec: Campaign = campaign["spec"]
     if settings.role == "agent" and campaign["status"] != "running":
         raise AlphaSieveError("CONFLICT", f"campaign {campaign_id} is {campaign['status']}, not running")
-    used = len(completed_trials(conn, campaign_id))
+    used = started_trials(conn, campaign_id)
     if used >= spec.budgets.trials:
         raise AlphaSieveError("BUDGET_EXHAUSTED", f"campaign {campaign_id} used its trial budget {spec.budgets.trials}")
-    if settings.role == "agent" and settings.trial_ceiling is not None and used >= settings.trial_ceiling:
-        raise AlphaSieveError("BUDGET_EXHAUSTED", "this turn's trial allowance is used up; summarize and end the turn")
+    if settings.role == "agent" and settings.turn and settings.turn_allowance is not None:
+        if started_trials(conn, campaign_id, settings.turn) >= settings.turn_allowance:
+            raise AlphaSieveError("BUDGET_EXHAUSTED",
+                                  "this turn's trial allowance is used up; summarize and end the turn")
     return spec
+
+
+def started_trials(conn: sqlite3.Connection, campaign_id: str, turn_id: str | None = None) -> int:
+    """Trials begun (including in flight), so concurrent turns cannot overrun a budget."""
+    query = "SELECT COUNT(*) FROM trials WHERE campaign_id = ? AND evidence_tier = 'dev' AND record_kind = 'started'"
+    params: list = [campaign_id]
+    if turn_id is not None:
+        query += " AND turn_id = ?"
+        params.append(turn_id)
+    return conn.execute(query, params).fetchone()[0]
 
 
 def domain_violations(spec: Campaign | None, terminals: set[str], settings: Settings) -> list[str]:

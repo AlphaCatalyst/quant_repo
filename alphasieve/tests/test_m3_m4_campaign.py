@@ -105,10 +105,12 @@ def test_agent_evaluation_constraints(panel_settings, monkeypatch):
     assert exc.value.code == "CONFLICT"
 
 
-def test_trial_ceiling(panel_settings, monkeypatch):
+def test_turn_allowance(panel_settings, monkeypatch):
     start_campaign(panel_settings, campaign_spec("c-ceiling"), monkeypatch)
     conn = connect(panel_settings.state_db)
-    agent = replace(get_settings(), role="agent", trial_ceiling=1)
+    other = replace(get_settings(), role="agent", turn="c-ceiling-t001", turn_allowance=5)
+    evaluate_spec(other, conn, FactorSpec(**VOLATILITY), campaign_id="c-ceiling")
+    agent = replace(get_settings(), role="agent", turn="c-ceiling-t002", turn_allowance=1)
     evaluate_spec(agent, conn, FactorSpec(**REVERSAL), campaign_id="c-ceiling")
     with pytest.raises(AlphaSieveError) as exc:
         evaluate_spec(agent, conn, FactorSpec(**MOMENTUM), campaign_id="c-ceiling")
@@ -310,3 +312,59 @@ def test_unavailable_agent_is_disabled_and_skipped(panel_settings):
     conn = connect(panel_settings.state_db)
     assert "claude" in service.get_campaign(conn, "c-quota")["stats"]["disabled_agents"]
     assert out["outcome"]["concluded"] == "turn_budget_exhausted"
+
+
+def test_parallel_lanes_split_cells_and_allowances(panel_settings):
+    cells = [{"domain": "price", "form": "reversal", "scale": "short"},
+             {"domain": "price", "form": "change_momentum", "scale": "medium"},
+             {"domain": "turnover_liquidity", "form": "level", "scale": "medium"}]
+    spec = campaign_spec("c-lanes", cells=cells, lanes=3, budgets={"trials": 6, "turns": 6})
+    start_campaign(panel_settings, spec)
+    system = as_role(panel_settings, "system")
+    seen = []
+    lane_specs = {0: [REVERSAL, NOISE, VOLATILITY], 1: [MOMENTUM], 2: [TURNOVER]}
+
+    def script(ctx, env, run_cli, result):
+        lane = int(ctx.workspace.name.split("-")[-1])
+        seen.append((lane, ctx.trial_allowance, (ctx.workspace / "brief.md").read_text()))
+        for i, s in enumerate(lane_specs[lane]):
+            path = ctx.workspace / "candidates" / f"l{lane}_{ctx.turn_index}_{i}.yaml"
+            path.write_text(yaml.safe_dump({**s, "name": f"{s['name']}_t{ctx.turn_index}"}))
+            run_cli("factor", "eval", str(path))
+        return "SUMMARY: lane"
+
+    out = orchestrator.run_campaign(system, "c-lanes", max_turns=3,
+                                    executor_for=fake_executors(system, script))
+    assert sorted(t["lane"] for t in out["turns"]) == [0, 1, 2]
+    assert all(allow == 2 for _, allow, _ in seen)
+    brief0 = next(b for lane, _, b in seen if lane == 0)
+    assert "price/reversal/short" in brief0 and "turnover_liquidity/level/medium" not in brief0.split("Focus")[1][:200]
+    by_lane = {t["lane"]: t["trials"] for t in out["turns"]}
+    assert by_lane == {0: 2, 1: 1, 2: 1}
+    conn = connect(panel_settings.state_db)
+    turn_ids = {r[0] for r in conn.execute("SELECT DISTINCT turn_id FROM trials WHERE campaign_id = 'c-lanes'")}
+    assert turn_ids == {t["turn_id"] for t in out["turns"]}
+    assert verify_ledger(conn)["ok"]
+
+
+def test_template_expansion_records_default_and_neighbours(panel_settings, monkeypatch):
+    from alphasieve.evaluation.expand import FactorTemplate, evaluate_template, expand
+
+    tmpl = FactorTemplate(name="rev_excess", expression="ts_sum(excess_ret_1d, {w})", grid={"w": [3, 5, 10]},
+                          hypothesis="reversal", cell={"domain": "price", "form": "reversal", "scale": "short"},
+                          direction=-1)
+    assert [v["expression"] for v in expand(tmpl)] == ["ts_sum(excess_ret_1d, 3)", "ts_sum(excess_ret_1d, 5)",
+                                                       "ts_sum(excess_ret_1d, 10)"]
+    with pytest.raises(AlphaSieveError):
+        expand(tmpl.model_copy(update={"grid": {"w": list(range(3, 40))}}))
+    start_campaign(panel_settings, campaign_spec("c-expand"), monkeypatch)
+    conn = connect(panel_settings.state_db)
+    agent = replace(get_settings(), role="agent")
+    out = evaluate_template(agent, conn, tmpl, "c-expand")
+    assert out["variants"] == 3 and len(out["results"]) == 3
+    default_id = out["default_factor"]
+    specs = [json.loads(r["spec_json"]) for r in conn.execute(
+        "SELECT spec_json FROM factor_specs WHERE name LIKE 'rev_excess_%' ORDER BY created_at")]
+    assert specs[0]["params_source"] == "default"
+    assert all(s["params_source"] == "neighborhood" and s["neighborhood_of"] == default_id for s in specs[1:])
+    assert len(service.completed_trials(conn, "c-expand")) == 3

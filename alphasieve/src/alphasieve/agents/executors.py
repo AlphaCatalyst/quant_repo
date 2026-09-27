@@ -32,7 +32,7 @@ class TurnContext:
     effort: str | None
     timeout_s: int
     transcript_path: Path
-    trial_ceiling: int
+    trial_allowance: int
 
 
 @dataclass
@@ -65,7 +65,7 @@ def agent_env(settings: Settings, ctx: TurnContext, user: str) -> dict[str, str]
         "ALPHASIEVE_ROLE": "agent",
         "ALPHASIEVE_USER": user,
         "ALPHASIEVE_CAMPAIGN": ctx.campaign_id,
-        "ALPHASIEVE_TRIAL_CEILING": str(ctx.trial_ceiling),
+        "ALPHASIEVE_TURN_ALLOWANCE": str(ctx.trial_allowance),
         "ALPHASIEVE_TURN": ctx.turn_id,
         "ALPHASIEVE_HOT_ROOT": str(settings.hot_root),
         "ALPHASIEVE_STORE_ROOT": str(settings.store_root),

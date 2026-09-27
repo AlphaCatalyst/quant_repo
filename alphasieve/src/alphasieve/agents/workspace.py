@@ -36,7 +36,7 @@ def render_program(settings: Settings, horizon: int) -> str:
     return text
 
 
-def render_brief(conn, campaign_id: str, turn_index: int, turn_allowance: int) -> str:
+def render_brief(conn, campaign_id: str, turn_index: int, turn_allowance: int, cells=None, lane=None) -> str:
     campaign = service.get_campaign(conn, campaign_id)
     spec = campaign["spec"]
     b = stats.budget_status(conn, campaign_id)
@@ -47,7 +47,10 @@ def render_brief(conn, campaign_id: str, turn_index: int, turn_allowance: int) -
         f"Campaign: {spec.campaign_id} - {spec.title}", "", f"Question: {spec.question}", "",
         f"- Universe: {spec.universe}; prediction horizon: {spec.horizon} trading days",
         f"- Allowed domains: {', '.join(spec.domains)}",
-        "- Focus cells: " + "; ".join(f"{c.domain}/{c.form}/{c.scale}" for c in spec.cells),
+        "- Focus cells" + (f" for your lane ({lane})" if lane is not None else "") + ": "
+        + "; ".join(f"{c.domain}/{c.form}/{c.scale}" for c in (cells or spec.cells)),
+        *([f"- Other lanes of this campaign run in parallel on the remaining cells; stay in yours ({spec.lanes}"
+           " lanes)."] if lane is not None else []),
         f"- Trials used: {b['trials']['used']} of {b['trials']['budget']} (remaining {remaining})",
         f"- This turn's allowance: at most {min(turn_allowance, remaining)} evaluations",
         f"- Turns used: {b['turns']['used']} of {b['turns']['budget']}; turns without a new L2 pass:"
@@ -88,8 +91,11 @@ def _git(ws: Path, *args: str) -> subprocess.CompletedProcess:
     return subprocess.run(["git", "-C", str(ws), *args], capture_output=True, text=True, env=env, check=False)
 
 
-def prepare(settings: Settings, conn, campaign_id: str, turn_index: int, turn_allowance: int) -> Path:
+def prepare(settings: Settings, conn, campaign_id: str, turn_index: int, turn_allowance: int,
+            lane: int | None = None, cells=None) -> Path:
     ws = settings.workspaces_dir / campaign_id
+    if lane is not None:
+        ws = ws / f"lane-{lane}"
     for sub in ("candidates", "notes", "reports"):
         (ws / sub).mkdir(parents=True, exist_ok=True)
     if not (ws / ".git").exists():
@@ -98,7 +104,7 @@ def prepare(settings: Settings, conn, campaign_id: str, turn_index: int, turn_al
     spec = service.get_campaign(conn, campaign_id)["spec"]
     files = {
         "program.md": render_program(settings, spec.horizon).replace("{turn}", str(turn_index)),
-        "brief.md": render_brief(conn, campaign_id, turn_index, turn_allowance),
+        "brief.md": render_brief(conn, campaign_id, turn_index, turn_allowance, cells, lane),
         "memory.md": memory.render(conn, campaign_id),
         "directives.md": render_directives(conn, campaign_id),
     }

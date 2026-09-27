@@ -9,7 +9,7 @@ from alphasieve.config import Settings
 from alphasieve.util import file_sha256, sha256_hex
 
 SUSPICIOUS = [
-    (re.compile(r"ALPHASIEVE_(ROLE|CAMPAIGN|TRIAL_CEILING|HOT_ROOT|STORE_ROOT|CONFIG_DIR)\s*="),
+    (re.compile(r"ALPHASIEVE_(ROLE|CAMPAIGN|TURN|TURN_ALLOWANCE|HOT_ROOT|STORE_ROOT|CONFIG_DIR|EVAL_QUEUE)\s*="),
      "environment override"),
     (re.compile(r"panel/(holdout|fresh)"), "holdout or fresh panel path"),
     (re.compile(r"alphasieve\.db|sqlite3?\b"), "direct database access"),

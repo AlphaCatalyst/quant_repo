@@ -188,6 +188,10 @@ MIGRATIONS: list[str] = [
         evidence_hash TEXT
     );
     """,
+    """
+    ALTER TABLE trials ADD COLUMN turn_id TEXT;
+    CREATE INDEX trials_turn ON trials(turn_id);
+    """,
 ]
 
 

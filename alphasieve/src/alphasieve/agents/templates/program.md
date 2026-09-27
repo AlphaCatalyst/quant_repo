@@ -34,6 +34,7 @@ alphasieve memory show --json              what earlier turns learned
 alphasieve library list --json             current library members (your candidates must be different)
 alphasieve factor validate <spec> --json   L0 only, free, not recorded
 alphasieve factor eval <spec> --json       L0-L2, recorded, counts against the budget
+alphasieve factor expand <tmpl> --json     evaluate a template over a small grid (each variant is a trial)
 alphasieve factor show <id> --json         a factor's definition and dev evidence
 alphasieve library corr <id> --json        correlation of an evaluated factor with each library member
 alphasieve data describe <field> --json    coverage and distribution of one panel field
@@ -55,6 +56,11 @@ cell:
   form: change_momentum             # one of the forms below
   scale: medium                     # short (<=10d), medium (<=60d), long (<=250d), quarterly (financial only)
 ```
+
+To test one idea over a few parameter values, write a template instead of separate specs: the same fields as
+a spec plus `grid`, with `{placeholders}` in the expression, e.g. `expression: group_rank(ts_delta(roe_avg, {w}))`
+and `grid: {w: [60, 120, 250]}`. The first value of each key is the default; the others are recorded as its
+neighbourhood variants (at most 12 variants, and they count against the turn allowance and L2's variant limit).
 
 The IC gate is directional: the mean RankIC of `direction * expression` must be positive.
 Use `params_source: neighborhood` and `neighborhood_of: <factor_id>` when the candidate is a parameter variant of

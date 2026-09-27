@@ -79,6 +79,7 @@ def cmd_data_sync(args, ctx) -> CommandResult:
 def _configure_build(p):
     p.add_argument("--end", default=None, help="last date to include (default: holdout end)")
     p.add_argument("--tiers", default="dev,holdout", help="which tiers to build (holdout only on the local host)")
+    p.add_argument("--warmup-start", default=None, help="shorter history for holdout-only builds (saves memory)")
     _universe_arg(p)
 
 
@@ -87,7 +88,7 @@ def cmd_build_panel(args, ctx) -> CommandResult:
     from alphasieve.data.panel import build_panel
 
     tiers = tuple(t.strip() for t in args.tiers.split(",") if t.strip())
-    results = build_panel(ctx.settings, ctx.conn, args.end, args.universe, tiers)
+    results = build_panel(ctx.settings, ctx.conn, args.end, args.universe, tiers, args.warmup_start)
     warnings = [f"{tier}: quality checks failed" for tier, r in results.items() if not r["quality_ok"]]
     return CommandResult(data=results, warnings=warnings)
 

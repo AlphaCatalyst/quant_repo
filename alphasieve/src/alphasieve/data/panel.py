@@ -219,9 +219,10 @@ def _rule_universe(panel: pd.DataFrame, rule: dict) -> pd.Series:
     return (eligible & (rank > rule["liquidity_drop_fraction"])).reindex(panel.index)
 
 
-def build_long_panel(settings: Settings, end: str, universe: str | None = None) -> tuple[pd.DataFrame, list[str], dict]:
+def build_long_panel(settings: Settings, end: str, universe: str | None = None,
+                     warmup_start: str | None = None) -> tuple[pd.DataFrame, list[str], dict]:
     cfg = universe_config(settings, universe)
-    start = history_start(settings, universe)
+    start = max(history_start(settings, universe), warmup_start or "")
     root = raw_root(settings, universe)
     cal_df = pd.read_parquet(root / "trade_dates.parquet")
     calendar = sorted(cal_df.loc[cal_df["is_trading_day"] == 1, "calendar_date"].tolist())
@@ -302,13 +303,16 @@ def _write_tier(settings: Settings, tier: str, panel: pd.DataFrame, bench: pd.Da
 
 
 def build_panel(settings: Settings, conn: sqlite3.Connection | None = None, end: str | None = None,
-                universe: str | None = None, tiers: tuple[str, ...] = ("dev", "holdout")) -> dict:
+                universe: str | None = None, tiers: tuple[str, ...] = ("dev", "holdout"),
+                warmup_start: str | None = None) -> dict:
     from alphasieve.data.quality import quality_report
 
     splits = load_config(settings, "splits")
     cfg = universe_config(settings, universe)
     last_needed = end or max(splits[t]["end"] for t in tiers)
-    panel, calendar, info = build_long_panel(settings, last_needed, universe)
+    if warmup_start and "dev" in tiers:
+        raise ValueError("--warmup-start only applies to holdout / fresh builds (the dev window needs full history)")
+    panel, calendar, info = build_long_panel(settings, last_needed, universe, warmup_start)
     snapshots = []
     if conn is not None:
         snapshots = [dict(r) for r in conn.execute(
@@ -324,7 +328,8 @@ def build_panel(settings: Settings, conn: sqlite3.Connection | None = None, end:
         meta = {
             "panel_version": PANEL_VERSION,
             "tier": tier,
-            "window": {"start": window["start"], "end": window_end, "warmup_start": history_start(settings, universe)},
+            "window": {"start": window["start"], "end": window_end,
+                       "warmup_start": max(history_start(settings, universe), warmup_start or "")},
             "universe": cfg["name"],
             "splits_version": splits["version"],
             "rows": len(tier_panel),

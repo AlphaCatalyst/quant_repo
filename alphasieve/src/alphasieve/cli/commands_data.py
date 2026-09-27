@@ -138,3 +138,23 @@ def cmd_data_sample(args, ctx) -> CommandResult:
     rows = df[["date", "code", *fields]].head(min(args.limit, MAX_SAMPLE_ROWS))
     rows = rows.assign(date=rows["date"].dt.strftime("%Y-%m-%d"))
     return CommandResult(data={"rows": rows.to_dict(orient="records"), "count": int(len(rows))})
+
+
+@command("data daily-update", HUMAN_SYSTEM, needs_store=True,
+         help="incremental update: core data every run, financials on Saturdays")
+def cmd_data_daily_update(args, ctx) -> CommandResult:
+    from datetime import date
+
+    settings, conn = ctx.settings, ctx.conn
+    today = date.today()
+    out = {"reference": sync.sync_reference(settings, conn, today.isoformat())}
+    end = sync.latest_trading_day(settings, today.isoformat())
+    out["end"] = end
+    out["members"] = sync.sync_members(settings, conn, end)
+    out["daily"] = sync.sync_daily(settings, conn, end, 6)
+    if today.weekday() == 5:
+        out["financials"] = sync.sync_financials(settings, conn, end, 4)
+    out["mirror"] = sync.mirror_to_store(settings)
+    warnings = [f"{k}: {len(out[k]['errors'])} items failed; rerun to resume"
+                for k in ("daily", "financials") if out.get(k, {}).get("errors")]
+    return CommandResult(data=out, warnings=warnings)

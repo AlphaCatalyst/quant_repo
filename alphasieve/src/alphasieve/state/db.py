@@ -208,18 +208,19 @@ def connect(db_path: Path) -> sqlite3.Connection:
 
 def migrate(conn: sqlite3.Connection) -> int:
     conn.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)")
-    row = conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()
-    current = row["v"] or 0
-    for index, sql in enumerate(MIGRATIONS[current:], start=current + 1):
-        conn.execute("BEGIN IMMEDIATE")
-        try:
+    if (conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()["v"] or 0) >= len(MIGRATIONS):
+        return len(MIGRATIONS)
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        current = conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()["v"] or 0
+        for index, sql in enumerate(MIGRATIONS[current:], start=current + 1):
             for statement in _split_sql(sql):
                 conn.execute(statement)
             conn.execute("INSERT INTO schema_version (version) VALUES (?)", (index,))
-            conn.execute("COMMIT")
-        except Exception:
-            conn.execute("ROLLBACK")
-            raise
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
     return len(MIGRATIONS)
 
 

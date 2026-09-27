@@ -148,3 +148,24 @@ def test_store_mount_guard(tmp_path, monkeypatch):
     with pytest.raises(AlphaSieveError) as exc:
         ensure_storage(get_settings())
     assert exc.value.code == "STORAGE_UNAVAILABLE"
+
+
+def test_concurrent_migrations_are_serialised(tmp_path):
+    import threading
+
+    from alphasieve.state import connect
+
+    errors = []
+
+    def open_db():
+        try:
+            connect(tmp_path / "race.db").close()
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    threads = [threading.Thread(target=open_db) for _ in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert not errors

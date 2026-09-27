@@ -78,7 +78,23 @@ verifier 本身的正确性要靠测试证明；gate 阈值用零假设模拟与
 - 前端访问：通过本机 IP 访问（`http://9.134.61.161:8720`），需要用户名密码登录，凭据只保存在本地配置中；页面会展示研究结果，后续还会展示 holdout 与评审信息（关闭 Q-6）。
 - 通知：试点阶段不做，查看前端与日报文件（Q-7 推迟）。
 - 代码：提交保留在本地，由用户决定何时推送。
-- 每日增量数据更新：本阶段即安装 systemd timer（交易日收盘后拉取核心数据并重建 panel）。
+- 每日增量数据更新：本阶段即安装 systemd timer（交易日收盘后拉取核心数据）。实现时的更正见 D-22 第 8 条：只更新原始数据，不重建 panel。
+
+**D-22 M3 / M4 / F1 实现中的决定（2026-09-27）**
+1. gate_policy 发布 v1：L1、L2 阈值与 v0 完全相同（D-19 的 L1 重新校准仍待做），只新增 L3、L4 两节。
+   - L3：用日 RankIC 序列的 Deflated Sharpe。ICIR 充当 Sharpe；试验数 N 取本 campaign 的全部 dev trial；方差取这些 trial 的 ICIR 方差；偏度、峰度取候选自身的 IC 序列；标签重叠，有效样本量取有效日数除以预测周期。p ≤ 0.05，并在本 campaign 所有 L2 通过的候选之间做 BH（q = 0.10），shortlist 最多 10 个。
+   - L4：holdout 上方向一致的平均 RankIC > 0，且 holdout ICIR ≥ 0.5 × dev ICIR。同一候选此前读过 holdout 的判为 `holdout_contaminated`。
+2. 单个 turn 的 trial 配额为 max(3, min(10, ⌈2 × 剩余 trial / 剩余 turn⌉))，由 orchestrator 通过环境变量传给 CLI，CLI 在评估入口强制执行。
+3. 同一 campaign 内 agent 重复提交同一候选（按表达式规范化后的哈希判断）会被拒绝，不记 trial。评估结果是确定的，重复评估只会抬高 L3 的试验数。实测中 Codex 并行提交过两次相同候选。
+4. 整机同时最多 2 个评估（`ALPHASIEVE_EVAL_SLOTS`）：每个评估进程要把 dev panel 载入内存（约 3 GB 起）。
+5. agent 能看到的范围：`shortlist_locked` 之后的因子状态一律显示为 `batch_concluded`；`campaign status` 不含 holdout 信息；记忆只由 dev 证据生成，campaign 结题时冻结；指令写入前检查是否提到 holdout、前瞻、评审相关的词和因子，命中即拒绝。
+6. 进程级隔离的实现（D-21）：
+   - Claude Code：`--bare`、`dontAsk`、工具白名单（`alphasieve` 命令、只读 git 命令、工作区内的 Read，Write 仅限 candidates / notes / reports）。实测读工作区外文件（Bash 与 Read 两种方式）都被拒绝。
+   - Codex：`workspace-write` 沙箱，关闭网络，可写目录只有 state、cache、artifacts，不加载用户配置与 rules。它的沙箱不限制读取，这是 D-21 已接受的残余风险。
+   - 补偿措施：每个 turn 结束后比较受保护状态（holdout 请求、决定、评审包、非 dev trial、shortlist、配置哈希），扫描 agent 执行过的命令与读取的路径（环境变量覆盖、holdout / fresh panel 路径、直接访问数据库、凭据、仅限人工的命令、策略文件），并检查带本 turn 标记却以非 agent 角色执行的命令。命中任一项，该 turn 记为 `integrity_violation`，campaign 自动暂停，该 turn 的经验不写入记忆。
+7. 模型容量不足之类的暂时性错误按失败 turn 计。连续 3 个失败 turn 暂停 campaign；两种 agent 交替运行，一种暂时不可用不会让 campaign 停下。
+8. 更正 D-21：每日更新只增量同步原始数据并镜像到 Ceph，不重建 panel。dev 窗口已固定，holdout 窗口止于 2026-09-25，fresh panel 要到 M7 才需要；每天重建只会改变 panel 签名，没有收益。
+9. 前端只读，使用 HTTP Basic 认证，凭据由系统生成，保存在 `/data/alphasieve/web.credentials`（权限 600）。静态 JS / CSS 不需认证（不含数据），所有 API 都需认证。技术栈比 07 文档简化：React + Vite + ECharts，没有用 TanStack、Tailwind、shadcn。
 
 ## 待定问题
 
@@ -86,7 +102,7 @@ verifier 本身的正确性要靠测试证明；gate 阈值用零假设模拟与
 |---|---|---|---|
 | Q-1 | ~~数据源选择~~ 已决定：见 D-18。需要中证 1000 或申万 PIT 行业时再评估 Tushare / 商业数据 | — | 已关闭 |
 | Q-2 | holdout 区间长度（默认 2023-01-01 至项目启动日）是否足够 | L4 统计功效 | M1 结束时 |
-| Q-3 | ~~是否发布 gate_policy v1~~ 已决定：见 D-19 | — | 已关闭 |
+| Q-3 | ~~是否发布 gate_policy v1~~ 已决定：见 D-19；v1 已发布（L1/L2 不变，新增 L3/L4，见 D-22）。L1 在 L3 下的重新校准（T6）仍待做 | L1 通过率 | 试点 campaign 结束后 |
 | Q-4 | ~~agent 默认模型与费用上限~~ 已决定：见 D-20（金额上限待试点实测后确定） | — | 已关闭 |
 | Q-5 | ~~Researcher 与 Approver 是否分离~~ 已决定：暂由同一人担任，见 D-21 | — | 已关闭 |
 | Q-6 | ~~部署与认证方式~~ 已决定：本机 IP + 登录，见 D-21 | — | 已关闭 |

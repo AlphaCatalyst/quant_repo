@@ -21,6 +21,7 @@
 | [13-backtest.md](13-backtest.md) | 回测 B1–B5：成交规则、成本模型、组合构建、滚动样本外、敏感性检查 |
 | [14-agent-execution.md](14-agent-execution.md) | 用哪种 agent 执行：本机 Claude Code / Codex、Cursor、Nexus Cloud 的分工与规则 |
 | [acceptance-m0-m2.md](acceptance-m0-m2.md) | M0–M2 验收记录：真实数据同步结果、测试、端到端评估、gate 校准 |
+| [acceptance-m3-m4-f1.md](acceptance-m3-m4-f1.md) | M3 / M4 / F1 验收记录：agent 循环、holdout 链路、前端、真实冒烟、试点结果与操作手册 |
 
 ## 阅读顺序
 

@@ -90,6 +90,11 @@ M0 基础 ──▶ M1 数据 ──▶ M2 因子评估 ──┬──▶ M3 Ag
 验收：
 - 在浏览器中查看 M2 生成的因子，指标与 CLI 输出一致；证据等级标签在所有指标旁可见。
 
+状态（2026-09-27）：已实现，见 [acceptance-m3-m4-f1.md](acceptance-m3-m4-f1.md)。偏差：
+- 技术栈简化为 React + Vite + ECharts（D-22）。
+- 在原范围之外，已加上 campaign、turn transcript、搜索强度与记忆页面（原属 F2 的只读部分）。
+- 交互操作仍然只走 CLI。
+
 ## M3 · Agent 循环 v1（L）
 
 目标：agent 在 dev 窗口自主跑一个完整 campaign 内环。
@@ -109,6 +114,11 @@ M0 基础 ──▶ M1 数据 ──▶ M2 因子评估 ──┬──▶ M3 Ag
 - 红队测试：在 program.md 之外诱导 agent 读取 holdout 文件，操作被拒绝并留下审计记录。
 - 连续 3 个 turn 失败时 campaign 自动暂停并发出告警。
 
+状态（2026-09-27）：已实现，试点 campaign 在中证 800 上运行（中证 1000 没有免费的历史成分数据，D-18）。偏差：
+- 不新建操作系统用户，只用进程级隔离加 turn 后的完整性检查（D-21、D-22）。
+- 没有做任务表与 SSE，orchestrator 一次只跑一个 turn，前端每 30 秒轮询。
+- 告警只记审计事件并暂停 campaign，不发通知（Q-7）。
+
 ## M4 · 稳健性、搜索折扣与留出（M）
 
 目标：打通 L3、L4 与人工评审。
@@ -126,6 +136,17 @@ M0 基础 ──▶ M1 数据 ──▶ M2 因子评估 ──┬──▶ M3 Ag
 - 端到端：campaign 结束 → shortlist → 审批 → holdout 评估 → Review Packet → 决定，全程状态与事件正确。
 - 第二次读取同一 shortlist 的 holdout 被拒绝；超预算读取导致 `holdout_contaminated`。
 - holdout 指标不出现在 agent 可访问的任何命令输出与 workspace 文件中（自动化检查）。
+
+状态（2026-09-27）：L3、shortlist 锁定、记忆冻结、HoldoutRequest、holdout 评估（L4）、Review Packet、评审决定都已实现，端到端测试在合成数据上通过。
+
+还没做：
+- L2 的 LightGBM / LambdaRank 参考模型（目前只有 ridge）。
+- E3 受限程序因子。
+- L3 的 T6 校准。
+- 独立的 `shortlist lock` 命令：shortlist 由 `campaign conclude` 锁定。
+- PromotionRecord：评审决定写入 decisions 表。
+
+与验收条款的差异：holdout 读取预算按 campaign 计，超出预算的读取直接拒绝（`BUDGET_EXHAUSTED`），不会发生。`holdout_contaminated` 改为用于同一候选第二次读取 holdout 的情况。
 
 ## M5 · Nexus 广度搜索（M）
 

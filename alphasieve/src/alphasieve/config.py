@@ -34,7 +34,8 @@ class Settings:
 
     @property
     def raw_dir(self) -> Path:
-        return self.hot_root / "data" / "raw"
+        override = os.environ.get("ALPHASIEVE_RAW_DIR")
+        return Path(override) if override else self.hot_root / "data" / "raw"
 
     def panel_dir(self, tier: str, universe: str | None = None) -> Path:
         if tier not in TIERS:

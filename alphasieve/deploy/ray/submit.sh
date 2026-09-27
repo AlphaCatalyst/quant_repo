@@ -5,6 +5,7 @@
 # Only the dev panel may exist under the remote root: holdout and fresh data never leave the local host.
 # RunLab tracking: put WANDB_API_KEY=... in <remote root>/secrets/runlab.env (chmod 600); it is read on the node
 # and never passed through Ray job arguments, which are visible on the shared dashboard.
+# ALPHASIEVE_PRE: optional shell snippet run on the node before the command (e.g. unpacking raw data locally).
 set -euo pipefail
 here="$(cd "$(dirname "$0")/../.." && pwd)"
 name="${1:?job name}"; shift
@@ -34,6 +35,7 @@ export ALPHASIEVE_HOT_ROOT=${remote_root}/hot ALPHASIEVE_STORE_ROOT=${remote_roo
 if [ -e "\$ALPHASIEVE_HOT_ROOT/data/panel/holdout" ] || [ -e "\$ALPHASIEVE_HOT_ROOT/data/panel/fresh" ]; then
   echo "refusing: holdout or fresh data found on the remote root"; exit 3
 fi
+${ALPHASIEVE_PRE:-true}
 mkdir -p ${remote_root}/runs/${job_id}
 "\$venv/bin/alphasieve" ${args} --json | tee ${remote_root}/runs/${job_id}/result.json
 EOF

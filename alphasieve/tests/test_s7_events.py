@@ -9,8 +9,8 @@ from alphasieve.data import events
 
 def test_forecast_is_point_in_time_and_expires():
     calendar = [d.strftime("%Y-%m-%d") for d in pd.bdate_range("2020-01-01", periods=120)]
-    fc = pd.DataFrame({"code": ["sh.600000"], "profitForcastExpPubDate": [calendar[10]],
-                       "profitForcastType": ["预增"], "profitForcastChgPctUp": [60.0], "profitForcastChgPctDwn": [40.0]})
+    fc = pd.DataFrame({"code": ["sh.600000"], "profitForcastExpPubDate": [calendar[10]], "profitForcastType": ["预增"],
+                       "profitForcastChgPctUp": [60.0], "profitForcastChgPctDwn": [40.0]})
     aligned = events.align_events(events.forecast_rows(fc), calendar, ["fc_chg_mid", "fc_positive"])
     assert str(aligned["date"].iloc[0].date()) == calendar[11]
     panel = pd.DataFrame({"date": pd.to_datetime(calendar), "code": "sh.600000"})
@@ -92,5 +92,6 @@ def test_programmatic_search_has_its_own_accounting(panel_settings):
     assert len(names) == 6
     llm = campaign_spec("c-not-prog")
     start_campaign(panel_settings, llm)
-    with pytest.raises(Exception):
+    from alphasieve.errors import AlphaSieveError
+    with pytest.raises(AlphaSieveError):
         run_search(system, "c-not-prog", trials=1)

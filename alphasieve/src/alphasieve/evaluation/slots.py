@@ -11,7 +11,7 @@ from alphasieve.config import Settings
 @contextmanager
 def evaluation_slot(settings: Settings, poll_s: float = 1.0):
     slots = max(1, int(os.environ.get("ALPHASIEVE_EVAL_SLOTS", "2")))
-    lock_dir = settings.hot_root / "locks"
+    lock_dir = settings.state_db.parent / "locks"
     lock_dir.mkdir(parents=True, exist_ok=True)
     while True:
         for i in range(slots):

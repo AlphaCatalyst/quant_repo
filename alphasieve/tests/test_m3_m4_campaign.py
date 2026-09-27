@@ -260,3 +260,22 @@ def test_agent_duplicate_candidate_is_rejected(panel_settings, monkeypatch):
         evaluate_spec(agent, conn, renamed, campaign_id="c-dup")
     assert exc.value.code == "CONFLICT"
     assert len(service.completed_trials(conn, "c-dup")) == 1
+
+
+def test_codex_sandbox_covers_agent_write_paths(panel_settings, tmp_path):
+    import json as _json
+    from pathlib import Path
+
+    from alphasieve.agents.executors import CodexExecutor, TurnContext
+    from alphasieve.evaluation.slots import evaluation_slot
+
+    ctx = TurnContext("c", "c-t001", 1, tmp_path, "p", "m", None, 60, tmp_path / "t.jsonl", 1)
+    cmd = CodexExecutor(panel_settings).command(ctx)
+    roots = [Path(p) for p in _json.loads(next(a for a in cmd if a.startswith("sandbox_workspace_write.writable_roots"))
+                                         .split("=", 1)[1])]
+    within = lambda p: any(Path(p).resolve().is_relative_to(r.resolve()) for r in roots)  # noqa: E731
+    assert within(panel_settings.state_db) and within(panel_settings.artifacts_dir / "x")
+    assert within(panel_settings.cache_dir / "library")
+    with evaluation_slot(panel_settings):
+        locks = list((panel_settings.state_db.parent / "locks").glob("eval-slot-*.lock"))
+    assert locks and all(within(p) for p in locks)

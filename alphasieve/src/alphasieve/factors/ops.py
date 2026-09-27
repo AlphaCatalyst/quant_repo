@@ -203,6 +203,10 @@ def le(x, y):
     return _compare(np.less_equal, x, y)
 
 
+def fill_na(x, c: float):
+    return x.fillna(c) if isinstance(x, pd.DataFrame) else (c if x != x else x)
+
+
 def where(cond, a, b):
     like = next(v for v in (cond, a, b) if isinstance(v, pd.DataFrame))
     c = _broadcast(cond, like).to_numpy(dtype=float)
@@ -249,5 +253,6 @@ OPS: dict[str, tuple[object, str, str]] = {
     "ge": (ge, "ee", "elem"),
     "le": (le, "ee", "elem"),
     "where": (where, "eee", "elem"),
+    "fill_na": (fill_na, "ec", "elem"),
 }
 COMMUTATIVE = {"add", "mul", "max2", "min2"}

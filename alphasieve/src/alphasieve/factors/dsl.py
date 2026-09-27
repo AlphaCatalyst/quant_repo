@@ -125,7 +125,7 @@ def _check(node: Node, space: SearchSpace, issues: list[DSLIssue], windows: list
         if letter == "c":
             if arg.op != "const":
                 issues.append(DSLIssue("type_error", f"{node.op} expects a numeric constant"))
-            elif not 0.1 <= abs(arg.value) <= 5:
+            elif node.op == "signed_power" and not 0.1 <= abs(arg.value) <= 5:
                 issues.append(DSLIssue("type_error", f"{node.op} exponent must be within [0.1, 5]"))
             continue
         kind = _check(arg, space, issues, windows)

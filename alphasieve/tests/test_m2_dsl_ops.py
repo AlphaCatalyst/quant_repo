@@ -143,3 +143,12 @@ def test_illegal_state_transition(settings):
     with pytest.raises(AlphaSieveError) as exc:
         transition(conn, get_settings(), "F-1", 1, "robust_passed")
     assert exc.value.code == "CONFLICT"
+
+
+def test_fill_na_operator():
+    import numpy as np
+    import pandas as pd
+
+    from alphasieve.factors.ops import fill_na
+    frame = pd.DataFrame({"a": [1.0, np.nan], "b": [np.nan, 2.0]})
+    assert fill_na(frame, 0.0).to_numpy().tolist() == [[1.0, 0.0], [0.0, 2.0]]

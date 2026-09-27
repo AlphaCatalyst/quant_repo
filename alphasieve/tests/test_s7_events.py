@@ -13,7 +13,8 @@ def test_forecast_is_point_in_time_and_expires():
                        "profitForcastChgPctUp": [60.0], "profitForcastChgPctDwn": [40.0]})
     aligned = events.align_events(events.forecast_rows(fc), calendar, ["fc_chg_mid", "fc_positive"])
     assert str(aligned["date"].iloc[0].date()) == calendar[11]
-    panel = pd.DataFrame({"date": pd.to_datetime(calendar), "code": "sh.600000"})
+    panel = pd.DataFrame({"date": pd.to_datetime(calendar), "code": pd.array(["sh.600000"] * len(calendar),
+                                                                              dtype="string")})
     out = events.attach_events(panel, aligned, calendar, ["fc_chg_mid", "fc_positive"], age_field="fc_age")
     out = out.set_index("date")
     assert np.isnan(out.loc[calendar[10], "fc_chg_mid"])

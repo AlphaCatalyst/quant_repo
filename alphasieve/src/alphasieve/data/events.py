@@ -59,6 +59,7 @@ def attach_events(panel: pd.DataFrame, aligned: pd.DataFrame, calendar: list[str
         for f in fields + ([age_field] if age_field else []):
             panel[f] = np.nan
         return panel
+    aligned = aligned.astype({"code": panel["code"].dtype})
     merged = pd.merge_asof(panel, aligned.sort_values(["date", "code"]), on="date", by="code", direction="backward")
     age = merged["date"].map(positions) - merged["event_pos"]
     stale = ~(age <= EVENT_CARRY_DAYS)

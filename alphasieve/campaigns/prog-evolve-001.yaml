@@ -1,0 +1,16 @@
+campaign_id: prog-evolve-001
+title: 程序化搜索（进化式，量价与估值，独立记账）
+question: >
+  How much does a blind programmatic search over price, volume, liquidity and valuation expressions find on
+  CSI 800 at a 5-day horizon once its own trial count is charged at L3?
+universe: csi800
+domains: [price, volume, turnover_liquidity, size_value]
+cells:
+  - {domain: price, form: level, scale: short}
+  - {domain: price, form: conditional_interaction, scale: medium}
+  - {domain: turnover_liquidity, form: level, scale: medium}
+  - {domain: size_value, form: level, scale: long}
+budgets: {trials: 400, turns: 1, turn_minutes: 30, max_hours: 24, holdout_reads: 1}
+stop: {no_improvement_turns: 5, max_consecutive_failed_turns: 3}
+agents:
+  - {harness: program, model: evolve}

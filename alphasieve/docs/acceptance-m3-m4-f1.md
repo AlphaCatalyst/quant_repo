@@ -91,7 +91,18 @@
 
 ## 6. 试点 campaign 结果
 
-（试点结束后补充。）
+中期状态（2026-09-27 14:13）：campaign 自动暂停在第 14 个 turn，共 55 / 200 个 trial。
+
+- 漏斗：55 个候选全部通过 L0，10 个通过 L1，1 个通过 L2。
+- 唯一通过 L2 的候选：`F-000082 roe_growth_accel_turnover`，表达式为 `group_rank(Δ60 yoy_ni) + 0.5·group_rank(Δ60 roe_avg) − ts_zscore(40 日平均换手, 60)`。
+  - IC 0.032，ICIR 0.271，与因子库最大相关 0.47；
+  - 扣成本后年化超额 0.06%，边际 IC 0.001，两项都只是勉强为正。
+- 用量：Codex 共约 1,013 万输入 token（大部分命中缓存），5.5 万输出 token。
+- 两个 agent 通道都失效了：
+  - Claude（AIHub project 228）预算耗尽。第 2 个 turn 失败后按 D-22 第 7 条停用，备用 key 属于同一项目，同样不可用。
+  - GPT-6 Sol 从第 12 个 turn 起所有请求都被 OpenAI 以“prompt flagged as potentially violating our usage policy”拒绝。独立探测时连“Reply with the single word ok.”也被拒绝，说明是账号或通道层面的拦截，与 campaign 内容无关。
+  - 连续 3 个失败 turn 后，campaign 按设计自动暂停。
+- 尚未结题：没有做 L3，也没有生成 HoldoutRequest。
 
 ## 7. 操作手册
 

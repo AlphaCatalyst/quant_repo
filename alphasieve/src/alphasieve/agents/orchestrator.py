@@ -5,6 +5,7 @@ import json
 import math
 import re
 import threading
+import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
@@ -25,6 +26,30 @@ PROMPT = (
     "allowance of {allowance} evaluations, and finish with the SUMMARY / INSIGHTS message described there."
 )
 MAX_INSIGHTS_PER_TURN = 5
+TRANSIENT = re.compile(r"flagged as potentially violating|at capacity|rate[ _-]?limit|\b429\b|overloaded", re.I)
+COOLDOWN_S = 1800
+
+
+def agent_key(slot) -> str:
+    return f"{slot.harness}/{slot.model}"
+
+
+def _entry(disabled: dict, slot):
+    return disabled.get(agent_key(slot)) or disabled.get(slot.harness)
+
+
+def is_available(slot, disabled: dict, now: float | None = None) -> bool:
+    entry = _entry(disabled, slot)
+    if entry is None:
+        return True
+    if isinstance(entry, str) or entry.get("until") is None:
+        return False
+    return (now if now is not None else time.time()) >= entry["until"]
+
+
+def next_recovery(agents, disabled: dict) -> float | None:
+    times = [e["until"] for a in agents if isinstance(e := _entry(disabled, a), dict) and e.get("until")]
+    return min(times) if times else None
 UNAVAILABLE = re.compile(r"UserBudgetExhausted|Failed to authenticate|invalid[ _-]?api[ _-]?key|API key|secrets\.env"
                          r"|\b40[12]\b", re.I)
 
@@ -98,7 +123,7 @@ def plan_round(conn, campaign_id: str, max_new: int | None = None) -> list[dict]
     remaining_trials = budget["trials"]["budget"] - service.started_trials(conn, campaign_id)
     lanes = max(1, min(spec.lanes, remaining_turns, max_new if max_new is not None else spec.lanes))
     disabled = campaign["stats"].get("disabled_agents", {})
-    available = [a for a in spec.agents if a.harness not in disabled]
+    available = [a for a in spec.agents if is_available(a, disabled)]
     allowance = max(1, min(turn_allowance(budget), remaining_trials // lanes if lanes > 1 else remaining_trials))
     plans = []
     for k in range(lanes):
@@ -161,12 +186,15 @@ def _run_turn(settings: Settings, conn, campaign_id: str, plan: dict, executor_f
     record_event(conn, settings, "turn.finished", object_type="campaign", object_id=campaign_id,
                  payload={"turn_id": turn_id, "status": status, "harness_status": result.status, "lane": lane,
                           "trials": turn_trials, "new_robust": new_robust})
-    if status == "failed" and result.error and UNAVAILABLE.search(result.error):
+    if status == "failed" and result.error and (UNAVAILABLE.search(result.error) or TRANSIENT.search(result.error)):
+        transient = not UNAVAILABLE.search(result.error)
+        entry = {"reason": result.error[:300], "until": time.time() + COOLDOWN_S if transient else None}
         disabled = {**service.get_campaign(conn, campaign_id)["stats"].get("disabled_agents", {}),
-                    slot.harness: result.error[:300]}
+                    agent_key(slot): entry}
         service.update_stats(conn, campaign_id, disabled_agents=disabled)
-        record_event(conn, settings, "agent.disabled", status="error", object_type="campaign", object_id=campaign_id,
-                     payload={"harness": slot.harness, "turn_id": turn_id, "error": result.error[:300]})
+        record_event(conn, settings, "agent.cooldown" if transient else "agent.disabled", status="error",
+                     object_type="campaign", object_id=campaign_id,
+                     payload={"agent": agent_key(slot), "turn_id": turn_id, "error": result.error[:300]})
     if findings:
         if service.get_campaign(conn, campaign_id)["status"] == "running":
             service.set_status(conn, settings, campaign_id, "paused", "integrity violation")
@@ -215,10 +243,14 @@ def run_campaign(settings: Settings, campaign_id: str, max_turns: int | None = N
                 outcome = {"concluded": reason, **lifecycle.conclude(conn, settings, campaign_id, reason)}
                 break
             disabled = campaign["stats"].get("disabled_agents", {})
-            if all(a.harness in disabled for a in campaign["spec"].agents):
-                service.set_status(conn, settings, campaign_id, "paused", "no available agents")
-                outcome = {"paused": "no available agents", "disabled_agents": disabled}
-                break
+            if not any(is_available(a, disabled) for a in campaign["spec"].agents):
+                wake = next_recovery(campaign["spec"].agents, disabled)
+                if wake is None:
+                    service.set_status(conn, settings, campaign_id, "paused", "no available agents")
+                    outcome = {"paused": "no available agents", "disabled_agents": disabled}
+                    break
+                time.sleep(min(60.0, max(1.0, wake - time.time())))
+                continue
             b = stats.budget_status(conn, campaign_id)
             if b["failed_turns_streak"]["current"] >= b["failed_turns_streak"]["limit"]:
                 service.set_status(conn, settings, campaign_id, "paused", "consecutive failed turns")

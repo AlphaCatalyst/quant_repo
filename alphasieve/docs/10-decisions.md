@@ -182,6 +182,18 @@ verifier 本身的正确性要靠测试证明；gate 阈值用零假设模拟与
   - 候选先做结构校验、按规范化哈希去重，不合法或重复的不占 trial；
   - 评估通过队列并发执行，可以交给平台 worker；预算用完后自动结题。
 
+**D-29 agent 模型分档与 AIHub 通道（2026-09-27）**
+- 按用户建议：高端模型用 GPT-6 Sol，低端模型用 DeepSeek V4 Pro。AIHub key（project 228）更新后保存在 `/data/alphasieve/secrets.env`（权限 600），Claude Opus 5 也恢复可用。
+- 实测：
+  - DeepSeek V4 Pro 在 AIHub 上的模型名是 `deepseek-v4-pro`，支持 `reasoning_effort=max`。没有 `deepseek-v4-pro-max` 这个模型名；
+  - AIHub 的 Responses 接口解析不了 Codex 的请求（报 unhashable dict），而 Codex 已不支持 Chat Completions。因此 DeepSeek 改走 Claude Code 通道（AIHub 的 Anthropic 兼容接口 `/v1/messages`），读文件、执行 `alphasieve` 命令都正常。Claude Code 报告的费用按 Anthropic 价格估算，对 DeepSeek 不准；
+  - GPT-6 Sol：Codex 自身账号仍被策略拦截（任意提示都被拒）。AIHub 上的 `gpt-6-sol` 返回上游认证错误（AIHub 侧的上游 key 无效），暂时两条通道都不可用。
+- orchestrator 按“执行器/模型”记录不可用状态：
+  - 策略拦截、容量不足、限流属于暂时性错误，该模型暂停 30 分钟后自动恢复；
+  - 鉴权失败、预算耗尽为永久停用；
+  - 所有模型都在暂停期时，orchestrator 等到最早的恢复时间再继续；全部永久停用才暂停 campaign。
+- 新 campaign 按轮转分档：agents 列表写 1 份 GPT-6 Sol、2 份 DeepSeek V4 Pro，高端约占 1/3 的 turn；GPT-6 Sol 不可用时由 DeepSeek 顶上。
+
 ## 待定问题
 
 | 编号 | 问题 | 影响 | 计划决定时间 |

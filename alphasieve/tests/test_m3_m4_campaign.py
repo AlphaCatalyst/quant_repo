@@ -310,7 +310,8 @@ def test_unavailable_agent_is_disabled_and_skipped(panel_settings):
                                     executor_for=lambda h: Broken() if h == "claude" else Working())
     assert calls == ["codex", "claude", "codex", "codex"]
     conn = connect(panel_settings.state_db)
-    assert "claude" in service.get_campaign(conn, "c-quota")["stats"]["disabled_agents"]
+    entry = service.get_campaign(conn, "c-quota")["stats"]["disabled_agents"]["claude/b"]
+    assert entry["until"] is None
     assert out["outcome"]["concluded"] == "turn_budget_exhausted"
 
 
@@ -380,3 +381,34 @@ def test_conclude_without_holdout_budget(lenient):
     assert out["outcome"]["holdout_request"] is None
     conn = connect(lenient.state_db)
     assert service.get_campaign(conn, "c-nobudget")["status"] == "concluded"
+
+
+def test_policy_flag_puts_agent_in_cooldown(panel_settings, monkeypatch):
+    from alphasieve.agents.executors import TurnResult
+    from alphasieve.contracts import AgentSlot
+
+    spec = campaign_spec("c-cool", budgets={"trials": 50, "turns": 3},
+                         agents=[{"harness": "codex", "model": "big"}, {"harness": "claude", "model": "small"}])
+    start_campaign(panel_settings, spec)
+    system = as_role(panel_settings, "system")
+    calls = []
+
+    class Flagged:
+        def run(self, ctx):
+            calls.append("codex")
+            return TurnResult(status="failed", error='{"message": "Invalid prompt: your prompt was flagged as '
+                                                     'potentially violating our usage policy."}')
+
+    class Fine:
+        def run(self, ctx):
+            calls.append("claude")
+            return TurnResult(status="completed", summary="SUMMARY: ok")
+
+    orchestrator.run_campaign(system, "c-cool", executor_for=lambda h: Flagged() if h == "codex" else Fine())
+    assert calls == ["codex", "claude", "claude"]
+    conn = connect(panel_settings.state_db)
+    disabled = service.get_campaign(conn, "c-cool")["stats"]["disabled_agents"]
+    until = disabled["codex/big"]["until"]
+    big = AgentSlot(harness="codex", model="big")
+    assert not orchestrator.is_available(big, disabled, now=until - 1)
+    assert orchestrator.is_available(big, disabled, now=until + 1)

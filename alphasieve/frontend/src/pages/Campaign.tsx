@@ -64,9 +64,16 @@ export default function Campaign({ id }: { id: string }) {
             股票池 {c.spec.universe} · 预测周期 {c.spec.horizon} 日 · 领域 {c.spec.domains.join(", ")} · agent{" "}
             {c.spec.agents.map((a: Json) => `${a.harness}/${a.model}`).join(" 与 ")}
           </div>
-          {Object.entries((c.stats?.disabled_agents ?? {}) as Record<string, string>).map(([h, why]) => (
-            <div key={h} className="error small">已停用 {h}：{why.slice(0, 200)}</div>
-          ))}
+          {Object.entries((c.stats?.disabled_agents ?? {}) as Record<string, Json>).map(([h, e]) => {
+            const why = typeof e === "string" ? e : e.reason ?? "";
+            const until = typeof e === "object" && e.until ? new Date(e.until * 1000) : null;
+            const active = until === null || until.getTime() > Date.now();
+            return active ? (
+              <div key={h} className="error small">
+                {until ? `暂停 ${h} 至 ${until.toLocaleTimeString("zh-CN", { hour12: false })}` : `已停用 ${h}`}：{why.slice(0, 160)}
+              </div>
+            ) : null;
+          })}
         </div>
         <button className="btn" onClick={() => getText(`/api/campaigns/${id}/report`).then(setReport).catch(() => setReport("还没有日报"))}>
           查看日报

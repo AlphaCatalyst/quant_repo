@@ -76,6 +76,10 @@ def set_status(conn: sqlite3.Connection, settings: Settings, campaign_id: str, t
         updates["started_at"] = now
     if target == "concluded":
         updates["concluded_at"] = now
+    if target == "running":
+        last = conn.execute("SELECT COALESCE(MAX(turn_index), 0) FROM turns WHERE campaign_id = ?",
+                            (campaign_id,)).fetchone()[0]
+        updates["stats_json"] = canonical_json({**campaign["stats"], "resumed_after_turn": last})
     sets = ", ".join(f"{k} = ?" for k in updates)
     conn.execute(f"UPDATE campaigns SET {sets} WHERE campaign_id = ?", (*updates.values(), campaign_id))
     record_event(conn, settings, "campaign.status_changed", object_type="campaign", object_id=campaign_id,

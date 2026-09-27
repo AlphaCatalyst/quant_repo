@@ -190,6 +190,10 @@ def test_failed_turns_pause_campaign(panel_settings):
     out = orchestrator.run_campaign(system, "c-fail", executor_for=fake_executors(system, script))
     assert [t["status"] for t in out["turns"]] == ["failed"] * 3
     assert out["outcome"] == {"paused": "consecutive failed turns"}
+    conn = connect(panel_settings.state_db)
+    service.set_status(conn, as_role(panel_settings, "human"), "c-fail", "running", "outage over")
+    again = orchestrator.run_campaign(system, "c-fail", executor_for=fake_executors(system, script))
+    assert [t["status"] for t in again["turns"]] == ["failed"] * 3
 
 
 def test_holdout_chain(lenient, monkeypatch, capsys):

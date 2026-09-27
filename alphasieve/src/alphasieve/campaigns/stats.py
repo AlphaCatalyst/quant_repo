@@ -56,9 +56,10 @@ def budget_status(conn: sqlite3.Connection, campaign_id: str) -> dict:
         if t["status"] != "completed" or (t["robust_passed_new"] or 0) > 0:
             break
         no_improvement += 1
+    resumed_after = campaign["stats"].get("resumed_after_turn", 0)
     failed_streak = 0
     for t in reversed(turns):
-        if t["status"] != "failed":
+        if t["status"] != "failed" or t["turn_index"] <= resumed_after:
             break
         failed_streak += 1
     tokens = {"input": 0, "output": 0, "cost_usd": 0.0}

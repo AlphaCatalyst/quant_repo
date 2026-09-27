@@ -208,8 +208,9 @@ def embargo_labels(df: pd.DataFrame, calendar: list[str], window_end: str) -> pd
 
 def _rule_universe(panel: pd.DataFrame, rule: dict) -> pd.Series:
     panel = panel.sort_values(["code", "date"])
-    amount_ma = panel.groupby("code")["amount"].transform(
-        lambda s: s.rolling(rule["liquidity_window"], min_periods=rule["liquidity_window"]).mean())
+    w = rule["liquidity_window"]
+    amount_ma = panel.groupby("code", sort=False)["amount"].rolling(w, min_periods=w).mean()
+    amount_ma = amount_ma.reset_index(level=0, drop=True).reindex(panel.index)
     eligible = (panel["days_listed"] >= rule["min_days_listed"]) & amount_ma.notna()
     if rule.get("exclude_st", True):
         eligible &= ~panel["is_st"]

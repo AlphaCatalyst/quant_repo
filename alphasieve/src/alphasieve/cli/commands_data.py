@@ -99,12 +99,21 @@ def _configure_describe(p):
 
 @command("data describe", ALL, configure=_configure_describe, help="describe a dev-panel field")
 def cmd_data_describe(args, ctx) -> CommandResult:
+    from alphasieve.factors.derived import DERIVED, terminal
+
     panel = load_panel(ctx.settings, "dev")
-    if not panel.has(args.field):
-        raise validation_error(f"unknown field {args.field}", available=sorted(panel.long.columns))
+    if not panel.has(args.field) and args.field not in DERIVED:
+        raise validation_error(f"unknown field {args.field}", available=sorted([*panel.long.columns, *DERIVED]))
+    if args.field.startswith("label_") and ctx.settings.role == "agent":
+        raise validation_error("labels are not available through data describe")
     start, end = panel.window
-    df = panel.long[(panel.long["date"] >= start) & (panel.long["date"] <= end) & panel.long["in_universe"]]
-    series = df[args.field]
+    if args.field in DERIVED:
+        mask = panel.mask("in_universe") & panel.window_mask().to_numpy()[:, None]
+        series = terminal(panel, args.field).where(mask).stack(future_stack=True)
+        series = series[mask.stack(future_stack=True)]
+    else:
+        df = panel.long[(panel.long["date"] >= start) & (panel.long["date"] <= end) & panel.long["in_universe"]]
+        series = df[args.field]
     data = {"field": args.field, "dtype": str(series.dtype), "rows": int(len(series)),
             "coverage": float(series.notna().mean()) if len(series) else 0.0}
     if pd.api.types.is_numeric_dtype(series) and series.dtype != bool:

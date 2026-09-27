@@ -55,6 +55,19 @@ def _report(spec: FactorSpec, result: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _reject_duplicate(conn: sqlite3.Connection, campaign_id: str, candidate_hash: str) -> None:
+    kinds = {r["trial_id"]: set() for r in conn.execute(
+        "SELECT trial_id FROM trials WHERE campaign_id = ? AND candidate_hash = ? AND evidence_tier = 'dev'",
+        (campaign_id, candidate_hash))}
+    for r in conn.execute("SELECT trial_id, record_kind FROM trials WHERE campaign_id = ? AND candidate_hash = ?",
+                          (campaign_id, candidate_hash)):
+        kinds[r["trial_id"]].add(r["record_kind"])
+    if any("completed" in k or k == {"started"} for k in kinds.values()):
+        raise AlphaSieveError("CONFLICT", "this candidate is already evaluated (or being evaluated) in this campaign;"
+                              " results are deterministic, read them with `alphasieve factor show`",
+                              {"candidate_hash": candidate_hash})
+
+
 def evaluate_spec(settings: Settings, conn: sqlite3.Connection, spec: FactorSpec, campaign_id: str | None = None,
                   tier: str = "dev") -> dict:
     role = settings.role
@@ -76,6 +89,8 @@ def evaluate_spec(settings: Settings, conn: sqlite3.Connection, spec: FactorSpec
                                f"terminals {outside} are outside campaign domains {campaign.domains}")]
     canonical = compiled.canonical if compiled else spec.expression.strip()
     candidate_hash = compiled.candidate_hash if compiled else sha256_hex("invalid:" + canonical)[:16]
+    if role == "agent" and campaign_id:
+        _reject_duplicate(conn, campaign_id, candidate_hash)
     factor_id, version, created = register(conn, spec, canonical, candidate_hash, role)
     base = dict(trial_id=trial_id, campaign_id=campaign_id, factor_id=factor_id, version=version,
                 candidate_hash=candidate_hash, evidence_tier=tier, gate_policy_version=policy["version"],

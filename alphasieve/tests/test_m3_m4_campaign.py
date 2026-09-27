@@ -23,6 +23,10 @@ NOISE = {"name": "vol_level", "expression": "cs_rank(volume)", "direction": 1, "
          "cell": {"domain": "volume", "form": "level", "scale": "short"}}
 MOMENTUM = {"name": "mom_20d", "expression": "ts_sum(ret_1d, 20)", "direction": 1, "hypothesis": "momentum",
             "cell": {"domain": "price", "form": "change_momentum", "scale": "medium"}}
+TURNOVER = {"name": "turnover_20d", "expression": "ts_mean(turnover_rate, 20)", "direction": -1, "hypothesis": "t",
+            "cell": {"domain": "turnover_liquidity", "form": "level", "scale": "medium"}}
+VOLATILITY = {"name": "vol_20d", "expression": "ts_std(ret_1d, 20)", "direction": -1, "hypothesis": "v",
+              "cell": {"domain": "price", "form": "volatility_stability", "scale": "medium"}}
 
 
 @pytest.fixture
@@ -127,7 +131,8 @@ def test_orchestrator_runs_until_budget_then_concludes(panel_settings):
     start_campaign(panel_settings, spec)
     system = as_role(panel_settings, "system")
     out = orchestrator.run_campaign(system, "c-orch",
-                                    executor_for=fake_executors(system, spec_script([[REVERSAL, NOISE], [MOMENTUM]])))
+                                    executor_for=fake_executors(system, spec_script([[REVERSAL, NOISE], [MOMENTUM],
+                                                                                     [TURNOVER, VOLATILITY]])))
     assert [t["status"] for t in out["turns"]] == ["completed", "completed", "completed"]
     assert out["outcome"]["concluded"] == "trial_budget_exhausted"
     conn = connect(panel_settings.state_db)
@@ -243,3 +248,15 @@ def test_holdout_chain(lenient, monkeypatch, capsys):
     with pytest.raises(AlphaSieveError):
         lifecycle.decide_review(conn, human, packet["packet_id"], "rejected", "changed mind")
     assert verify_ledger(conn)["ok"]
+
+
+def test_agent_duplicate_candidate_is_rejected(panel_settings, monkeypatch):
+    start_campaign(panel_settings, campaign_spec("c-dup"), monkeypatch)
+    conn = connect(panel_settings.state_db)
+    agent = replace(get_settings(), role="agent")
+    evaluate_spec(agent, conn, FactorSpec(**REVERSAL), campaign_id="c-dup")
+    renamed = FactorSpec(**{**REVERSAL, "name": "same_idea_new_name", "expression": "ts_sum(excess_ret_1d,3)"})
+    with pytest.raises(AlphaSieveError) as exc:
+        evaluate_spec(agent, conn, renamed, campaign_id="c-dup")
+    assert exc.value.code == "CONFLICT"
+    assert len(service.completed_trials(conn, "c-dup")) == 1

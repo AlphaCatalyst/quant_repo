@@ -7,7 +7,7 @@ import shutil
 import signal
 import subprocess
 import sys
-import time
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -80,40 +80,36 @@ def agent_env(settings: Settings, ctx: TurnContext, user: str) -> dict[str, str]
 def _run(cmd: list[str], env: dict, cwd: Path, timeout_s: int, transcript: Path,
          on_line: Callable[[dict], None]) -> tuple[int | None, bool, str]:
     transcript.parent.mkdir(parents=True, exist_ok=True)
-    timed_out = False
-    with open(transcript, "w", encoding="utf-8") as out, open(transcript.with_suffix(".stderr"), "w") as err:
+    stderr_path = transcript.with_suffix(".stderr")
+    with open(transcript, "w", encoding="utf-8") as out, open(stderr_path, "w", encoding="utf-8") as err:
         proc = subprocess.Popen(cmd, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=err,
-                                text=True, start_new_session=True)
-        deadline = time.monotonic() + timeout_s
-        assert proc.stdout is not None
-        os.set_blocking(proc.stdout.fileno(), False)
-        buffer = ""
-        while True:
-            chunk = proc.stdout.read()
-            if chunk:
-                buffer += chunk
-                *lines, buffer = buffer.split("\n")
-                for line in lines:
-                    out.write(line + "\n")
-                    try:
-                        on_line(json.loads(line))
-                    except (json.JSONDecodeError, TypeError, KeyError, AttributeError):
-                        pass
+                                text=True, encoding="utf-8", errors="replace", start_new_session=True)
+
+        def pump() -> None:
+            assert proc.stdout is not None
+            for line in proc.stdout:
+                out.write(line)
                 out.flush()
-            if proc.poll() is not None and not chunk:
-                break
-            if time.monotonic() > deadline:
-                timed_out = True
-                os.killpg(proc.pid, signal.SIGTERM)
                 try:
-                    proc.wait(15)
-                except subprocess.TimeoutExpired:
-                    os.killpg(proc.pid, signal.SIGKILL)
-                break
-            time.sleep(0.2)
-        if buffer:
-            out.write(buffer + "\n")
-    stderr_tail = transcript.with_suffix(".stderr").read_text(encoding="utf-8", errors="replace")[-2000:]
+                    on_line(json.loads(line))
+                except (json.JSONDecodeError, TypeError, KeyError, AttributeError):
+                    pass
+
+        reader = threading.Thread(target=pump, daemon=True)
+        reader.start()
+        timed_out = False
+        try:
+            proc.wait(timeout_s)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            os.killpg(proc.pid, signal.SIGTERM)
+            try:
+                proc.wait(15)
+            except subprocess.TimeoutExpired:
+                os.killpg(proc.pid, signal.SIGKILL)
+                proc.wait()
+        reader.join(30)
+    stderr_tail = stderr_path.read_text(encoding="utf-8", errors="replace")[-2000:]
     return proc.returncode, timed_out, stderr_tail
 
 

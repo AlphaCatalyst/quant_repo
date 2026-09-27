@@ -60,12 +60,14 @@ def _configure_eval(p):
          help="evaluate a candidate through L0-L2 and record the trial")
 def cmd_factor_eval(args, ctx) -> CommandResult:
     from alphasieve.evaluation.evaluate import evaluate_spec
+    from alphasieve.evaluation.slots import evaluation_slot
 
     spec = load_spec(args.spec)
     campaign_id = args.campaign or ctx.settings.campaign
     if ctx.settings.role == "agent" and campaign_id != ctx.settings.campaign:
         raise AlphaSieveError("PERMISSION_DENIED", "agent may only evaluate inside its assigned campaign")
-    result = evaluate_spec(ctx.settings, ctx.conn, spec, campaign_id=campaign_id)
+    with evaluation_slot(ctx.settings):
+        result = evaluate_spec(ctx.settings, ctx.conn, spec, campaign_id=campaign_id)
     error = None
     if result["outcome"] != "robust_passed":
         failed = [f"{lvl}.{c['name']}" for lvl, g in result["gates"].items() for c in g["checks"] if not c["passed"]]

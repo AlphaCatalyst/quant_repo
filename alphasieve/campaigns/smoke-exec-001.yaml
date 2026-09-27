@@ -1,0 +1,13 @@
+campaign_id: smoke-exec-001
+title: Executor smoke test
+question: Can both harnesses complete one research turn through the CLI with isolated configuration?
+horizon: 5
+domains: [price, volume, turnover_liquidity]
+cells:
+  - {domain: price, form: reversal, scale: short}
+  - {domain: turnover_liquidity, form: level, scale: medium}
+budgets: {trials: 8, turns: 2, turn_minutes: 15, max_hours: 4, holdout_reads: 0}
+stop: {no_improvement_turns: 5, max_consecutive_failed_turns: 2}
+agents:
+  - {harness: codex, model: gpt-6-sol, effort: high}
+  - {harness: claude, model: claude-opus-5}

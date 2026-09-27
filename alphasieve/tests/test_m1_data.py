@@ -169,3 +169,17 @@ def test_data_status_and_describe_cli(panel_settings, capsys, monkeypatch):
     assert code == 0 and 0 < out["data"]["coverage"] <= 1
     code, out = run_cli(capsys, "data", "sample", "--date", "2019-03-01", "--fields", "close,label_5d")
     assert code == 2
+
+
+def test_baostock_query_deadline():
+    import time
+
+    import pytest
+
+    from alphasieve.data.providers.baostock import _deadline
+
+    start = time.monotonic()
+    with pytest.raises(TimeoutError), _deadline(1):
+        while True:
+            pass
+    assert time.monotonic() - start < 3

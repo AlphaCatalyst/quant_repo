@@ -20,6 +20,32 @@ class ProviderError(RuntimeError):
     pass
 
 
+QUERY_TIMEOUT_S = 300
+
+
+@contextlib.contextmanager
+def _deadline(seconds: int):
+    """Hard wall-clock limit per query. After a server-side disconnect the baostock client can spin on empty
+    reads at 100% CPU, which a socket timeout does not catch; SIGALRM does (main thread of a worker only)."""
+    import signal
+    import threading
+
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+
+    def expire(signum, frame):
+        raise TimeoutError(f"baostock query exceeded {seconds}s")
+
+    previous = signal.signal(signal.SIGALRM, expire)
+    signal.alarm(seconds)
+    try:
+        yield
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, previous)
+
+
 def _to_frame(rs) -> pd.DataFrame:
     if rs.error_code != "0":
         raise ProviderError(f"baostock error {rs.error_code}: {rs.error_msg}")
@@ -64,7 +90,7 @@ class BaoStockSession:
         last_error = None
         for attempt in range(self.retries):
             try:
-                with contextlib.redirect_stdout(io.StringIO()):
+                with contextlib.redirect_stdout(io.StringIO()), _deadline(QUERY_TIMEOUT_S):
                     return _to_frame(getattr(self.bs, method)(**kwargs))
             except Exception as exc:  # noqa: BLE001  (network errors surface as varied types)
                 last_error = exc

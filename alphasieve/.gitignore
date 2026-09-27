@@ -7,3 +7,5 @@ __pycache__/
 /state/
 /workspaces/
 .ruff_cache/
+node_modules/
+*.tsbuildinfo

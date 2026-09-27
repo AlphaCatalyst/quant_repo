@@ -10,6 +10,7 @@ from alphasieve.cli import (  # noqa: F401  (register commands)
     commands_core,
     commands_data,
     commands_factor,
+    commands_web,
 )
 from alphasieve.cli.registry import COMMANDS, Context, envelope
 from alphasieve.config import get_settings

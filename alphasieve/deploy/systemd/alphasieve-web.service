@@ -1,0 +1,18 @@
+[Unit]
+Description=AlphaSieve read-only web frontend
+After=network-online.target
+RequiresMountsFor=/mnt/private_felixjjiang
+
+[Service]
+Type=simple
+WorkingDirectory=/data/codebase/quant_repo/alphasieve
+Environment=ALPHASIEVE_ROLE=human
+Environment=ALPHASIEVE_USER=web
+ExecStart=/data/codebase/quant_repo/alphasieve/.venv/bin/alphasieve serve --host 9.134.61.161 --port 8720
+StandardOutput=append:/data/alphasieve/logs/web.log
+StandardError=append:/data/alphasieve/logs/web.log
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

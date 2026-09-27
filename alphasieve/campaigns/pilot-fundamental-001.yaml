@@ -1,0 +1,22 @@
+campaign_id: pilot-fundamental-001
+title: 财务质量与成长 × 量价（试点）
+question: >
+  Do point-in-time profitability and growth signals, on their own, relative to industry peers, or conditioned on
+  price and turnover behaviour, predict 5-day CSI 800 returns beyond what the seed library already explains?
+universe: csi800
+horizon: 5
+domains: [profitability, growth, price, turnover_liquidity, size_value]
+cells:
+  - {domain: profitability, form: level, scale: quarterly}
+  - {domain: profitability, form: change_momentum, scale: medium}
+  - {domain: profitability, form: group_relative, scale: quarterly}
+  - {domain: profitability, form: conditional_interaction, scale: medium}
+  - {domain: growth, form: level, scale: quarterly}
+  - {domain: growth, form: change_momentum, scale: medium}
+  - {domain: growth, form: group_relative, scale: quarterly}
+  - {domain: growth, form: conditional_interaction, scale: medium}
+budgets: {trials: 200, turns: 60, turn_minutes: 30, max_hours: 72, holdout_reads: 2}
+stop: {no_improvement_turns: 20, max_consecutive_failed_turns: 3}
+agents:
+  - {harness: codex, model: gpt-6-sol, effort: high}
+  - {harness: claude, model: claude-opus-5}

@@ -65,6 +65,8 @@
   - 结果通过 taijifs 回传，也可以用 Ray actor 常驻 panel。
 - 需要先解决两件事：本机能否直接连平台上的 Ray actor（Ray Client 端口是否可达，待实测）；如果连不上，就用 taijifs 做队列目录，延迟是秒级。
 
+**S-3 实施结果**：见 [10-decisions.md](10-decisions.md) D-25。本机常驻 worker 已作为 systemd 服务运行；平台 worker 按需通过 `deploy/ray/start_workers.sh` 启动，配合 `systemctl start alphasieve-evalbridge` 使用。
+
 ### 2.3 让搜索能用上算力
 
 评估变快以后，瓶颈转到 agent：一个 LLM turn 只评估几个候选。扩大搜索有三条路，可以组合使用：

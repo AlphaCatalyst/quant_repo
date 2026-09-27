@@ -22,11 +22,13 @@ set -euo pipefail
 export UV_INDEX_URL=https://mirrors.tencent.com/pypi/simple/ UV_LINK_MODE=copy
 venv=/tmp/alphasieve-venv-\$(sha256sum pyproject.toml | cut -c1-12)
 [ -x "\$venv/bin/alphasieve" ] || { uv venv -q -p 3.12 "\$venv" && uv pip install -q --python "\$venv/bin/python" -e ".[tracking]" ; }
+uv pip install -q --no-deps --reinstall-package alphasieve --python "\$venv/bin/python" -e .
+"\$venv/bin/python" -c "import alphasieve, os; print('code:', alphasieve.__file__, 'cwd:', os.getcwd())"
 if [ -r ${remote_root}/secrets/runlab.env ]; then
   set -a; . ${remote_root}/secrets/runlab.env; set +a
   export ALPHASIEVE_TRACKING=runlab WANDB_BASE_URL=\${WANDB_BASE_URL:-http://runlab.woa.com} WANDB_SILENT=true
 fi
-export ALPHASIEVE_JOB_ID=${job_id}
+export ALPHASIEVE_JOB_ID=${job_id} ALPHASIEVE_EVAL_POLL=${ALPHASIEVE_EVAL_POLL:-0.2}
 export ALPHASIEVE_ROLE=system ALPHASIEVE_USER=ray:${job_id} ALPHASIEVE_STORE_MOUNT=
 export ALPHASIEVE_HOT_ROOT=${remote_root}/hot ALPHASIEVE_STORE_ROOT=${remote_root}/store
 if [ -e "\$ALPHASIEVE_HOT_ROOT/data/panel/holdout" ] || [ -e "\$ALPHASIEVE_HOT_ROOT/data/panel/fresh" ]; then

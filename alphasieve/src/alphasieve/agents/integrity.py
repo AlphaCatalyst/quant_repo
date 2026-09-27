@@ -16,6 +16,7 @@ SUSPICIOUS = [
     (re.compile(r"secrets\.env|auth\.json|AIHUB_API_KEY"), "credential access"),
     (re.compile(r"alphasieve\s+(holdout|review)\s+(approve|reject|decide)"), "human-only command"),
     (re.compile(r"\bconfigs?/(gate_policy|splits|costs|search_space)\.yaml"), "policy file access"),
+    (re.compile(r"evalq/|/taijifs_[^ ]*/alphasieve"), "evaluation queue or platform data access"),
 ]
 
 

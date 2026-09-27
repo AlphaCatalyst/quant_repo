@@ -7,7 +7,8 @@ script does when a key file exists on the remote root. Holdout and review comman
 import math
 import os
 
-UNTRACKED_PREFIXES = ("holdout", "review", "campaign", "directive", "request", "orchestrator", "serve")
+UNTRACKED_PREFIXES = ("holdout", "review", "campaign", "directive", "request", "orchestrator", "serve", "version",
+                      "evalsvc")
 MAX_KEYS = 300
 
 

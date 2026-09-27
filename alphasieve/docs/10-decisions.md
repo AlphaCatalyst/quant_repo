@@ -119,7 +119,26 @@ verifier 本身的正确性要靠测试证明；gate 阈值用零假设模拟与
   - campaign 不写 `horizon` 时，取重点格子所在领域默认值的最大值，写入规格后固定不变；
   - 同一 campaign 只有一个周期，候选周期不一致判为 L0 的 `campaign_horizon` 失败。周期不一致的提交不算重复提交。
 - L2：gate_policy v2 把 `cost_adjusted_excess` 标为只记录（`informational`）。照常计算和记录，但不影响是否通过，也不计入失败原因。能否扣成本后赚钱交给组合层与执行层判断（15 §4 P-2）。agent 规程同步修改。
-- 已有的试点 `pilot-fundamental-001` 按 5 日、v1 口径运行，不追溯修改，由后续的新 campaign 取代（见 D-25）。
+- 已有的试点 `pilot-fundamental-001` 按 5 日、v1 口径运行，不追溯修改，由采用新口径的 campaign 取代（见 [16-scaling.md](16-scaling.md) S-5）。
+
+**D-25 常驻评估服务（S-3，2026-09-27）**
+- `evaluate_spec` 拆成三段：
+  - 本机准备：校验、登记因子、写入“开始”记录；
+  - 纯计算 `compute_job`：输入是可序列化的任务描述，包含库成员、配置与邻域计数，计算时不访问状态库；
+  - 本机收尾：写 artifact、写入“完成”记录、推进因子状态。
+- ledger 只在本机写入。
+- 队列是目录协议（`pending/running/done/workers`）。本机队列在 state 目录下的 `evalq/`，Codex 沙箱里可写。
+  - `alphasieve evalsvc worker` 常驻内存，载入一次 panel 后持续处理任务；
+  - `evalsvc bridge` 把本机任务转发到 taijifs 上的 `evalq/`，由平台 worker（`deploy/ray/start_workers.sh`）处理。
+  - `factor eval` 发现有活的 worker 或桥接进程就走队列，否则在进程内计算（`ALPHASIEVE_EVAL_QUEUE=auto|off|require`）。
+- worker 只算 dev 层任务。心跳由后台线程每 10 秒写一次；桥接进程在内存里记住远端心跳，不会因为 taijifs 列目录偶尔读不到文件而误判 worker 已死。
+- 库因子缓存改为原子写入，读到残缺文件会自动重算。
+- 提交脚本每次都把包重新指向本次上传的代码。此前平台上的可编辑安装一直指向第一次上传的目录，导致修复没有生效。
+- 实测：
+  - 本机常驻 worker：只到 L1 的评估 11–17 秒，到 L2 的评估 19–34 秒（CLI 端到端）；
+  - 平台 4 个 worker：计算时间 L1 2.6–10 秒、L2 22–32 秒，经 taijifs 队列的端到端时间 12–44 秒，4 个评估并行完成。
+- 部署：`alphasieve-evalworker.service`（本机 2 个进程）已启用；`alphasieve-evalbridge.service` 只在平台 worker 运行时启动。
+- 残余风险：agent 理论上可以伪造队列里的结果文件。完整性扫描已加入 `evalq/` 与 taijifs 路径（D-22 第 6 条的延伸）。
 
 ## 待定问题
 

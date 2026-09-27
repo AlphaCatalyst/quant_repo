@@ -72,8 +72,60 @@ def _reject_duplicate(conn: sqlite3.Connection, campaign_id: str, candidate_hash
                               {"candidate_hash": candidate_hash})
 
 
+def build_job(settings: Settings, conn: sqlite3.Connection, spec: FactorSpec, canonical: str, candidate_hash: str,
+              tier: str, policy: dict, costs: dict) -> dict:
+    """Everything a worker needs to compute an evaluation without access to the state database."""
+    members = [{"name": m["name"] or m["factor_id"], "canonical": m["canonical_expression"],
+                "candidate_hash": m["candidate_hash"], "direction": m["direction"]} for m in lib.library_members(conn)]
+    return {"job_id": uuid.uuid4().hex[:16], "tier": tier, "spec": spec.model_dump(), "canonical": canonical,
+            "candidate_hash": candidate_hash, "policy": policy, "costs": costs, "library": members,
+            "library_icir": lib.library_icir(conn),
+            "neighborhood_trials": neighborhood_count(conn, spec.neighborhood_of)}
+
+
+def compute_job(settings: Settings, job: dict, panel=None) -> dict:
+    """Pure computation of L1/L2 for a structurally valid candidate. Runs locally or in an evaluation worker."""
+    if job["tier"] != "dev":
+        raise AlphaSieveError("PERMISSION_DENIED", "evaluation workers only compute dev-tier jobs")
+    spec = FactorSpec(**job["spec"])
+    policy, costs = job["policy"], job["costs"]
+    space = load_search_space(settings)
+    compiled = compile_expression(job["canonical"], space)
+    panel = panel if panel is not None else load_panel(settings, job["tier"], role="system")
+    start, end = panel.window
+    out = {"cell": space.check_cell(spec.cell.model_dump(), compiled.terminals, compiled.max_window),
+           "window": f"{start.date()}..{end.date()}", "panel_signature": panel.signature, "gates": {},
+           "code_version": code_version()}
+    inputs = EvalInputs(panel, spec.horizon)
+    raw = evaluate(compiled, panel)
+    factor = raw * spec.direction
+    library = lib.frames_from_members(settings, panel, job["library"])
+    out["library"] = sorted(library)
+    metrics = l1_metrics(factor, inputs, library)
+    gates = out["gates"]
+    gates["l1"] = gate_l1(metrics, policy, job["library_icir"])
+    path = ["evaluating"]
+    if not gates["l1"]["passed"]:
+        outcome = "evaluation_failed"
+        path.append(outcome)
+    else:
+        path += ["evaluated", "robust_evaluating"]
+        baseline = library or lib.base_feature_frames(settings, panel)
+        metrics["l2"] = l2_metrics(factor, inputs, baseline, costs, policy["l2"]["subwindows"], metrics["_ic_series"])
+        gates["l2"] = gate_l2({**metrics["l2"], "ic_mean": metrics["ic_mean"]}, policy, job["neighborhood_trials"],
+                              spec.params_source)
+        outcome = "robust_passed" if gates["l2"]["passed"] else "robust_failed"
+        path.append(outcome)
+        if outcome == "robust_passed":
+            lib.store_values(settings, panel, job["candidate_hash"], raw)
+    out.update(outcome=outcome, path=path, metrics=public_metrics(metrics))
+    return out
+
+
 def evaluate_spec(settings: Settings, conn: sqlite3.Connection, spec: FactorSpec, campaign_id: str | None = None,
-                  tier: str = "dev") -> dict:
+                  tier: str = "dev", executor=None) -> dict:
+    """The single evaluation entry point: validate and record locally, compute via ``executor`` (default:
+    in-process), then write the artifact, the ledger result and the state transition locally."""
     role = settings.role
     check_tier_access(role, tier)
     campaign = ensure_can_evaluate(conn, settings, campaign_id) if tier == "dev" else None
@@ -108,44 +160,27 @@ def evaluate_spec(settings: Settings, conn: sqlite3.Connection, spec: FactorSpec
               "cell": {"warnings": []}, "new_candidate": created}
     try:
         gates = {"l0": gate_l0(issues)}
-        result["gates"] = gates
         path: list[str] = ["validating"]
-        metrics: dict = {}
+        public: dict = {}
         if not gates["l0"]["passed"]:
             outcome = "validation_failed"
             path.append(outcome)
         else:
             path.append("validated")
-            result["cell"] = space.check_cell(spec.cell.model_dump(), compiled.terminals, compiled.max_window)
-            panel = load_panel(settings, tier)
-            start, end = panel.window
-            result["window"] = f"{start.date()}..{end.date()}"
-            inputs = EvalInputs(panel, spec.horizon)
-            raw = evaluate(compiled, panel)
-            factor = raw * spec.direction
-            library = lib.library_frames(settings, conn, panel)
-            result["library"] = sorted(library)
-            metrics = l1_metrics(factor, inputs, library)
-            gates["l1"] = gate_l1(metrics, policy, lib.library_icir(conn))
-            path += ["evaluating"]
-            if not gates["l1"]["passed"]:
-                outcome = "evaluation_failed"
-                path.append(outcome)
-            else:
-                path += ["evaluated", "robust_evaluating"]
-                baseline = library or lib.baseline_frames(settings, conn, panel)
-                metrics["l2"] = l2_metrics(factor, inputs, baseline, costs, policy["l2"]["subwindows"],
-                                           metrics["_ic_series"])
-                gates["l2"] = gate_l2({**metrics["l2"], "ic_mean": metrics["ic_mean"]}, policy,
-                                      neighborhood_count(conn, spec.neighborhood_of), spec.params_source)
-                outcome = "robust_passed" if gates["l2"]["passed"] else "robust_failed"
-                path.append(outcome)
-                if outcome == "robust_passed":
-                    lib.store_values(settings, panel, candidate_hash, raw)
-            result["panel_signature"] = panel.signature
+            job = build_job(settings, conn, spec, canonical, candidate_hash, tier, policy, costs)
+            computed = executor(job) if executor is not None else compute_job(settings, job)
+            if computed.get("error"):
+                raise AlphaSieveError("INTERNAL", f"evaluation worker failed: {computed['error']}")
+            gates.update(computed["gates"])
+            path += computed["path"]
+            outcome, public = computed["outcome"], computed["metrics"]
+            result.update(cell=computed["cell"], window=computed["window"], library=computed["library"],
+                          panel_signature=computed["panel_signature"])
+            if computed.get("worker"):
+                result["worker"] = computed["worker"]
+        result["gates"] = gates
         result["outcome"] = outcome
         artifact_id = None
-        public = public_metrics(metrics)
         if compiled is not None:
             manifest = {
                 "kind": "factor_eval", "metrics_schema": METRICS_SCHEMA, "candidate_hash": candidate_hash,

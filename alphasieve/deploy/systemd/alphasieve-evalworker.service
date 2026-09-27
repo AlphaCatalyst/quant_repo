@@ -1,0 +1,18 @@
+[Unit]
+Description=AlphaSieve local evaluation workers (dev panel kept in memory)
+After=network-online.target
+RequiresMountsFor=/mnt/private_felixjjiang
+
+[Service]
+Type=simple
+WorkingDirectory=/data/codebase/quant_repo/alphasieve
+Environment=ALPHASIEVE_ROLE=system
+Environment=ALPHASIEVE_USER=evalworker
+ExecStart=/data/codebase/quant_repo/alphasieve/.venv/bin/alphasieve evalsvc worker --processes 2 --json
+StandardOutput=append:/data/alphasieve/logs/evalworker.jsonl
+StandardError=append:/data/alphasieve/logs/evalworker.err
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

@@ -34,3 +34,9 @@ def test_web_requires_login_and_serves_read_models(panel_settings):
     assert client.get("/api/campaigns/missing", auth=auth).status_code == 404
     assert client.get("/api/artifacts/..%2F..%2Fetc/report", auth=auth).status_code in (400, 404)
     assert client.get("/api/artifacts/not-an-artifact/report", auth=auth).status_code == 400
+
+
+def test_web_can_run_without_login(panel_settings):
+    connect(panel_settings.state_db).close()
+    client = TestClient(create_app(panel_settings, require_auth=False))
+    assert client.get("/api/overview").status_code == 200

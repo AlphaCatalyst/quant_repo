@@ -2,6 +2,7 @@
 
 import hmac
 import json
+import os
 import re
 import secrets
 import sqlite3
@@ -23,7 +24,7 @@ from alphasieve.ledger import ledger_stats, verify_ledger
 
 DIST = Path(__file__).resolve().parent / "dist"
 ARTIFACT_ID = re.compile(r"^[0-9a-f]{24}$")
-security = HTTPBasic()
+security = HTTPBasic(auto_error=False)
 
 
 def credentials_path(settings: Settings) -> Path:
@@ -91,12 +92,19 @@ def _transcript_events(path: Path, limit: int = 400) -> list[dict]:
     return events[-limit:]
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, require_auth: bool | None = None) -> FastAPI:
     settings = replace(settings or get_settings(), role="human")
-    ensure_credentials(settings)
+    if require_auth is None:
+        require_auth = os.environ.get("ALPHASIEVE_WEB_AUTH", "basic") != "none"
+    if require_auth:
+        ensure_credentials(settings)
     app = FastAPI(title="AlphaSieve", version=__version__, docs_url=None, redoc_url=None)
 
-    def auth(creds: HTTPBasicCredentials = Depends(security)) -> str:
+    def auth(creds: HTTPBasicCredentials | None = Depends(security)) -> str:
+        if not require_auth:
+            return "anonymous"
+        if creds is None:
+            raise HTTPException(401, "login required", headers={"WWW-Authenticate": "Basic"})
         user, password = _load_credentials(settings)
         ok = hmac.compare_digest(creds.username.encode(), user.encode()) and \
             hmac.compare_digest(creds.password.encode(), password.encode())

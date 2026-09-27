@@ -8,6 +8,7 @@ Type=simple
 WorkingDirectory=/data/codebase/quant_repo/alphasieve
 Environment=ALPHASIEVE_ROLE=human
 Environment=ALPHASIEVE_USER=web
+Environment=ALPHASIEVE_WEB_AUTH=none
 ExecStart=/data/codebase/quant_repo/alphasieve/.venv/bin/alphasieve serve --host 9.134.61.161 --port 8720
 StandardOutput=append:/data/alphasieve/logs/web.log
 StandardError=append:/data/alphasieve/logs/web.log

@@ -94,7 +94,7 @@ verifier 本身的正确性要靠测试证明；gate 阈值用零假设模拟与
    - 补偿措施：每个 turn 结束后比较受保护状态（holdout 请求、决定、评审包、非 dev trial、shortlist、配置哈希），扫描 agent 执行过的命令与读取的路径（环境变量覆盖、holdout / fresh panel 路径、直接访问数据库、凭据、仅限人工的命令、策略文件），并检查带本 turn 标记却以非 agent 角色执行的命令。命中任一项，该 turn 记为 `integrity_violation`，campaign 自动暂停，该 turn 的经验不写入记忆。
 7. 模型容量不足之类的暂时性错误按失败 turn 计。连续 3 个失败 turn 暂停 campaign；两种 agent 交替运行，一种暂时不可用不会让 campaign 停下。
 8. 更正 D-21：每日更新只增量同步原始数据并镜像到 Ceph，不重建 panel。dev 窗口已固定，holdout 窗口止于 2026-09-25，fresh panel 要到 M7 才需要；每天重建只会改变 panel 签名，没有收益。
-9. 前端只读，使用 HTTP Basic 认证，凭据由系统生成，保存在 `/data/alphasieve/web.credentials`（权限 600）。静态 JS / CSS 不需认证（不含数据），所有 API 都需认证。技术栈比 07 文档简化：React + Vite + ECharts，没有用 TanStack、Tailwind、shadcn。
+9. 前端只读。2026-09-27 按用户要求改为免密访问（web 服务设置 `ALPHASIEVE_WEB_AUTH=none`），取代 D-21 中“需要用户名密码登录”的约定：能访问本机 8720 端口的人都能看到研究结果与 ledger，但没有任何写操作。改回登录只需去掉这个环境变量。原先的做法：HTTP Basic 认证，凭据由系统生成，保存在 `/data/alphasieve/web.credentials`（权限 600）。静态 JS / CSS 不需认证（不含数据），所有 API 都需认证。技术栈比 07 文档简化：React + Vite + ECharts，没有用 TanStack、Tailwind、shadcn。
 
 ## 待定问题
 

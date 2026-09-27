@@ -48,7 +48,12 @@ def record(command: str, args: dict, envelope: dict, settings) -> str | None:
         tags=[command.split(" ")[0]],
         reinit=True,
     )
-    summary = flatten(envelope.get("data") or {})
+    data = envelope.get("data") or {}
+    series = data.get("series") if isinstance(data.get("series"), dict) else {}
+    numeric = {k: v for k, v in series.items() if isinstance(v, list) and v and isinstance(v[0], (int, float))}
+    for step in range(max((len(v) for v in numeric.values()), default=0)):
+        run.log({k: v[step] for k, v in numeric.items() if step < len(v)}, step=step)
+    summary = flatten({k: v for k, v in data.items() if k != "series"})
     summary["status_ok"] = int(envelope.get("status") == "ok")
     run.summary.update(summary)
     run_id = run.id

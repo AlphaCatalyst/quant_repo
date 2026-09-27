@@ -133,7 +133,7 @@ def queue_executor(settings: Settings):
 
 
 def run_worker(settings: Settings, queue_root: Path | str, max_jobs: int | None = None, idle_exit: float | None = None,
-               poll: float | None = None) -> dict:
+               poll: float | None = None, universes: tuple[str, ...] = ("csi800",)) -> dict:
     from alphasieve.data.access import load_panel
     from alphasieve.evaluation.evaluate import compute_job
 
@@ -153,8 +153,8 @@ def run_worker(settings: Settings, queue_root: Path | str, max_jobs: int | None 
 
     queue.heartbeat(worker_id, {**info, **status})
     threading.Thread(target=beat, daemon=True).start()
-    panel = load_panel(settings, "dev", role="system")
-    status.update(state="idle", panel=panel.signature)
+    panels = {u: load_panel(settings, "dev", role="system", universe=u) for u in universes}
+    status.update(state="idle", panels={u: p.signature for u, p in panels.items()})
     done, last_job = 0, time.monotonic()
     try:
         while max_jobs is None or done < max_jobs:
@@ -170,7 +170,10 @@ def run_worker(settings: Settings, queue_root: Path | str, max_jobs: int | None 
             status.update(state="busy", job=job["job_id"])
             started = time.monotonic()
             try:
-                result = compute_job(settings, job, panel=panel)
+                universe = job["spec"].get("universe", "csi800")
+                if universe not in panels:
+                    panels[universe] = load_panel(settings, "dev", role="system", universe=universe)
+                result = compute_job(settings, job, panel=panels[universe])
             except Exception as exc:  # noqa: BLE001
                 result = {"error": f"{type(exc).__name__}: {exc}", "traceback": traceback.format_exc()[-4000:]}
             result["worker"] = {"id": worker_id, "seconds": round(time.monotonic() - started, 2)}

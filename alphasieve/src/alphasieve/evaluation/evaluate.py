@@ -91,7 +91,8 @@ def compute_job(settings: Settings, job: dict, panel=None) -> dict:
     policy, costs = job["policy"], job["costs"]
     space = load_search_space(settings)
     compiled = compile_expression(job["canonical"], space)
-    panel = panel if panel is not None else load_panel(settings, job["tier"], role="system")
+    if panel is None or getattr(panel, "meta", {}).get("universe", "csi800") != spec.universe:
+        panel = load_panel(settings, job["tier"], role="system", universe=spec.universe)
     start, end = panel.window
     out = {"cell": space.check_cell(spec.cell.model_dump(), compiled.terminals, compiled.max_window),
            "window": f"{start.date()}..{end.date()}", "panel_signature": panel.signature, "gates": {},
@@ -138,6 +139,9 @@ def evaluate_spec(settings: Settings, conn: sqlite3.Connection, spec: FactorSpec
         compiled = compile_expression(spec.expression, space)
     except DSLError as exc:
         issues = exc.issues
+    if campaign is not None and spec.universe != campaign.universe:
+        message = f"spec universe {spec.universe} differs from the campaign universe {campaign.universe}"
+        issues = [*issues, DSLIssue("campaign_universe", message)]
     if campaign is not None and spec.horizon != campaign.horizon:
         message = f"spec horizon {spec.horizon} differs from the campaign horizon {campaign.horizon}"
         issues = [*issues, DSLIssue("campaign_horizon", message)]

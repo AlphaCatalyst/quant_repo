@@ -10,6 +10,7 @@ import pandas as pd
 
 from alphasieve.config import Settings
 from alphasieve.data.providers.baostock import INDEX_MEMBER_QUERIES, BaoStockSession
+from alphasieve.data.universe import universe_config
 from alphasieve.util import canonical_json, file_sha256, sha256_hex, utcnow_iso
 
 SOURCE = "baostock"
@@ -20,8 +21,18 @@ FINANCIAL_TABLES = ("profit", "growth")
 FINANCIAL_PUBLICATION_LAG_DAYS = 150
 
 
-def raw_root(settings: Settings) -> Path:
-    return settings.raw_dir / SOURCE
+def raw_root(settings: Settings, universe: str | None = None) -> Path:
+    if universe in (None, "csi800"):
+        return settings.raw_dir / SOURCE
+    return settings.raw_dir / universe_config(settings, universe)["raw_subdir"]
+
+
+def _dataset(name: str, universe: str | None) -> str:
+    return name if universe in (None, "csi800") else f"{universe}:{name}"
+
+
+def history_start(settings: Settings, universe: str | None = None) -> str:
+    return HISTORY_START if universe in (None, "csi800") else universe_config(settings, universe)["history_start"]
 
 
 def _write_parquet(df: pd.DataFrame, path: Path) -> None:
@@ -43,22 +54,23 @@ def record_snapshot(conn: sqlite3.Connection, dataset: str, params: dict, paths:
     return snapshot_id
 
 
-def latest_trading_day(settings: Settings, on_or_before: str | None = None) -> str:
-    cal = load_calendar(settings)
+def latest_trading_day(settings: Settings, on_or_before: str | None = None, universe: str | None = None) -> str:
+    cal = load_calendar(settings, universe)
     limit = on_or_before or date.today().isoformat()
     days = cal[cal <= limit]
     return days.iloc[-1]
 
 
-def load_calendar(settings: Settings) -> pd.Series:
-    df = pd.read_parquet(raw_root(settings) / "trade_dates.parquet")
+def load_calendar(settings: Settings, universe: str | None = None) -> pd.Series:
+    df = pd.read_parquet(raw_root(settings, universe) / "trade_dates.parquet")
     return df.loc[df["is_trading_day"] == 1, "calendar_date"].reset_index(drop=True)
 
 
-def sync_reference(settings: Settings, conn: sqlite3.Connection, end: str) -> dict:
-    root = raw_root(settings)
+def sync_reference(settings: Settings, conn: sqlite3.Connection, end: str, universe: str | None = None) -> dict:
+    root = raw_root(settings, universe)
+    cal_start = f"{int(history_start(settings, universe)[:4]) - 1}-01-01"
     with BaoStockSession() as s:
-        cal = s.trade_dates("2010-01-01", (datetime.fromisoformat(end) + timedelta(days=30)).date().isoformat())
+        cal = s.trade_dates(cal_start, (datetime.fromisoformat(end) + timedelta(days=30)).date().isoformat())
         _write_parquet(cal, root / "trade_dates.parquet")
         basic = s.stock_basic()
         _write_parquet(basic, root / "stock_basic.parquet")
@@ -67,7 +79,7 @@ def sync_reference(settings: Settings, conn: sqlite3.Connection, end: str) -> di
         _write_parquet(industry, root / "industry.parquet")
     out = {}
     for name, df in (("trade_dates", cal), ("stock_basic", basic), ("industry", industry)):
-        snap = record_snapshot(conn, name, {"end": end}, [root / f"{name}.parquet"], len(df))
+        snap = record_snapshot(conn, _dataset(name, universe), {"end": end}, [root / f"{name}.parquet"], len(df))
         out[name] = {"rows": len(df), "snapshot": snap}
     return out
 
@@ -98,6 +110,18 @@ def sync_members(settings: Settings, conn: sqlite3.Connection, end: str) -> dict
 def member_codes(settings: Settings) -> list[str]:
     df = pd.read_parquet(raw_root(settings) / "members.parquet")
     return sorted(df["code"].unique())
+
+
+def universe_codes(settings: Settings, universe: str | None = None) -> list[str]:
+    cfg = universe_config(settings, universe)
+    if cfg["codes"] == "index_members":
+        return member_codes(settings)
+    basic = pd.read_parquet(raw_root(settings, universe) / "stock_basic.parquet")
+    stocks = basic[(basic["type"].astype(str) == "1") & basic["code"].str.startswith(("sh.", "sz."))]
+    ipo_ok = stocks["ipoDate"].fillna("") <= date.today().isoformat()
+    out = stocks["outDate"].fillna("")
+    alive = (out == "") | (out >= cfg["history_start"])
+    return sorted(stocks.loc[ipo_ok & alive, "code"].unique())
 
 
 _SESSION: BaoStockSession | None = None
@@ -152,24 +176,26 @@ def _run_jobs(job, items: list, workers: int, progress=None) -> list[dict]:
     return results
 
 
-def sync_daily(settings: Settings, conn: sqlite3.Connection, end: str, workers: int = 6, progress=None) -> dict:
-    root = raw_root(settings)
-    codes = member_codes(settings)
-    items = [(code, HISTORY_START, end, str(root)) for code in codes]
+def sync_daily(settings: Settings, conn: sqlite3.Connection, end: str, workers: int = 6, progress=None,
+               universe: str | None = None) -> dict:
+    root = raw_root(settings, universe)
+    start = history_start(settings, universe)
+    codes = universe_codes(settings, universe)
+    items = [(code, start, end, str(root)) for code in codes]
     results = _run_jobs(_daily_job, items, workers, progress)
-    index_items = [(code, HISTORY_START, end, str(root)) for code in INDEX_CODES.values()]
+    index_items = [(code, start, end, str(root)) for code in INDEX_CODES.values()]
     results += _run_jobs(_index_job, index_items, min(workers, len(index_items)))
     errors = [e for r in results for e in r.get("errors", [])]
     paths = sorted((root / "daily").glob("*.parquet")) + sorted((root / "index_daily").glob("*.parquet"))
     new_rows = sum(r.get("new_rows", 0) for r in results)
-    snap = record_snapshot(conn, "daily", {"start": HISTORY_START, "end": end}, paths, new_rows)
+    snap = record_snapshot(conn, _dataset("daily", universe), {"start": start, "end": end}, paths, new_rows)
     return {"codes": len(codes), "new_rows": new_rows, "errors": errors, "snapshot": snap}
 
 
-def _quarters(end: str) -> list[tuple[int, int]]:
+def _quarters(end: str, start_year: int | None = None) -> list[tuple[int, int]]:
     end_date = datetime.fromisoformat(end).date()
     out = []
-    for year in range(int(HISTORY_START[:4]), end_date.year + 1):
+    for year in range(start_year or int(HISTORY_START[:4]), end_date.year + 1):
         for quarter in range(1, 5):
             quarter_end = date(year, quarter * 3, 1) + pd.offsets.MonthEnd(0)
             if pd.Timestamp(quarter_end).date() <= end_date:
@@ -177,14 +203,14 @@ def _quarters(end: str) -> list[tuple[int, int]]:
     return out
 
 
-def _financial_job(code: str, end: str, root: str) -> dict:
+def _financial_job(code: str, end: str, root: str, start_year: int | None = None) -> dict:
     root_path = Path(root) / "financials"
     progress_path = root_path / "_progress" / f"{code}.json"
     done = set(json.loads(progress_path.read_text())) if progress_path.exists() else set()
     end_date = datetime.fromisoformat(end).date()
     frames = {t: [] for t in FINANCIAL_TABLES}
     newly_done = set()
-    for year, quarter in _quarters(end):
+    for year, quarter in _quarters(end, start_year):
         key = f"{year}Q{quarter}"
         if key in done:
             continue
@@ -209,21 +235,23 @@ def _financial_job(code: str, end: str, root: str) -> dict:
     return {"code": code, "new_quarters": len(newly_done)}
 
 
-def sync_financials(settings: Settings, conn: sqlite3.Connection, end: str, workers: int = 4, progress=None) -> dict:
-    root = raw_root(settings)
-    codes = member_codes(settings)
-    results = _run_jobs(_financial_job, [(code, end, str(root)) for code in codes], workers, progress)
+def sync_financials(settings: Settings, conn: sqlite3.Connection, end: str, workers: int = 4, progress=None,
+                    universe: str | None = None) -> dict:
+    root = raw_root(settings, universe)
+    codes = universe_codes(settings, universe)
+    start_year = int(history_start(settings, universe)[:4])
+    results = _run_jobs(_financial_job, [(code, end, str(root), start_year) for code in codes], workers, progress)
     errors = [e for r in results for e in r.get("errors", [])]
     paths = []
     for table in FINANCIAL_TABLES:
         paths += sorted((root / "financials" / table).glob("*.parquet"))
-    snap = record_snapshot(conn, "financials", {"end": end}, paths, len(paths))
+    snap = record_snapshot(conn, _dataset("financials", universe), {"end": end}, paths, len(paths))
     return {"codes": len(codes), "errors": errors, "files": len(paths), "snapshot": snap}
 
 
-def mirror_to_store(settings: Settings) -> dict:
-    src_root = raw_root(settings)
-    dst_root = settings.raw_store_dir / SOURCE
+def mirror_to_store(settings: Settings, universe: str | None = None) -> dict:
+    src_root = raw_root(settings, universe)
+    dst_root = settings.raw_store_dir / src_root.name
     copied = 0
     for src in src_root.rglob("*"):
         if not src.is_file() or src.suffix == ".tmp":

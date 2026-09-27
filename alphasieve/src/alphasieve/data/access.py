@@ -90,18 +90,19 @@ def _read(panel_path: str, mtime: float) -> tuple[pd.DataFrame, dict, pd.DataFra
     return long, meta, bench
 
 
-def load_panel(settings: Settings, tier: str = "dev", role: str | None = None) -> Panel:
+def load_panel(settings: Settings, tier: str = "dev", role: str | None = None, universe: str | None = None) -> Panel:
     role = role or settings.role
     check_tier_access(role, tier)
-    path = settings.panel_dir(tier) / "panel.parquet"
+    path = settings.panel_dir(tier, universe) / "panel.parquet"
     if not path.exists():
-        raise AlphaSieveError("NOT_FOUND", f"{tier} panel not built; run 'alphasieve data build-panel'")
+        raise AlphaSieveError("NOT_FOUND", f"{tier} panel for universe {universe or 'csi800'} not built;"
+                              " run 'alphasieve data build-panel'")
     long, meta, bench = _read(str(path), path.stat().st_mtime)
     return Panel(long, meta, bench)
 
 
-def read_meta(settings: Settings, tier: str) -> dict | None:
-    path = settings.panel_dir(tier) / "meta.json"
+def read_meta(settings: Settings, tier: str, universe: str | None = None) -> dict | None:
+    path = settings.panel_dir(tier, universe) / "meta.json"
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except (FileNotFoundError, PermissionError):

@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from alphasieve.audit import record_event
 from alphasieve.config import Settings
 from alphasieve.contracts import Campaign
+from alphasieve.data.universe import universe_config
 from alphasieve.errors import AlphaSieveError, not_found, permission_denied, validation_error
 from alphasieve.search_space import load_search_space
 from alphasieve.util import canonical_json, utcnow_iso
@@ -32,6 +33,7 @@ def masked_state(state: str, role: str) -> str:
 
 def create_campaign(conn: sqlite3.Connection, settings: Settings, spec: Campaign) -> dict:
     space = load_search_space(settings)
+    universe_config(settings, spec.universe)
     unknown_domains = [d for d in spec.domains if d not in space.domains]
     if unknown_domains:
         raise validation_error(f"unknown domains {unknown_domains}", allowed=sorted(space.domains))

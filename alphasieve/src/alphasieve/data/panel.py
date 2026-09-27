@@ -7,7 +7,8 @@ import numpy as np
 import pandas as pd
 
 from alphasieve.config import Settings, load_config
-from alphasieve.data.sync import HISTORY_START, INDEX_CODES, raw_root
+from alphasieve.data.sync import INDEX_CODES, history_start, raw_root, universe_codes
+from alphasieve.data.universe import universe_config
 from alphasieve.util import file_sha256, utcnow_iso
 
 PANEL_VERSION = 1
@@ -44,12 +45,13 @@ def limit_ratios(codes: pd.Series, dates: pd.Series, is_st: pd.Series) -> np.nda
     return ratio
 
 
-def _stock_frame(code: str, root: Path, cal_pos: dict[str, int], ipo: str, end: str) -> pd.DataFrame | None:
+def _stock_frame(code: str, root: Path, cal_pos: dict[str, int], ipo: str, end: str,
+                 start: str = "2011-01-01") -> pd.DataFrame | None:
     path = root / "daily" / f"{code}.parquet"
     if not path.exists():
         return None
     df = pd.read_parquet(path)
-    df = df[(df["date"] >= HISTORY_START) & (df["date"] <= end)].sort_values("date").reset_index(drop=True)
+    df = df[(df["date"] >= start) & (df["date"] <= end)].sort_values("date").reset_index(drop=True)
     if df.empty:
         return None
     adj_path = root / "adj" / f"{code}.parquet"
@@ -176,26 +178,41 @@ def embargo_labels(df: pd.DataFrame, calendar: list[str], window_end: str) -> pd
     return df
 
 
-def build_long_panel(settings: Settings, end: str) -> tuple[pd.DataFrame, list[str], dict]:
-    root = raw_root(settings)
+def _rule_universe(panel: pd.DataFrame, rule: dict) -> pd.Series:
+    panel = panel.sort_values(["code", "date"])
+    amount_ma = panel.groupby("code")["amount"].transform(
+        lambda s: s.rolling(rule["liquidity_window"], min_periods=rule["liquidity_window"]).mean())
+    eligible = (panel["days_listed"] >= rule["min_days_listed"]) & amount_ma.notna()
+    if rule.get("exclude_st", True):
+        eligible &= ~panel["is_st"]
+    if rule.get("exclude_suspended", True):
+        eligible &= ~panel["is_suspended"]
+    rank = amount_ma.where(eligible).groupby(panel["date"]).rank(pct=True)
+    return (eligible & (rank > rule["liquidity_drop_fraction"])).reindex(panel.index)
+
+
+def build_long_panel(settings: Settings, end: str, universe: str | None = None) -> tuple[pd.DataFrame, list[str], dict]:
+    cfg = universe_config(settings, universe)
+    start = history_start(settings, universe)
+    root = raw_root(settings, universe)
     cal_df = pd.read_parquet(root / "trade_dates.parquet")
     calendar = sorted(cal_df.loc[cal_df["is_trading_day"] == 1, "calendar_date"].tolist())
-    calendar = [d for d in calendar if HISTORY_START <= d <= end]
+    calendar = [d for d in calendar if start <= d <= end]
     cal_pos = {d: i for i, d in enumerate(calendar)}
-    members = pd.read_parquet(root / "members.parquet")
-    codes = sorted(members["code"].unique())
+    codes = universe_codes(settings, universe)
     basic = pd.read_parquet(root / "stock_basic.parquet").set_index("code")
     frames, missing = [], []
     for code in codes:
-        ipo = basic.at[code, "ipoDate"] if code in basic.index else HISTORY_START
-        frame = _stock_frame(code, root, cal_pos, ipo or HISTORY_START, end)
+        ipo = basic.at[code, "ipoDate"] if code in basic.index else start
+        frame = _stock_frame(code, root, cal_pos, ipo or start, end, start)
         if frame is None:
             missing.append(code)
         else:
             frames.append(frame)
     panel = pd.concat(frames, ignore_index=True)
     panel["date"] = pd.to_datetime(panel["date"])
-    panel = _membership(panel, members)
+    if cfg["membership"] == "csi800":
+        panel = _membership(panel, pd.read_parquet(root / "members.parquet"))
     industry = pd.read_parquet(root / "industry.parquet")
     ind_map = dict(zip(industry["code"], industry["industry"].replace("", "unknown"), strict=True))
     panel["industry"] = panel["code"].map(ind_map).fillna("unknown")
@@ -203,10 +220,13 @@ def build_long_panel(settings: Settings, end: str) -> tuple[pd.DataFrame, list[s
     if fin_frames:
         panel = _attach_financials(panel, fin_frames)
     panel = panel.sort_values(["date", "code"]).reset_index(drop=True)
-    panel["in_universe"] = (
-        panel["in_csi800"] & ~panel["is_st"] & (panel["days_listed"] >= MIN_DAYS_LISTED) & ~panel["is_suspended"]
-    )
-    info = {"codes": len(codes), "missing_codes": missing, "has_financials": bool(fin_frames)}
+    if cfg["membership"] == "csi800":
+        panel["in_universe"] = (
+            panel["in_csi800"] & ~panel["is_st"] & (panel["days_listed"] >= MIN_DAYS_LISTED) & ~panel["is_suspended"]
+        )
+    else:
+        panel["in_universe"] = _rule_universe(panel, cfg["rule"]).fillna(False).astype(bool)
+    info = {"codes": len(codes), "missing_codes": missing, "has_financials": bool(fin_frames), "universe": cfg["name"]}
     return panel, calendar, info
 
 
@@ -223,8 +243,9 @@ def _benchmark(root: Path, calendar: list[str], window_end: str) -> pd.DataFrame
     return pd.concat(frames, axis=1).reset_index()
 
 
-def _write_tier(settings: Settings, tier: str, panel: pd.DataFrame, bench: pd.DataFrame, meta: dict) -> dict:
-    out_dir = settings.panel_dir(tier)
+def _write_tier(settings: Settings, tier: str, panel: pd.DataFrame, bench: pd.DataFrame, meta: dict,
+                universe: str | None = None) -> dict:
+    out_dir = settings.panel_dir(tier, universe)
     out_dir.mkdir(parents=True, exist_ok=True)
     if tier != "dev":
         os.chmod(out_dir, 0o700)
@@ -241,26 +262,31 @@ def _write_tier(settings: Settings, tier: str, panel: pd.DataFrame, bench: pd.Da
     return meta
 
 
-def build_panel(settings: Settings, conn: sqlite3.Connection | None = None, end: str | None = None) -> dict:
+def build_panel(settings: Settings, conn: sqlite3.Connection | None = None, end: str | None = None,
+                universe: str | None = None, tiers: tuple[str, ...] = ("dev", "holdout")) -> dict:
     from alphasieve.data.quality import quality_report
 
     splits = load_config(settings, "splits")
-    last_needed = end or splits["holdout"]["end"]
-    panel, calendar, info = build_long_panel(settings, last_needed)
+    cfg = universe_config(settings, universe)
+    last_needed = end or max(splits[t]["end"] for t in tiers)
+    panel, calendar, info = build_long_panel(settings, last_needed, universe)
     snapshots = []
     if conn is not None:
         snapshots = [dict(r) for r in conn.execute(
             "SELECT snapshot_id, dataset, content_hash FROM data_snapshots ORDER BY fetched_at")]
     results = {}
-    for tier in ("dev", "holdout"):
-        window = splits[tier]
+    for tier in tiers:
+        window = dict(splits[tier])
+        if tier == "dev" and cfg["name"] != "csi800":
+            window["start"] = cfg["dev_start"]
         window_end = min(window["end"], last_needed)
         labels = embargo_labels(_labels(panel, calendar, window_end), calendar, window_end)
         tier_panel = panel[panel["date"] <= window_end].merge(labels, on=["date", "code"], how="left")
         meta = {
             "panel_version": PANEL_VERSION,
             "tier": tier,
-            "window": {"start": window["start"], "end": window_end, "warmup_start": HISTORY_START},
+            "window": {"start": window["start"], "end": window_end, "warmup_start": history_start(settings, universe)},
+            "universe": cfg["name"],
             "splits_version": splits["version"],
             "rows": len(tier_panel),
             "codes": int(tier_panel["code"].nunique()),
@@ -270,12 +296,14 @@ def build_panel(settings: Settings, conn: sqlite3.Connection | None = None, end:
             "embargo": {f"label_{h}d": 1 + h for h in HORIZONS},
             "fields": sorted(tier_panel.columns),
             "source_snapshots": snapshots,
-            "warnings": PANEL_WARNINGS,
+            "warnings": PANEL_WARNINGS if cfg["name"] == "csi800" else [
+                w for w in PANEL_WARNINGS if not w.startswith("universe is CSI 800")] + [
+                f"universe is rule-based ({cfg['rule']}); delisted names are included to avoid survivorship bias"],
             "built_at": utcnow_iso(),
         }
-        bench = _benchmark(raw_root(settings), calendar, window_end)
-        meta = _write_tier(settings, tier, tier_panel, bench, meta)
-        report = quality_report(settings, tier, tier_panel, meta, calendar)
+        bench = _benchmark(raw_root(settings, universe), calendar, window_end)
+        meta = _write_tier(settings, tier, tier_panel, bench, meta, universe)
+        report = quality_report(settings, tier, tier_panel, meta, calendar, universe)
         results[tier] = {"rows": meta["rows"], "codes": meta["codes"], "window": meta["window"],
                          "signature": meta["signature"], "quality_ok": report["ok"]}
     return results

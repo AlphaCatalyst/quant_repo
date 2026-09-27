@@ -11,20 +11,23 @@ def _configure_worker(p):
     p.add_argument("--processes", type=int, default=1)
     p.add_argument("--max-jobs", type=int, default=None)
     p.add_argument("--idle-exit", type=float, default=None, help="exit after this many idle seconds")
+    p.add_argument("--universes", default="csi800", help="comma-separated universes whose dev panels to preload")
 
 
-def _worker_main(settings, root, max_jobs, idle_exit):
-    return service.run_worker(settings, root, max_jobs=max_jobs, idle_exit=idle_exit)
+def _worker_main(settings, root, max_jobs, idle_exit, universes):
+    return service.run_worker(settings, root, max_jobs=max_jobs, idle_exit=idle_exit, universes=universes)
 
 
 @command("evalsvc worker", HUMAN_SYSTEM, configure=_configure_worker, needs_state=False,
          help="run long-lived evaluation workers that keep the dev panel in memory")
 def cmd_evalsvc_worker(args, ctx) -> CommandResult:
     root = args.queue or str(service.local_queue_root(ctx.settings))
+    universes = tuple(u.strip() for u in args.universes.split(",") if u.strip())
     if args.processes <= 1:
-        return CommandResult(data=service.run_worker(ctx.settings, root, args.max_jobs, args.idle_exit))
+        return CommandResult(data=_worker_main(ctx.settings, root, args.max_jobs, args.idle_exit, universes))
+    job = (ctx.settings, root, args.max_jobs, args.idle_exit, universes)
     with mp.get_context("spawn").Pool(args.processes) as pool:
-        results = pool.starmap(_worker_main, [(ctx.settings, root, args.max_jobs, args.idle_exit)] * args.processes)
+        results = pool.starmap(_worker_main, [job] * args.processes)
     return CommandResult(data={"workers": results, "jobs": sum(r["jobs"] for r in results)})
 
 

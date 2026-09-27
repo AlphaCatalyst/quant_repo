@@ -1,0 +1,23 @@
+# Research universes (D-26). csi800 keeps the original layout; others live under data/panel/<name>/<tier>.
+# Holdout and fresh windows always come from splits.yaml; only the dev start (after warm-up) can differ.
+version: 1
+csi800:
+  description: CSI 300 + CSI 500 point-in-time members (monthly snapshots)
+  codes: index_members
+  raw_subdir: baostock
+  history_start: "2011-01-01"
+  dev_start: "2012-01-01"
+  membership: csi800
+ashare_all:
+  description: all Shanghai / Shenzhen A-shares, including delisted names, with a rule-based tradable universe
+  codes: all_stocks
+  raw_subdir: baostock_all
+  history_start: "2005-01-01"
+  dev_start: "2006-01-01"
+  membership: rule
+  rule:
+    min_days_listed: 250
+    exclude_st: true
+    exclude_suspended: true
+    liquidity_window: 20
+    liquidity_drop_fraction: 0.2     # drop the least liquid 20% by trailing average amount, per date

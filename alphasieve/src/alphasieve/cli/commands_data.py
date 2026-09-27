@@ -14,6 +14,19 @@ MAX_SAMPLE_ROWS = 200
 SYNC_DATASETS = ("reference", "members", "daily", "financials", "mirror", "core")
 
 
+def _universe_arg(p):
+    p.add_argument("--universe", default=None, help="csi800 (default) or another universe in universes.yaml")
+
+
+def _universe(args, ctx) -> str | None:
+    if args.universe:
+        return args.universe
+    if ctx.settings.campaign:
+        from alphasieve.campaigns.service import get_campaign
+        return get_campaign(ctx.conn, ctx.settings.campaign)["spec"].universe
+    return None
+
+
 def _progress(label):
     def report(done, total):
         print(f"[{label}] {done}/{total}", file=sys.stderr, flush=True)
@@ -26,6 +39,7 @@ def _configure_sync(p):
                    help="core = reference + members + daily + mirror")
     p.add_argument("--end", default=None, help="last date to fetch (default: latest trading day)")
     p.add_argument("--workers", type=int, default=6)
+    _universe_arg(p)
 
 
 @command("data sync", HUMAN_SYSTEM, configure=_configure_sync, needs_store=True, help="fetch raw data (resumable)")
@@ -34,20 +48,22 @@ def cmd_data_sync(args, ctx) -> CommandResult:
     from datetime import date
 
     end = args.end or date.today().isoformat()
-    out: dict = {}
-    datasets = ["reference", "members", "daily", "mirror"] if args.dataset == "core" else [args.dataset]
-    if "reference" in datasets or not (sync.raw_root(settings) / "trade_dates.parquet").exists():
-        out["reference"] = sync.sync_reference(settings, conn, end)
-    end = sync.latest_trading_day(settings, end)
+    u = args.universe
+    out: dict = {"universe": u or "csi800"}
+    default = ["reference", "members", "daily", "mirror"] if u in (None, "csi800") else ["reference", "daily"]
+    datasets = default if args.dataset == "core" else [args.dataset]
+    if "reference" in datasets or not (sync.raw_root(settings, u) / "trade_dates.parquet").exists():
+        out["reference"] = sync.sync_reference(settings, conn, end, u)
+    end = sync.latest_trading_day(settings, end, u)
     out["end"] = end
     if "members" in datasets:
         out["members"] = sync.sync_members(settings, conn, end)
     if "daily" in datasets:
-        out["daily"] = sync.sync_daily(settings, conn, end, args.workers, _progress("daily"))
+        out["daily"] = sync.sync_daily(settings, conn, end, args.workers, _progress("daily"), u)
     if "financials" in datasets:
-        out["financials"] = sync.sync_financials(settings, conn, end, args.workers, _progress("financials"))
-    if "mirror" in datasets or "financials" in datasets:
-        out["mirror"] = sync.mirror_to_store(settings)
+        out["financials"] = sync.sync_financials(settings, conn, end, args.workers, _progress("financials"), u)
+    if "mirror" in datasets or ("financials" in datasets and u in (None, "csi800")):
+        out["mirror"] = sync.mirror_to_store(settings, u)
     warnings = []
     for key in ("daily", "financials"):
         if out.get(key, {}).get("errors"):
@@ -57,13 +73,16 @@ def cmd_data_sync(args, ctx) -> CommandResult:
 
 def _configure_build(p):
     p.add_argument("--end", default=None, help="last date to include (default: holdout end)")
+    p.add_argument("--tiers", default="dev,holdout", help="which tiers to build (holdout only on the local host)")
+    _universe_arg(p)
 
 
 @command("data build-panel", HUMAN_SYSTEM, configure=_configure_build, help="build dev / holdout panels from raw data")
 def cmd_build_panel(args, ctx) -> CommandResult:
     from alphasieve.data.panel import build_panel
 
-    results = build_panel(ctx.settings, ctx.conn, args.end)
+    tiers = tuple(t.strip() for t in args.tiers.split(",") if t.strip())
+    results = build_panel(ctx.settings, ctx.conn, args.end, args.universe, tiers)
     warnings = [f"{tier}: quality checks failed" for tier, r in results.items() if not r["quality_ok"]]
     return CommandResult(data=results, warnings=warnings)
 
@@ -95,13 +114,14 @@ def cmd_data_status(args, ctx) -> CommandResult:
 
 def _configure_describe(p):
     p.add_argument("field")
+    _universe_arg(p)
 
 
 @command("data describe", ALL, configure=_configure_describe, help="describe a dev-panel field")
 def cmd_data_describe(args, ctx) -> CommandResult:
     from alphasieve.factors.derived import DERIVED, terminal
 
-    panel = load_panel(ctx.settings, "dev")
+    panel = load_panel(ctx.settings, "dev", universe=_universe(args, ctx))
     if not panel.has(args.field) and args.field not in DERIVED:
         raise validation_error(f"unknown field {args.field}", available=sorted([*panel.long.columns, *DERIVED]))
     if args.field.startswith("label_") and ctx.settings.role == "agent":
@@ -130,11 +150,12 @@ def _configure_sample(p):
     p.add_argument("--fields", default="close,ret_1d,turnover_rate,circ_mv,in_universe")
     p.add_argument("--codes", default=None, help="comma-separated codes")
     p.add_argument("--limit", type=int, default=50)
+    _universe_arg(p)
 
 
 @command("data sample", ("agent", "human"), configure=_configure_sample, help="sample dev-panel rows")
 def cmd_data_sample(args, ctx) -> CommandResult:
-    panel = load_panel(ctx.settings, "dev")
+    panel = load_panel(ctx.settings, "dev", universe=_universe(args, ctx))
     fields = [f.strip() for f in args.fields.split(",") if f.strip()]
     unknown = [f for f in fields if not panel.has(f)]
     if unknown:

@@ -35,10 +35,12 @@ class Settings:
     def raw_dir(self) -> Path:
         return self.hot_root / "data" / "raw"
 
-    def panel_dir(self, tier: str) -> Path:
+    def panel_dir(self, tier: str, universe: str | None = None) -> Path:
         if tier not in TIERS:
             raise validation_error(f"unknown evidence tier {tier}")
-        return self.hot_root / "data" / "panel" / tier
+        if universe in (None, "csi800"):
+            return self.hot_root / "data" / "panel" / tier
+        return self.hot_root / "data" / "panel" / universe / tier
 
     @property
     def quality_dir(self) -> Path:

@@ -15,7 +15,8 @@ THRESHOLDS = {
 }
 
 
-def quality_report(settings: Settings, tier: str, panel: pd.DataFrame, meta: dict, calendar: list[str]) -> dict:
+def quality_report(settings: Settings, tier: str, panel: pd.DataFrame, meta: dict, calendar: list[str],
+                   universe: str | None = None) -> dict:
     window = meta["window"]
     in_window = (panel["date"] >= window["start"]) & (panel["date"] <= window["end"])
     uni = panel[in_window & panel["in_universe"]]
@@ -31,8 +32,11 @@ def quality_report(settings: Settings, tier: str, panel: pd.DataFrame, meta: dic
     }
     window_days = [d for d in calendar if window["start"] <= d <= window["end"]]
     months = sorted({d[:7] for d in window_days})
-    covered = set(panel.loc[in_window & panel["has_member_snapshot"], "date"].dt.strftime("%Y-%m").unique())
-    missing_months = [m for m in months if m not in covered]
+    if "has_member_snapshot" in panel.columns:
+        covered = set(panel.loc[in_window & panel["has_member_snapshot"], "date"].dt.strftime("%Y-%m").unique())
+        missing_months = [m for m in months if m not in covered]
+    else:
+        missing_months = []
     anomaly_rate = sum(anomalies.values()) / max(len(active), 1)
     checks = {
         "universe_size_min": {"value": int(universe_size.min()) if len(universe_size) else 0,
@@ -64,6 +68,7 @@ def quality_report(settings: Settings, tier: str, panel: pd.DataFrame, meta: dic
         "stale_days": int(np.busday_count(last_date, window_days[-1])) if window_days else None,
         "generated_at": utcnow_iso(),
     }
+    name = tier if universe in (None, "csi800") else f"{universe}-{tier}"
     settings.quality_dir.mkdir(parents=True, exist_ok=True)
-    (settings.quality_dir / f"{tier}.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    (settings.quality_dir / f"{name}.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     return report

@@ -279,3 +279,30 @@ def test_codex_sandbox_covers_agent_write_paths(panel_settings, tmp_path):
     with evaluation_slot(panel_settings):
         locks = list((panel_settings.state_db.parent / "locks").glob("eval-slot-*.lock"))
     assert locks and all(within(p) for p in locks)
+
+
+def test_unavailable_agent_is_disabled_and_skipped(panel_settings):
+    spec = campaign_spec("c-quota", budgets={"trials": 50, "turns": 4},
+                         agents=[{"harness": "codex", "model": "a"}, {"harness": "claude", "model": "b"}])
+    start_campaign(panel_settings, spec)
+    system = as_role(panel_settings, "system")
+    calls = []
+
+    class Broken:
+        def run(self, ctx):
+            calls.append("claude")
+            from alphasieve.agents.executors import TurnResult
+            return TurnResult(status="failed", error='API Error: 401 {"type":"UserBudgetExhausted"}')
+
+    class Working:
+        def run(self, ctx):
+            calls.append("codex")
+            from alphasieve.agents.executors import TurnResult
+            return TurnResult(status="completed", summary="SUMMARY: nothing")
+
+    out = orchestrator.run_campaign(system, "c-quota",
+                                    executor_for=lambda h: Broken() if h == "claude" else Working())
+    assert calls == ["codex", "claude", "codex", "codex"]
+    conn = connect(panel_settings.state_db)
+    assert "claude" in service.get_campaign(conn, "c-quota")["stats"]["disabled_agents"]
+    assert out["outcome"]["concluded"] == "turn_budget_exhausted"

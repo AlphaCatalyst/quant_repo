@@ -23,6 +23,8 @@ PROMPT = (
     "allowance of {allowance} evaluations, and finish with the SUMMARY / INSIGHTS message described there."
 )
 MAX_INSIGHTS_PER_TURN = 5
+UNAVAILABLE = re.compile(r"UserBudgetExhausted|Failed to authenticate|invalid[ _-]?api[ _-]?key|API key|secrets\.env"
+                         r"|\b40[12]\b", re.I)
 
 
 def turn_allowance(budget: dict) -> int:
@@ -90,7 +92,9 @@ def run_turn(settings: Settings, conn, campaign_id: str, executor_for: Callable)
     spec = campaign["spec"]
     budget = stats.budget_status(conn, campaign_id)
     index = budget["turns"]["used"] + 1
-    slot = spec.agents[(index - 1) % len(spec.agents)]
+    disabled = campaign["stats"].get("disabled_agents", {})
+    available = [a for a in spec.agents if a.harness not in disabled]
+    slot = available[(index - 1) % len(available)]
     allowance = turn_allowance(budget)
     turn_id = f"{campaign_id}-t{index:03d}"
     ws = workspace.prepare(settings, conn, campaign_id, index, allowance)
@@ -131,6 +135,11 @@ def run_turn(settings: Settings, conn, campaign_id: str, executor_for: Callable)
     record_event(conn, settings, "turn.finished", object_type="campaign", object_id=campaign_id,
                  payload={"turn_id": turn_id, "status": status, "harness_status": result.status,
                           "trials": trials_after - trials_before, "new_robust": new_robust})
+    if status == "failed" and result.error and UNAVAILABLE.search(result.error):
+        disabled = {**disabled, slot.harness: result.error[:300]}
+        service.update_stats(conn, campaign_id, disabled_agents=disabled)
+        record_event(conn, settings, "agent.disabled", status="error", object_type="campaign", object_id=campaign_id,
+                     payload={"harness": slot.harness, "turn_id": turn_id, "error": result.error[:300]})
     if findings:
         service.set_status(conn, settings, campaign_id, "paused", "integrity violation")
         record_event(conn, settings, "integrity.violation", status="error", object_type="campaign",
@@ -159,6 +168,12 @@ def run_campaign(settings: Settings, campaign_id: str, max_turns: int | None = N
     executor_for = executor_for or default_executor
     conn = connect(settings.state_db)
     turns, outcome = [], None
+    stale = conn.execute("UPDATE turns SET status = 'failed', ended_at = ?,"
+                         " error = 'orchestrator stopped during the turn'"
+                         " WHERE campaign_id = ? AND status = 'running'", (utcnow_iso(), campaign_id)).rowcount
+    if stale:
+        record_event(conn, settings, "turn.recovered", object_type="campaign", object_id=campaign_id,
+                     payload={"stale_turns": stale})
     try:
         while True:
             campaign = service.get_campaign(conn, campaign_id)
@@ -168,6 +183,11 @@ def run_campaign(settings: Settings, campaign_id: str, max_turns: int | None = N
             reason = stats.stop_reason(conn, campaign_id)
             if reason:
                 outcome = {"concluded": reason, **lifecycle.conclude(conn, settings, campaign_id, reason)}
+                break
+            disabled = campaign["stats"].get("disabled_agents", {})
+            if all(a.harness in disabled for a in campaign["spec"].agents):
+                service.set_status(conn, settings, campaign_id, "paused", "no available agents")
+                outcome = {"paused": "no available agents", "disabled_agents": disabled}
                 break
             b = stats.budget_status(conn, campaign_id)
             if b["failed_turns_streak"]["current"] >= b["failed_turns_streak"]["limit"]:

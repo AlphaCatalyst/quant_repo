@@ -38,6 +38,8 @@ def create_campaign(conn: sqlite3.Connection, settings: Settings, spec: Campaign
     for cell in spec.cells:
         if cell.domain not in space.domains or cell.form not in space.forms or cell.scale not in space.scales:
             raise validation_error(f"cell {cell.model_dump()} is not in search space {space.version_tag}")
+    if spec.horizon is None:
+        spec = spec.model_copy(update={"horizon": space.horizon_for([c.domain for c in spec.cells])})
     if conn.execute("SELECT 1 FROM campaigns WHERE campaign_id = ?", (spec.campaign_id,)).fetchone():
         raise AlphaSieveError("CONFLICT", f"campaign {spec.campaign_id} already exists")
     conn.execute(

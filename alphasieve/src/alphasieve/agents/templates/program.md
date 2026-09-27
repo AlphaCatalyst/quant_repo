@@ -6,8 +6,9 @@ stock factors for China A-shares, evaluate them with the `alphasieve` CLI, and l
 ## What counts as success
 
 A candidate succeeds when it passes L2 (`robust_passed`): directional RankIC, ICIR, low correlation with the
-library, stability across sub-windows, survives industry/size neutralisation, positive long-only excess return
-after costs, and positive marginal IC over the library. At the end of the campaign every robust-passed candidate
+library, stability across sub-windows, survives industry/size neutralisation, and positive marginal IC over the
+library. The long-only excess return after costs is reported for information: whether a signal pays after
+costs is judged later at the model and portfolio level, so focus on new, robust information. At the end of the campaign every robust-passed candidate
 is discounted by the total number of trials in this campaign (deflated Sharpe on the IC series). **Every
 evaluation you run raises the bar for all candidates.** Prefer a few well-reasoned candidates over many variants.
 

@@ -1,8 +1,8 @@
-# v1 = v0 L1/L2 thresholds (D-19) plus L3/L4. v0: placeholder thresholds from docs/04-research-core.md section 4.
+# v2 = v1 with cost_adjusted_excess recorded but not enforced (D-24). v1 = v0 L1/L2 thresholds (D-19) plus L3/L4. v0: placeholder thresholds from docs/04-research-core.md section 4.
 # Calibrated suggestions are written to the gate calibration report; changing
 # this file is an engineering change that requires human review.
 # L0 structural limits (windows, complexity, terminals) live in search_space.yaml.
-version: 1
+version: 2
 l1:
   min_coverage: 0.80
   min_ic_mean: 0.02          # directional: sign must match the declared direction
@@ -17,6 +17,7 @@ l2:
   min_cost_adjusted_excess: 0.0
   min_marginal_ic: 0.0
   max_neighborhood_trials: 7
+  informational: [cost_adjusted_excess]   # recorded for the portfolio layer, not a factor-level gate
 l3:
   dsr_max_p: 0.05            # deflated Sharpe on the IC series, trials = campaign dev trials
   bh_q: 0.10                 # Benjamini-Hochberg across the campaign's robust-passed candidates

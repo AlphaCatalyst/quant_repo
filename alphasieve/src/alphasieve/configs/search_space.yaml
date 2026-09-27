@@ -14,6 +14,13 @@ domains:
   size_value: [circ_mv, pe_ttm, pb_mrq, ps_ttm]
   profitability: [roe_avg, np_margin, eps_ttm]
   growth: [yoy_ni, yoy_equity, yoy_asset]
+default_horizon:            # prediction horizon (trading days) by the signal's data domain (D-24)
+  price: 5
+  volume: 5
+  turnover_liquidity: 5
+  size_value: 20
+  profitability: 20
+  growth: 20
 forms:
   - level
   - change_momentum

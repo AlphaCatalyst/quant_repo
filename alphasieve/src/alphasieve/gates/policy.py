@@ -16,7 +16,12 @@ def _check(name: str, value, threshold, op: str) -> dict:
 
 
 def _result(checks: list[dict], **extra) -> dict:
-    return {"passed": all(c["passed"] for c in checks), "checks": checks, **extra}
+    return {"passed": all(c["passed"] for c in checks if not c.get("informational")), "checks": checks, **extra}
+
+
+def failed_checks(gate: dict) -> list[dict]:
+    """Checks that failed and count against the gate (informational checks are recorded, not enforced)."""
+    return [c for c in gate.get("checks", []) if not c.get("passed", True) and not c.get("informational")]
 
 
 def gate_l0(issues: list) -> dict:
@@ -58,4 +63,7 @@ def gate_l2(m: dict, policy: dict, neighborhood_trials: int, params_source: str)
     ]
     if params_source == "neighborhood":
         checks.append(_check("neighborhood_trials", neighborhood_trials, p["max_neighborhood_trials"], "<="))
+    for c in checks:
+        if c["name"] in p.get("informational", []):
+            c["informational"] = True
     return _result(checks)

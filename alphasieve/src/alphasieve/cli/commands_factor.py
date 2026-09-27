@@ -12,6 +12,7 @@ from alphasieve.errors import AlphaSieveError, validation_error
 from alphasieve.factors import library as lib
 from alphasieve.factors.dsl import DSLError, compile_expression, evaluate
 from alphasieve.factors.registry import get_factor, list_factors
+from alphasieve.gates.policy import failed_checks
 from alphasieve.search_space import load_search_space
 
 AGENT_HUMAN = ("agent", "human")
@@ -70,7 +71,7 @@ def cmd_factor_eval(args, ctx) -> CommandResult:
         result = evaluate_spec(ctx.settings, ctx.conn, spec, campaign_id=campaign_id)
     error = None
     if result["outcome"] != "robust_passed":
-        failed = [f"{lvl}.{c['name']}" for lvl, g in result["gates"].items() for c in g["checks"] if not c["passed"]]
+        failed = [f"{lvl}.{c['name']}" for lvl, g in result["gates"].items() for c in failed_checks(g)]
         error = AlphaSieveError("GATE_FAILED", f"candidate did not pass: {result['outcome']}", {"failed": failed})
     artifacts = [{"artifact_id": result["artifact_id"], "kind": "factor_eval"}] if result.get("artifact_id") else []
     return CommandResult(data=result, artifacts=artifacts, warnings=result["cell"].get("warnings", []), error=error)

@@ -4,6 +4,7 @@ from collections import Counter
 
 from alphasieve.campaigns.service import completed_trials, elapsed_hours, get_campaign
 from alphasieve.gates.l3 import search_intensity_curve
+from alphasieve.gates.policy import failed_checks
 
 LEVELS = ("submitted", "l0", "l1", "l2", "l3", "shortlisted", "holdout_passed")
 
@@ -29,9 +30,8 @@ def funnel(conn: sqlite3.Connection, campaign_id: str, include_holdout: bool = T
         for gate_name in ("l0", "l1", "l2"):
             gate = t["gate_results"].get(gate_name)
             if gate and not gate.get("passed"):
-                for check in gate.get("checks", []):
-                    if not check.get("passed", True):
-                        failures[gate_name][check["name"]] += 1
+                for check in failed_checks(gate):
+                    failures[gate_name][check["name"]] += 1
                 break
     counts = {lvl: sum(1 for v in best.values() if v >= i) for i, lvl in enumerate(LEVELS[:4])}
     shortlist = conn.execute("SELECT * FROM shortlists WHERE campaign_id = ? ORDER BY locked_at DESC LIMIT 1",
@@ -102,8 +102,7 @@ def recent_outcomes(conn: sqlite3.Connection, campaign_id: str, limit: int = 12)
     for t in rows:
         spec = conn.execute("SELECT name, canonical_expression FROM factor_specs WHERE factor_id = ? AND version = ?",
                             (t["factor_id"], t["version"])).fetchone()
-        failed = [f"{lvl}.{c['name']}" for lvl, g in t["gate_results"].items() for c in g.get("checks", [])
-                  if not c.get("passed", True)]
+        failed = [f"{lvl}.{c['name']}" for lvl, g in t["gate_results"].items() for c in failed_checks(g)]
         out.append({"factor": f"{t['factor_id']}@{t['version']}", "name": spec["name"] if spec else None,
                     "expression": spec["canonical_expression"] if spec else None, "outcome": t["outcome"],
                     "ic_mean": t["metrics"].get("ic_mean"), "icir": t["metrics"].get("icir"),

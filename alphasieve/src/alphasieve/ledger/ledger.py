@@ -3,6 +3,7 @@ import sqlite3
 from collections import Counter
 
 from alphasieve.contracts import TrialLedgerEntry
+from alphasieve.gates.policy import failed_checks
 from alphasieve.util import canonical_json, sha256_hex, utcnow_iso
 
 GENESIS_HASH = "0" * 64
@@ -112,9 +113,8 @@ def ledger_stats(conn: sqlite3.Connection, campaign_id: str | None = None, tier:
         for level in ("l0", "l1", "l2"):
             result = gate_results.get(level)
             if result and not result.get("passed", False):
-                for check in result.get("checks", []):
-                    if not check.get("passed", True):
-                        failure_checks[f"{level}.{check['name']}"] += 1
+                for check in failed_checks(result):
+                    failure_checks[f"{level}.{check['name']}"] += 1
                 break
     return {
         "campaign_id": campaign_id,

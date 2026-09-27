@@ -105,7 +105,7 @@ class Campaign(_Model):
     title: str
     question: str
     universe: str = "csi800"
-    horizon: Literal[1, 5, 10, 20] = 5
+    horizon: Literal[1, 5, 10, 20] | None = None   # None: derived from the focus cells' domains (D-24)
     search_space_id: str = "ss-ashare-daily-v1"
     cells: list[Cell]
     domains: list[str]

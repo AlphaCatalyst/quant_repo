@@ -16,6 +16,7 @@ class SearchSpace:
     scales: tuple[str, ...]
     scale_bounds: dict[str, int]
     derived_version: str
+    default_horizon: dict[str, int] | None = None
 
     @property
     def version_tag(self) -> str:
@@ -24,6 +25,10 @@ class SearchSpace:
     @property
     def terminals(self) -> set[str]:
         return {t for fields in self.domains.values() for t in fields}
+
+    def horizon_for(self, domains: list[str]) -> int:
+        horizons = [self.default_horizon.get(d, 5) for d in domains] if self.default_horizon else []
+        return max(horizons) if horizons else 5
 
     def domain_of(self, terminal: str) -> str | None:
         for domain, fields in self.domains.items():
@@ -75,4 +80,5 @@ def load_search_space(settings: Settings) -> SearchSpace:
         scales=tuple(cfg["scales"]),
         scale_bounds=dict(cfg["scale_bounds"]),
         derived_version=cfg["derived_version"],
+        default_horizon=dict(cfg.get("default_horizon") or {}),
     )

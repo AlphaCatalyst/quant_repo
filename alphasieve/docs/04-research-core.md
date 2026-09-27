@@ -76,7 +76,7 @@ design 中已定义：`ResearchQuestion`、`DataContract`、`FactorSpec`、`Stra
 | | 与因子库最大相关 | ≤ 0.60（超过但 ICIR 高出 30% 以上时标记为“替换候选”） | |
 | L2 样本内稳健 | 4 个不重叠子窗口中 RankIC 同号的个数 | ≥ 3 | `robust_failed` |
 | | 中性化后 RankIC / 原 RankIC | ≥ 0.5 | |
-| | 成本后多头超额 | > 0（是否保留为拦截项待决定，见 [15-task-layers.md](15-task-layers.md) §4 P-2） | |
+| | 成本后多头超额 | 只记录，不拦截（gate_policy v2，D-24） | |
 | | 边际贡献（参考模型组中位数） | > 0 | |
 | | 参数来源 | default-first：默认参数，或单参数邻域救援 ≤ 7 次 | |
 | L3 搜索折扣 | DSR（试验数与方差取自本 campaign 的 ledger） | p < 0.05 | `ledger_failed` |

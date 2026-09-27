@@ -49,7 +49,8 @@ def _report(spec: FactorSpec, result: dict) -> str:
     for level, gate in result["gates"].items():
         for c in gate["checks"]:
             value = f"{c['value']:.4f}" if isinstance(c["value"], float) else c["value"]
-            lines.append(f"| {level} | {c['name']} | {value} | {c['threshold']} | {c['passed']} |")
+            passed = f"{c['passed']} (recorded only)" if c.get("informational") else c["passed"]
+            lines.append(f"| {level} | {c['name']} | {value} | {c['threshold']} | {passed} |")
     if result["cell"]["warnings"]:
         lines += ["", "Cell warnings:", *[f"- {w}" for w in result["cell"]["warnings"]]]
     return "\n".join(lines) + "\n"
@@ -59,9 +60,12 @@ def _reject_duplicate(conn: sqlite3.Connection, campaign_id: str, candidate_hash
     kinds = {r["trial_id"]: set() for r in conn.execute(
         "SELECT trial_id FROM trials WHERE campaign_id = ? AND candidate_hash = ? AND evidence_tier = 'dev'",
         (campaign_id, candidate_hash))}
-    for r in conn.execute("SELECT trial_id, record_kind FROM trials WHERE campaign_id = ? AND candidate_hash = ?",
-                          (campaign_id, candidate_hash)):
-        kinds[r["trial_id"]].add(r["record_kind"])
+    for r in conn.execute("SELECT trial_id, record_kind, outcome FROM trials WHERE campaign_id = ?"
+                          " AND candidate_hash = ?", (campaign_id, candidate_hash)):
+        if r["outcome"] == "validation_failed":
+            kinds.pop(r["trial_id"], None)
+        elif r["trial_id"] in kinds:
+            kinds[r["trial_id"]].add(r["record_kind"])
     if any("completed" in k or k == {"started"} for k in kinds.values()):
         raise AlphaSieveError("CONFLICT", "this candidate is already evaluated (or being evaluated) in this campaign;"
                               " results are deterministic, read them with `alphasieve factor show`",
@@ -82,10 +86,13 @@ def evaluate_spec(settings: Settings, conn: sqlite3.Connection, spec: FactorSpec
         compiled = compile_expression(spec.expression, space)
     except DSLError as exc:
         issues = exc.issues
+    if campaign is not None and spec.horizon != campaign.horizon:
+        message = f"spec horizon {spec.horizon} differs from the campaign horizon {campaign.horizon}"
+        issues = [*issues, DSLIssue("campaign_horizon", message)]
     if compiled is not None:
         outside = domain_violations(campaign, compiled.terminals, settings)
         if outside:
-            issues = [DSLIssue("campaign_domain",
+            issues = [*issues, DSLIssue("campaign_domain",
                                f"terminals {outside} are outside campaign domains {campaign.domains}")]
     canonical = compiled.canonical if compiled else spec.expression.strip()
     candidate_hash = compiled.candidate_hash if compiled else sha256_hex("invalid:" + canonical)[:16]

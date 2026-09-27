@@ -101,3 +101,12 @@ def test_concurrent_claims_take_each_job_once(tmp_path):
     for t in threads:
         t.join()
     assert not errors and sorted(taken) == [f"j{i:03d}" for i in range(200)]
+
+
+def test_claim_filters_by_universe(tmp_path):
+    q = service.DirQueue(tmp_path / "u")
+    q.submit({"job_id": "a", "spec": {"universe": "ashare_all"}})
+    q.submit({"job_id": "b", "spec": {"universe": "csi800"}})
+    assert q.claim({"csi800"})["job_id"] == "b"
+    assert q.claim({"csi800"}) is None
+    assert q.claim()["job_id"] == "a"

@@ -42,7 +42,7 @@ class DirQueue:
         self._write(self.root / "pending" / f"{job['job_id']}.json", job)
         return job["job_id"]
 
-    def claim(self) -> dict | None:
+    def claim(self, accept: set[str] | None = None) -> dict | None:
         def mtime(path: Path) -> float:
             try:
                 return path.stat().st_mtime
@@ -50,6 +50,13 @@ class DirQueue:
                 return float("inf")
 
         for path in sorted(self.root.glob("pending/*.json"), key=mtime):
+            if accept is not None:
+                try:
+                    universe = json.loads(path.read_text(encoding="utf-8"))["spec"].get("universe", "csi800")
+                except (OSError, json.JSONDecodeError, KeyError):
+                    continue
+                if universe not in accept:
+                    continue
             target = self.root / "running" / path.name
             try:
                 os.rename(path, target)
@@ -153,13 +160,17 @@ def run_worker(settings: Settings, queue_root: Path | str, max_jobs: int | None 
 
     queue.heartbeat(worker_id, {**info, **status})
     threading.Thread(target=beat, daemon=True).start()
-    panels = {u: load_panel(settings, "dev", role="system", universe=u) for u in universes}
+    from alphasieve.data.universe import universes as all_universes
+
+    accept = {u for u in all_universes(settings) if (settings.panel_dir("dev", u) / "panel.parquet").exists()}
+    panels = {u: load_panel(settings, "dev", role="system", universe=u) for u in universes if u in accept}
+    status["accepts"] = sorted(accept)
     status.update(state="idle", panels={u: p.signature for u, p in panels.items()})
     done, last_job = 0, time.monotonic()
     try:
         while max_jobs is None or done < max_jobs:
             try:
-                job = queue.claim()
+                job = queue.claim(accept)
             except OSError:
                 job = None
             if job is None:

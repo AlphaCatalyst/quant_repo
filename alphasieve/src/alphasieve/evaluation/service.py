@@ -188,11 +188,12 @@ def run_worker(settings: Settings, queue_root: Path | str, max_jobs: int | None 
 
 
 def run_bridge(local_root: Path | str, remote_root: Path | str, idle_exit: float | None = None,
-               poll: float = 0.3) -> dict:
+               poll: float = 0.3, batch: int = 16) -> dict:
     """Forward local jobs to the remote queue and bring results back; advertise remote workers locally."""
     local, remote = DirQueue(local_root), DirQueue(remote_root)
     bridge_id = f"bridge-{socket.gethostname()}-{os.getpid()}"
-    inflight: set[str] = set()
+    remote_ids = {p.stem for sub in ("pending", "running", "done") for p in (remote.root / sub).glob("*.json")}
+    inflight: set[str] = {p.stem for p in (local.root / "running").glob("*.json") if p.stem in remote_ids}
     seen: dict[str, float] = {}
     forwarded, last_activity, last_beat = 0, time.monotonic(), 0.0
     try:
@@ -208,18 +209,26 @@ def run_bridge(local_root: Path | str, remote_root: Path | str, idle_exit: float
                     local.retire(bridge_id)
                 last_beat = time.monotonic()
             live_now = any(time.time() - ts <= HEARTBEAT_MAX_AGE for ts in seen.values())
-            job = local.claim() if live_now else None
-            if job is not None:
+            job = None
+            for _ in range(batch if live_now else 0):
+                job = local.claim()
+                if job is None:
+                    break
                 remote.submit(job)
                 inflight.add(job["job_id"])
                 forwarded += 1
                 last_activity = time.monotonic()
-            for job_id in list(inflight):
-                result = remote.result(job_id)
-                if result is not None:
-                    local.complete(job_id, result)
-                    inflight.discard(job_id)
-                    last_activity = time.monotonic()
+            if inflight:
+                try:
+                    finished = {name[:-5] for name in os.listdir(remote.root / "done") if name.endswith(".json")}
+                except OSError:
+                    finished = set()
+                for job_id in inflight & finished:
+                    result = remote.result(job_id)
+                    if result is not None:
+                        local.complete(job_id, result)
+                        inflight.discard(job_id)
+                        last_activity = time.monotonic()
             if job is None:
                 if idle_exit is not None and not inflight and time.monotonic() - last_activity > idle_exit:
                     break

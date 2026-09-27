@@ -132,7 +132,10 @@ _SESSION: BaoStockSession | None = None
 
 
 def _worker_init() -> None:
+    import socket
+
     global _SESSION
+    socket.setdefaulttimeout(120)
     _SESSION = BaoStockSession().__enter__()
 
 

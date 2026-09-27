@@ -96,6 +96,18 @@ verifier 本身的正确性要靠测试证明；gate 阈值用零假设模拟与
 8. 更正 D-21：每日更新只增量同步原始数据并镜像到 Ceph，不重建 panel。dev 窗口已固定，holdout 窗口止于 2026-09-25，fresh panel 要到 M7 才需要；每天重建只会改变 panel 签名，没有收益。
 9. 前端只读。2026-09-27 按用户要求改为免密访问（web 服务设置 `ALPHASIEVE_WEB_AUTH=none`），取代 D-21 中“需要用户名密码登录”的约定：能访问本机 8720 端口的人都能看到研究结果与 ledger，但没有任何写操作。改回登录只需去掉这个环境变量。原先的做法：HTTP Basic 认证，凭据由系统生成，保存在 `/data/alphasieve/web.credentials`（权限 600）。静态 JS / CSS 不需认证（不含数据），所有 API 都需认证。技术栈比 07 文档简化：React + Vite + ECharts，没有用 TanStack、Tailwind、shadcn。
 
+**D-23 平台 Ray 集群用于批量计算与模型训练（2026-09-27）**
+- 提交方式：`deploy/ray/submit.sh <任务名> <alphasieve 参数...>`，默认 `RAY_ADDRESS=http://28.83.35.117:8081`。代码随任务上传（排除 `.venv`、`node_modules`、前端构建产物）；平台上用 uv 和腾讯 PyPI 镜像按 `pyproject.toml` 建环境，同一依赖版本会复用。任务以 system 角色运行。
+- 集群实测：在线 4 个节点，每个节点 376 核、8 张 H20、约 2 TB 内存；能访问 BaoStock 与 AIHub，访问不到本机 `9.134.61.161`。本机的 `/data`、`/mnt/private_felixjjiang` 在平台上没有挂载；两边同名的 `/apdcephfs*` 路径实测不是同一个存储。
+- 共享存储：`/taijifs_zw35/r2/felixjjiang/alphasieve/`，本机与平台读写互通。
+  - `hot/`：平台任务的热目录，只放 dev panel，平台任务自己的状态库也在这里；
+  - `store/`：平台任务的 artifact；
+  - `models/`：模型；
+  - `runs/<job_id>/`：每个任务的结果。
+- 本机写入 taijifs 较慢（700MB 约 7 分钟），大文件尽量在平台一侧生成。
+- 隔离：holdout 与 fresh 数据不离开本机。提交脚本发现远端有 holdout 或 fresh panel 就拒绝运行。平台任务的状态库与本机主 ledger 是分开的：平台上做的评估不计入 campaign 的 trial，也不能代替本机评估入口的记账。以后如果要把平台评估纳入 campaign，需要先定义合并规则。
+- 适用范围：门槛校准与随机因子模拟、模型层滚动训练、M5 广度搜索。agent 循环仍然在本机运行。
+
 ## 待定问题
 
 | 编号 | 问题 | 影响 | 计划决定时间 |

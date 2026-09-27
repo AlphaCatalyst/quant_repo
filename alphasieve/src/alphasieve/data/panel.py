@@ -303,6 +303,12 @@ def _write_tier(settings: Settings, tier: str, panel: pd.DataFrame, bench: pd.Da
     return meta
 
 
+def _universe_note(cfg: dict) -> str:
+    if cfg["membership"] == "rule":
+        return f"universe is rule-based ({cfg['rule']}); delisted names are included to avoid survivorship bias"
+    return f"universe: {cfg['description']}"
+
+
 def build_panel(settings: Settings, conn: sqlite3.Connection | None = None, end: str | None = None,
                 universe: str | None = None, tiers: tuple[str, ...] = ("dev", "holdout"),
                 warmup_start: str | None = None) -> dict:
@@ -342,8 +348,7 @@ def build_panel(settings: Settings, conn: sqlite3.Connection | None = None, end:
             "fields": sorted(tier_panel.columns),
             "source_snapshots": snapshots,
             "warnings": PANEL_WARNINGS if cfg["name"] == "csi800" else [
-                w for w in PANEL_WARNINGS if not w.startswith("universe is CSI 800")] + [
-                f"universe is rule-based ({cfg['rule']}); delisted names are included to avoid survivorship bias"],
+                w for w in PANEL_WARNINGS if not w.startswith("universe is CSI 800")] + [_universe_note(cfg)],
             "built_at": utcnow_iso(),
         }
         bench = _benchmark(raw_root(settings, universe), calendar, window_end)

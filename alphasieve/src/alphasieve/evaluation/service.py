@@ -194,6 +194,10 @@ def run_bridge(local_root: Path | str, remote_root: Path | str, idle_exit: float
     bridge_id = f"bridge-{socket.gethostname()}-{os.getpid()}"
     remote_ids = {p.stem for sub in ("pending", "running", "done") for p in (remote.root / sub).glob("*.json")}
     inflight: set[str] = {p.stem for p in (local.root / "running").glob("*.json") if p.stem in remote_ids}
+    busy_local = {w.get("job") for w in local.alive_workers() if w.get("kind") != "bridge"}
+    for path in (local.root / "running").glob("*.json"):
+        if path.stem not in inflight and path.stem not in busy_local:
+            os.replace(path, local.root / "pending" / path.name)
     seen: dict[str, float] = {}
     forwarded, last_activity, last_beat = 0, time.monotonic(), 0.0
     try:

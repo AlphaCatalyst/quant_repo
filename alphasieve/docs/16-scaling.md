@@ -97,6 +97,27 @@
 - 本机只保留评估需要的 panel；
 - 全 A、2005 年起的日频 panel 约 1,500 万行，内存宽表约 10–15 GB，适合在平台 worker 上用；本机需要按字段按需载入。
 
+### 3.1 实施进展（2026-09-27）
+
+- **S-4**：股票池可配置（D-26），全 A 日线正在本机同步。平台访问不到 BaoStock，而 BaoStock 服务端限速，预计需要 4–5 小时。财报同步更慢，将在日线之后进行，完成后重建 panel。
+- **S-5**：并行 lane 与模板展开已完成，并做过真实验证（D-27）。
+- **S-6**：`strategy backtest` 可以作为平台任务运行，结果写入 RunLab（D-28）。组合层补上了市值与行业约束，需要重跑。
+- **S-7**：事件数据已纳入中证 800 panel；日内特征放在单独的 `hs300_2020` 范围；程序化搜索在独立的 `program` campaign 中运行（D-28）。稀疏的事件字段用 `fill_na` 把没有事件的日子填为中性值。
+
+常用命令：
+
+```bash
+alphasieve data sync --universe ashare_all --dataset core --workers 8      # 全 A 日线（本机）
+alphasieve data sync --universe ashare_all --dataset financials --workers 8
+alphasieve data sync --dataset events --workers 4                         # 业绩预告 / 快报
+alphasieve data sync --universe hs300_2020 --dataset intraday --start 2020-01-01 --workers 4
+alphasieve data build-panel --universe ashare_all --tiers holdout          # holdout 只在本机构建
+deploy/ray/submit.sh build-all data build-panel --universe ashare_all --tiers dev   # dev 在平台构建
+deploy/ray/start_workers.sh 8 && systemctl start alphasieve-evalbridge     # 平台 worker 与本机桥接进程
+alphasieve search run prog-evolve-001 --trials 400 --method evolve --concurrency 16
+deploy/ray/submit.sh strategy strategy backtest --universe csi800 --horizon 20 --model lgbm --jobs 32
+```
+
 ## 4. 规模变大后，统计纪律必须同步
 
 - **试验数。** L3 的门槛随试验数上升（DSR 的期望最大值大致随 \(\sqrt{2\ln N}\) 增长）。从几百次扩到几万次后，只有很强的信号才能通过，这是正确的行为，不应为了通过率放松。

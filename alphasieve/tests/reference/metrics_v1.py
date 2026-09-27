@@ -1,22 +1,21 @@
 import numpy as np
 import pandas as pd
 
-from alphasieve.evaluation import fastops
+from alphasieve.factors.ops import cs_neutralize
 
 MIN_NAMES = 20
 
 
-def _np(frame) -> np.ndarray:
-    return frame.to_numpy(dtype=float) if isinstance(frame, pd.DataFrame) else np.asarray(frame, dtype=float)
-
-
-def _mask(frame) -> np.ndarray:
-    return frame.to_numpy(dtype=bool) if isinstance(frame, pd.DataFrame) else np.asarray(frame, dtype=bool)
-
-
 def rank_corr_series(a: pd.DataFrame, b: pd.DataFrame, valid: pd.DataFrame, min_names: int = MIN_NAMES) -> pd.Series:
-    b = b.reindex(index=a.index, columns=a.columns) if isinstance(b, pd.DataFrame) else b
-    return pd.Series(fastops.rank_corr(_np(a), _np(b), _mask(valid), min_names), index=a.index)
+    both = valid & a.notna() & b.notna()
+    ar = a.where(both).rank(axis=1)
+    br = b.where(both).rank(axis=1)
+    ac = ar.sub(ar.mean(axis=1), axis=0)
+    bc = br.sub(br.mean(axis=1), axis=0)
+    denom = np.sqrt((ac**2).sum(axis=1) * (bc**2).sum(axis=1))
+    corr = (ac * bc).sum(axis=1) / denom.replace(0, np.nan)
+    corr[both.sum(axis=1) < min_names] = np.nan
+    return corr
 
 
 def summarize_ic(ic: pd.Series) -> dict:
@@ -35,27 +34,19 @@ def summarize_ic(ic: pd.Series) -> dict:
 
 
 def coverage(factor: pd.DataFrame, universe: pd.DataFrame) -> float:
-    uni = _mask(universe)
-    counts = uni.sum(axis=1)
-    covered = (np.isfinite(_np(factor)) & uni).sum(axis=1)
-    keep = counts > 0
-    return float((covered[keep] / counts[keep]).mean()) if keep.any() else 0.0
+    counts = universe.sum(axis=1)
+    covered = (factor.notna() & universe).sum(axis=1)
+    ratio = covered[counts > 0] / counts[counts > 0]
+    return float(ratio.mean()) if len(ratio) else 0.0
 
 
 def quantile_returns(factor: pd.DataFrame, label: pd.DataFrame, valid: pd.DataFrame, q: int = 5) -> dict:
-    f, lab = _np(factor), _np(label)
-    both = _mask(valid) & np.isfinite(f) & np.isfinite(lab)
-    pct = fastops.row_rank(fastops.masked(f, both), pct=True)
-    with np.errstate(invalid="ignore"):
-        bucket = np.clip(np.ceil(pct * q), 1, q)
+    both = valid & factor.notna() & label.notna()
+    pct = factor.where(both).rank(axis=1, pct=True)
+    bucket = np.ceil(pct * q).clip(1, q)
     out = {}
     for b in range(1, q + 1):
-        sel = bucket == b
-        n = sel.sum(axis=1)
-        with np.errstate(invalid="ignore", divide="ignore"):
-            row_mean = np.where(sel, lab, 0.0).sum(axis=1) / n
-        row_mean = row_mean[n > 0]
-        out[f"q{b}"] = float(row_mean.mean()) if len(row_mean) else float("nan")
+        out[f"q{b}"] = float(label.where(bucket == b).mean(axis=1).mean())
     out["long_short"] = out[f"q{q}"] - out["q1"]
     return out
 
@@ -67,10 +58,9 @@ def turnover_proxy(factor: pd.DataFrame, valid: pd.DataFrame) -> float:
 
 def library_correlations(factor: pd.DataFrame, library: dict[str, pd.DataFrame], valid: pd.DataFrame) -> dict:
     corrs = {}
-    f, v = _np(factor), _mask(valid)
     for name, other in library.items():
-        series = fastops.rank_corr(f, _np(other.reindex(index=factor.index, columns=factor.columns)), v, MIN_NAMES)
-        corrs[name] = float(np.nanmean(series)) if np.isfinite(series).any() else 0.0
+        series = rank_corr_series(factor, other, valid)
+        corrs[name] = float(series.mean()) if series.notna().any() else 0.0
     if not corrs:
         return {"max_abs_corr": 0.0, "max_corr_with": None, "correlations": {}}
     top = max(corrs, key=lambda k: abs(corrs[k]))
@@ -79,12 +69,8 @@ def library_correlations(factor: pd.DataFrame, library: dict[str, pd.DataFrame],
 
 def neutralized_ic(factor: pd.DataFrame, label: pd.DataFrame, valid: pd.DataFrame, groups: pd.Series,
                    size: pd.DataFrame) -> dict:
-    codes = factor.columns
-    dummies = pd.get_dummies(groups.reindex(codes).fillna("unknown")).to_numpy(dtype=float)
-    sv = size.reindex(index=factor.index, columns=codes).to_numpy(dtype=float)
-    residual = fastops.neutralize(fastops.masked(_np(factor), _mask(valid)), dummies, sv)
-    ic = fastops.rank_corr(residual, _np(label), _mask(valid), MIN_NAMES)
-    return summarize_ic(pd.Series(ic, index=factor.index))
+    residual = cs_neutralize(factor.where(valid), groups, size)
+    return summarize_ic(rank_corr_series(residual, label, valid))
 
 
 def subwindow_ics(ic: pd.Series, n: int) -> list[float]:

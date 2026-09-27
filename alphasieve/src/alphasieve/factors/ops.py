@@ -70,7 +70,9 @@ def ts_cov(x: Frame, y: Frame, w: int) -> Frame:
 
 
 def cs_rank(x: Frame) -> Frame:
-    return x.rank(axis=1, pct=True)
+    from alphasieve.evaluation.fastops import row_rank
+
+    return pd.DataFrame(row_rank(x.to_numpy(dtype=float), pct=True), index=x.index, columns=x.columns)
 
 
 def cs_zscore(x: Frame) -> Frame:

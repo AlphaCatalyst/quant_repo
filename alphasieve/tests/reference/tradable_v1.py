@@ -1,8 +1,4 @@
-"""B2: long-only top-quantile evaluation with tradability constraints and approximate costs.
-
-Positions carry over between rebalances (names that cannot be sold stay held), so the loop over rebalance
-dates is inherent; each step works on numpy rows instead of pandas objects.
-"""
+"""B2: long-only top-quantile evaluation with tradability constraints and approximate costs."""
 
 import numpy as np
 import pandas as pd
@@ -20,15 +16,9 @@ def long_only_excess(
     one_way_cost: float = 0.0015,
 ) -> dict:
     dates = factor.index
-    cols = factor.columns
-    f = factor.to_numpy(dtype=float)
-    v = valid.reindex(index=dates, columns=cols).fillna(False).to_numpy(dtype=bool)
-    px = open_px.reindex(index=dates, columns=cols).to_numpy(dtype=float)
-    buy = tradable_buy.reindex(index=dates, columns=cols).fillna(False).to_numpy(dtype=bool)
-    sell = tradable_sell.reindex(index=dates, columns=cols).fillna(False).to_numpy(dtype=bool)
     positions = np.flatnonzero(window.to_numpy())
     rebal = [p for p in positions[::rebalance_every] if p + 1 < len(dates)]
-    weights = np.zeros(len(cols))
+    weights = pd.Series(dtype=float)
     rows = []
     for i, t in enumerate(rebal):
         nxt = rebal[i + 1] if i + 1 < len(rebal) else None
@@ -37,22 +27,19 @@ def long_only_excess(
         entry, exit_ = t + 1, nxt + 1
         if exit_ >= len(dates):
             break
-        scored = v[t] & np.isfinite(f[t])
-        n_top = max(int(scored.sum() * top_fraction), 1)
-        eligible = np.flatnonzero(scored & buy[entry])
-        order = eligible[np.argsort(-f[t, eligible], kind="stable")]
-        chosen = np.zeros(len(cols), dtype=bool)
-        chosen[order[:n_top]] = True
-        stuck = (weights > 0) & ~chosen & ~sell[entry]
-        held = chosen | stuck
-        new_w = np.where(held, 1.0 / held.sum(), 0.0) if held.any() else np.zeros(len(cols))
-        turnover = float(np.abs(new_w - weights).sum())
-        with np.errstate(invalid="ignore", divide="ignore"):
-            period_ret = px[exit_] / px[entry] - 1
-        period_ret = np.where(np.isfinite(period_ret), period_ret, 0.0)
-        port = float((new_w * period_ret).sum())
-        bench_names = v[t] & buy[entry]
-        bench = float(period_ret[bench_names].mean()) if bench_names.any() else 0.0
+        scores = factor.iloc[t].where(valid.iloc[t]).dropna()
+        buyable = tradable_buy.iloc[entry].reindex(scores.index).fillna(False).astype(bool)
+        n_top = max(int(len(scores) * top_fraction), 1)
+        chosen = scores[buyable].nlargest(n_top).index
+        stuck = [c for c in weights.index if c not in chosen and not bool(tradable_sell.iloc[entry].get(c, False))]
+        held = list(dict.fromkeys(list(chosen) + stuck))
+        new_w = pd.Series(1.0 / len(held), index=held) if held else pd.Series(dtype=float)
+        turnover = float(new_w.sub(weights, fill_value=0).abs().sum())
+        period_ret = (open_px.iloc[exit_] / open_px.iloc[entry] - 1).replace([np.inf, -np.inf], np.nan)
+        port = float((new_w * period_ret.reindex(new_w.index).fillna(0)).sum())
+        bench_names = valid.iloc[t][valid.iloc[t]].index
+        bench_names = [c for c in bench_names if bool(tradable_buy.iloc[entry].get(c, False))]
+        bench = float(period_ret.reindex(bench_names).fillna(0).mean()) if bench_names else 0.0
         rows.append({"date": dates[t], "port": port, "bench": bench, "turnover": turnover,
                      "cost": turnover * one_way_cost})
         weights = new_w

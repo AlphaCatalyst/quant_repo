@@ -56,7 +56,8 @@ def l2_metrics(factor: pd.DataFrame, inp: EvalInputs, baseline: dict[str, pd.Dat
             factor, inp.universe, p.wide("open"), p.mask("tradable_buy"), p.mask("tradable_sell"), inp.window,
             b2["rebalance_every"], b2["top_fraction"], b2["one_way_cost"],
         ),
-        "marginal": marginal_contribution(factor, baseline, inp.label, inp.valid, inp.window, inp.horizon),
+        "marginal": marginal_contribution(factor, baseline, inp.label, inp.valid, inp.window, inp.horizon,
+                                          cache_key=(p.signature, inp.horizon)),
     }
 
 

@@ -1,65 +1,125 @@
-"""Marginal contribution of a candidate over a baseline feature set (ridge, yearly walk-forward)."""
+"""Marginal contribution of a candidate over a baseline feature set (ridge, yearly walk-forward).
+
+Ridge is solved in closed form from per-date sufficient statistics, which is exactly sklearn's
+``Ridge(alpha, fit_intercept=True)`` (centred normal equations, intercept unpenalised). The baseline block
+of features and statistics does not depend on the candidate, so it is cached per ``cache_key`` (panel
+signature, horizon, baseline names); only the candidate's cross terms are computed per evaluation.
+"""
+
+from collections import OrderedDict
 
 import numpy as np
 import pandas as pd
-from sklearn.linear_model import Ridge
 
-from alphasieve.evaluation.metrics import rank_corr_series
+from alphasieve.evaluation import fastops
+from alphasieve.evaluation.metrics import MIN_NAMES
 
 MIN_TRAIN_YEARS = 2
 RIDGE_ALPHA = 10.0
+_BASE_CACHE: OrderedDict = OrderedDict()
+_BASE_CACHE_SIZE = 2
 
 
-def _prepare(frames: list[pd.DataFrame], valid: pd.DataFrame) -> np.ndarray:
-    layers = []
-    for frame in frames:
-        ranked = frame.where(valid).rank(axis=1, pct=True) - 0.5
-        layers.append(ranked.fillna(0.0).to_numpy())
-    return np.stack(layers, axis=-1)
+def _centered_rank(frame: pd.DataFrame, valid: np.ndarray, like: pd.DataFrame) -> np.ndarray:
+    values = frame.reindex(index=like.index, columns=like.columns).to_numpy(dtype=float)
+    return fastops.centered_rank(values, valid)
 
 
-def _walk_forward(features: np.ndarray, target: np.ndarray, label: pd.DataFrame, valid: pd.DataFrame,
-                  window: pd.Series, embargo: int) -> tuple[float, int]:
-    dates = label.index
-    years = sorted({d.year for d in dates[window.to_numpy()]})
-    valid_np = valid.to_numpy() & np.isfinite(target)
-    preds = np.full(target.shape, np.nan)
+def _base_block(baseline: dict[str, pd.DataFrame], valid: np.ndarray, target: np.ndarray, mask: np.ndarray,
+                like: pd.DataFrame, chunk: int = 256) -> dict:
+    t, n = valid.shape
+    k = len(baseline)
+    feats = np.empty((t, n, k))
+    for j, frame in enumerate(baseline.values()):
+        feats[..., j] = _centered_rank(frame, valid, like)
+    y = np.where(mask, target, 0.0)
+    xx = np.zeros((t, k, k))
+    xy = np.zeros((t, k))
+    sx = np.zeros((t, k))
+    for lo in range(0, t, chunk):
+        x = np.where(mask[lo:lo + chunk, :, None], feats[lo:lo + chunk], 0.0)
+        sx[lo:lo + chunk] = x.sum(axis=1)
+        xx[lo:lo + chunk] = x.transpose(0, 2, 1) @ x
+        xy[lo:lo + chunk] = (x * y[lo:lo + chunk, :, None]).sum(axis=1)
+    return {"feats": feats, "sx": sx, "xx": xx, "xy": xy, "y": y}
+
+
+def _full_stats(base: dict, cand: np.ndarray, mask: np.ndarray) -> dict:
+    t, k = base["sx"].shape
+    c = np.where(mask, cand, 0.0)
+    y = base["y"]
+    xx = np.zeros((t, k + 1, k + 1))
+    xx[:, :k, :k] = base["xx"]
+    if k:
+        cross = np.einsum("tnk,tn->tk", np.where(mask[..., None], base["feats"], 0.0), c)
+        xx[:, :k, k] = cross
+        xx[:, k, :k] = cross
+    xx[:, k, k] = (c * c).sum(axis=1)
+    return {"n": mask.sum(axis=1).astype(float), "sy": y.sum(axis=1),
+            "sx": np.concatenate([base["sx"], c.sum(axis=1)[:, None]], axis=1), "xx": xx,
+            "xy": np.concatenate([base["xy"], (c * y).sum(axis=1)[:, None]], axis=1)}
+
+
+def _solve(stats: dict, idx: np.ndarray, k: int) -> tuple[np.ndarray, float]:
+    n = stats["n"][idx].sum()
+    sx = stats["sx"][idx, :k].sum(axis=0)
+    sy = stats["sy"][idx].sum()
+    xx = stats["xx"][idx, :k, :k].sum(axis=0)
+    xy = stats["xy"][idx, :k].sum(axis=0)
+    mx, my = sx / n, sy / n
+    w = np.linalg.solve(xx - n * np.outer(mx, mx) + RIDGE_ALPHA * np.eye(k), xy - n * mx * my)
+    return w, my - mx @ w
+
+
+def _walk_forward(base_feats: np.ndarray, cand: np.ndarray, stats: dict, label: np.ndarray, valid: np.ndarray,
+                  dates: pd.DatetimeIndex, window: np.ndarray, embargo: int, with_candidate: bool) -> tuple[float, int]:
+    kb = base_feats.shape[-1]
+    k = kb + 1 if with_candidate else kb
+    years = sorted({d.year for d in dates[window]})
+    preds = np.full(label.shape, np.nan)
     folds = 0
-    in_window = window.to_numpy()
     for year in years[MIN_TRAIN_YEARS:]:
-        test_idx = np.flatnonzero(in_window & (dates.year == year))
+        test_idx = np.flatnonzero(window & (dates.year == year))
         if len(test_idx) == 0:
             continue
         train_end = test_idx[0] - embargo
-        train_idx = np.flatnonzero(in_window[:max(train_end, 0)])
-        if len(train_idx) < 250:
+        train_idx = np.flatnonzero(window[:max(train_end, 0)])
+        if len(train_idx) < 250 or stats["n"][train_idx].sum() < 1000:
             continue
-        mask = valid_np[train_idx]
-        x = features[train_idx][mask]
-        y = target[train_idx][mask]
-        if len(y) < 1000:
-            continue
-        model = Ridge(alpha=RIDGE_ALPHA, fit_intercept=True).fit(x, y)
-        test_x = features[test_idx].reshape(-1, features.shape[-1])
-        preds[test_idx] = model.predict(test_x).reshape(len(test_idx), -1)
+        w, b = _solve(stats, train_idx, k)
+        pred = base_feats[test_idx] @ w[:kb] + b
+        if with_candidate:
+            pred = pred + cand[test_idx] * w[kb]
+        preds[test_idx] = pred
         folds += 1
-    pred_frame = pd.DataFrame(preds, index=dates, columns=label.columns)
-    ic = rank_corr_series(pred_frame, label, valid & pred_frame.notna())
-    return (float(ic.mean()) if ic.notna().any() else float("nan")), folds
+    ic = fastops.rank_corr(preds, label, valid & np.isfinite(preds), MIN_NAMES)
+    return (float(np.nanmean(ic)) if np.isfinite(ic).any() else float("nan")), folds
 
 
 def marginal_contribution(candidate: pd.DataFrame, baseline: dict[str, pd.DataFrame], label: pd.DataFrame,
-                          valid: pd.DataFrame, window: pd.Series, horizon: int) -> dict:
-    target_frame = label.where(valid).rank(axis=1, pct=True) - 0.5
-    target = target_frame.to_numpy()
-    base_frames = list(baseline.values())
-    embargo = horizon + 1
-    with_feats = _prepare(base_frames + [candidate], valid)
-    ic_with, folds = _walk_forward(with_feats, target, label, valid, window, embargo)
-    if base_frames:
-        ic_without, _ = _walk_forward(with_feats[..., :-1], target, label, valid, window, embargo)
+                          valid: pd.DataFrame, window: pd.Series, horizon: int, cache_key=None) -> dict:
+    valid_np = valid.to_numpy(dtype=bool)
+    label_np = label.to_numpy(dtype=float)
+    target = fastops.centered_rank(label_np, valid_np)
+    mask = valid_np & np.isfinite(label_np)
+    target = np.where(mask, target, np.nan)
+    key = (cache_key, tuple(baseline)) if cache_key is not None else None
+    base = _BASE_CACHE.get(key) if key is not None else None
+    if base is None:
+        base = _base_block(baseline, valid_np, target, mask, label)
+        if key is not None:
+            _BASE_CACHE[key] = base
+            while len(_BASE_CACHE) > _BASE_CACHE_SIZE:
+                _BASE_CACHE.popitem(last=False)
     else:
-        ic_without = 0.0
+        _BASE_CACHE.move_to_end(key)
+    cand = _centered_rank(candidate, valid_np, label)
+    stats = _full_stats(base, cand, mask)
+    dates, win = label.index, window.to_numpy()
+    embargo = horizon + 1
+    args = (base["feats"], cand, stats, label_np, valid_np, dates, win, embargo)
+    ic_with, folds = _walk_forward(*args, with_candidate=True)
+    ic_without = _walk_forward(*args, with_candidate=False)[0] if baseline else 0.0
     return {
         "model": "ridge",
         "baseline_features": list(baseline.keys()),

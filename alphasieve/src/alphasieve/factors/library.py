@@ -25,12 +25,22 @@ def cache_path(settings: Settings, tier: str, candidate_hash: str, signature: st
     return settings.cache_dir / "factors" / tier / f"{candidate_hash}-{signature[:12]}.parquet"
 
 
+_MEMO: dict[str, pd.DataFrame] = {}
+_MEMO_LIMIT = 64
+
+
 def cached_values(settings: Settings, panel: Panel, canonical: str, candidate_hash: str) -> pd.DataFrame:
     path = cache_path(settings, panel.tier, candidate_hash, panel.signature)
+    if str(path) in _MEMO:
+        return _MEMO[str(path)]
     if path.exists():
         frame = pd.read_parquet(path)
         frame.index = pd.DatetimeIndex(frame.index)
-        return frame.reindex(index=panel.dates, columns=panel.codes).astype(float)
+        frame = frame.reindex(index=panel.dates, columns=panel.codes).astype(float)
+        if len(_MEMO) >= _MEMO_LIMIT:
+            _MEMO.pop(next(iter(_MEMO)))
+        _MEMO[str(path)] = frame
+        return frame
     compiled = compile_expression(canonical, load_search_space(settings))
     frame = evaluate(compiled, panel)
     store_values(settings, panel, candidate_hash, frame)

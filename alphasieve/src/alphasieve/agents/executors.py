@@ -72,6 +72,7 @@ def agent_env(settings: Settings, ctx: TurnContext, user: str) -> dict[str, str]
         "ALPHASIEVE_STORE_MOUNT": str(settings.store_mount or ""),
         "ALPHASIEVE_CONFIG_DIR": str(settings.config_dir),
         "PYTHONDONTWRITEBYTECODE": "1",
+        "NUMBA_CACHE_DIR": str(settings.cache_dir / "numba"),
         "NO_COLOR": "1",
     })
     return env

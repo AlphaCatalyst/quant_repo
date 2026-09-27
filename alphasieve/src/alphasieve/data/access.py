@@ -2,6 +2,7 @@ import json
 from functools import lru_cache
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from alphasieve.config import Settings
@@ -24,6 +25,9 @@ class Panel:
         self.codes = sorted(long["code"].unique())
         self._wide: dict[str, pd.DataFrame] = {}
         self._indexed = long.set_index(["date", "code"])
+        self._row = self.dates.get_indexer(long["date"])
+        self._col = pd.Index(self.codes).get_indexer(long["code"])
+        self._unique = not long.duplicated(["date", "code"]).any()
 
     @property
     def tier(self) -> str:
@@ -44,10 +48,17 @@ class Panel:
         if field not in self._wide:
             if field not in self.long.columns:
                 raise not_found(f"field {field} not in panel")
-            series = self._indexed[field]
-            if series.dtype == bool or str(series.dtype) == "boolean":
-                series = series.astype(float)
-            self._wide[field] = series.unstack("code").reindex(index=self.dates, columns=self.codes)
+            column = self.long[field]
+            numeric = pd.api.types.is_numeric_dtype(column) or pd.api.types.is_bool_dtype(column)
+            if numeric and self._unique:
+                grid = np.full((len(self.dates), len(self.codes)), np.nan)
+                grid[self._row, self._col] = column.to_numpy(dtype=float, na_value=np.nan)
+                self._wide[field] = pd.DataFrame(grid, index=self.dates, columns=self.codes)
+            else:
+                series = self._indexed[field]
+                if series.dtype == bool or str(series.dtype) == "boolean":
+                    series = series.astype(float)
+                self._wide[field] = series.unstack("code").reindex(index=self.dates, columns=self.codes)
         return self._wide[field]
 
     def set_wide(self, field: str, frame: pd.DataFrame) -> None:

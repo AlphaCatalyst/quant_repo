@@ -40,7 +40,7 @@ def test_intraday_features():
     assert list(feats["date"]) == ["2021-03-01"]
     first = feats.iloc[0]
     assert first["tail30_vol_share"] == pytest.approx(6 * 6000 / (42 * 1000 + 6 * 6000))
-    assert 0 < first["rv_5m"] < 0.05 and 0 <= first["updown_vol_share"] <= 1
+    assert 0 < first["rv_intraday"] < 0.05 and 0 <= first["updown_vol_share"] <= 1
 
 
 def test_panel_attaches_events(built_root, tmp_path, monkeypatch):
@@ -105,3 +105,13 @@ def test_cli_exposes_new_commands():
     for argv in (["search", "run", "x"], ["factor", "expand", "t.yaml"], ["strategy", "backtest"],
                  ["evalsvc", "status"], ["data", "sync", "--dataset", "intraday", "--universe", "hs300_2020"]):
         assert parser.parse_args(argv)
+
+
+def test_intraday_features_15_minute_bars():
+    rows = [{"date": "2021-03-01", "time": f"{i:02d}", "open": 10.0, "high": 10.0, "low": 10.0,
+             "close": 10.0 + i * 0.01, "volume": 100 + (900 if i >= 14 else 0), "amount": 0.0} for i in range(16)]
+    bars = pd.DataFrame(rows)
+    bars["code"] = "sh.600000"
+    feats = events.intraday_features(bars, minutes=15).iloc[0]
+    assert feats["tail30_vol_share"] == pytest.approx(2 * 1000 / (14 * 100 + 2 * 1000))
+    assert feats["open30_ret"] == pytest.approx(10.01 / 10.0 - 1)

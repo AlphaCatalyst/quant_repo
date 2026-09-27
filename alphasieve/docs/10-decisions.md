@@ -174,7 +174,7 @@ verifier 本身的正确性要靠测试证明；gate 阈值用零假设模拟与
 - 事件数据：BaoStock 的业绩预告与业绩快报，按发布日之后的第一个交易日对齐，最多沿用 60 个交易日。
   - 派生 6 个字段：`fc_chg_mid`、`fc_positive`、`fc_age`、`ex_eps_chg`、`ex_roe`、`ex_gr_yoy`，属于新的 `events` 领域，默认周期 20 日；
   - 中证 800 已同步：预告 38,589 条，快报 10,532 条。
-- 日内特征：BaoStock 的 5 分钟线约从 2020 年开始才有。同步时聚合成 4 个日频字段：`rv_5m`、`tail30_vol_share`、`open30_ret`、`updown_vol_share`，属于新的 `intraday` 领域，默认周期 5 日；原始分钟线不保存。
+- 日内特征：BaoStock 的分钟线约从 2020 年开始才有。同步时聚合成 4 个日频字段：`rv_intraday`、`tail30_vol_share`、`open30_ret`、`updown_vol_share`，属于新的 `intraday` 领域，默认周期 5 日；原始分钟线不保存。在限速下，5 分钟线（约 3,600 万行）需要约 20 小时，因此 `hs300_2020` 改用 15 分钟线（`intraday_minutes: 15`，每天 16 根），最后 30 分钟和开盘 30 分钟各取 2 根。
   - 由于覆盖期短，日内特征只放在单独的 `hs300_2020` 范围里（沪深 300 成分股，dev 期从 2020-03 开始），不混入 2012 年起的中证 800，否则覆盖率检查过不了。
 - search_space 升级到 v2，新增 `events` 与 `intraday` 两个领域。
 - 程序化搜索：`search run` 只能在 agent 类型为 `program` 的 campaign 里运行，与 LLM campaign 分开计算试验数。

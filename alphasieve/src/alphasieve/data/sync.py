@@ -294,7 +294,7 @@ def sync_events(settings: Settings, conn: sqlite3.Connection, end: str, workers:
             "express": sum(r.get("express", 0) for r in results), "errors": errors, "snapshot": snap}
 
 
-def _intraday_job(code: str, start: str, end: str, root: str) -> dict:
+def _intraday_job(code: str, start: str, end: str, root: str, minutes: int = 5) -> dict:
     from alphasieve.data.events import intraday_features
 
     path = Path(root) / "intraday" / f"{code}.parquet"
@@ -305,10 +305,10 @@ def _intraday_job(code: str, start: str, end: str, root: str) -> dict:
     frames = [] if existing is None else [existing]
     while fetch_start <= end:
         chunk_end = min(end, f"{year}-12-31")
-        bars = _SESSION.minute(code, fetch_start, chunk_end)
+        bars = _SESSION.minute(code, fetch_start, chunk_end, str(minutes))
         if not bars.empty:
             bars["code"] = code
-            feats = intraday_features(bars)
+            feats = intraday_features(bars, minutes)
             new_rows += len(feats)
             frames.append(feats)
             _write_parquet(pd.concat(frames, ignore_index=True).drop_duplicates(["date"], keep="last"), path)
@@ -321,7 +321,8 @@ def sync_intraday(settings: Settings, conn: sqlite3.Connection, start: str, end:
                   progress=None, universe: str | None = None) -> dict:
     root = raw_root(settings, universe)
     codes = universe_codes(settings, universe)
-    results = _run_jobs(_intraday_job, [(code, start, end, str(root)) for code in codes], workers, progress)
+    minutes = int(universe_config(settings, universe).get("intraday_minutes", 5))
+    results = _run_jobs(_intraday_job, [(code, start, end, str(root), minutes) for code in codes], workers, progress)
     errors = [e for r in results for e in r.get("errors", [])]
     paths = sorted((root / "intraday").glob("*.parquet"))
     snap = record_snapshot(conn, _dataset("intraday", universe), {"start": start, "end": end}, paths, len(paths))

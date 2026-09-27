@@ -22,7 +22,8 @@ ashare_all:
     liquidity_window: 20
     liquidity_drop_fraction: 0.2     # drop the least liquid 20% by trailing average amount, per date
 hs300_2020:
-  description: CSI 300 point-in-time members from 2020, the span covered by 5-minute bars (intraday features)
+  description: CSI 300 point-in-time members from 2020, the span covered by intraday bars (intraday features)
+  intraday_minutes: 15               # BaoStock throttling makes 5-minute bars for 2020-2026 take ~20 h
   codes: hs300_members
   raw_subdir: baostock
   history_start: "2019-10-08"

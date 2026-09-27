@@ -12,7 +12,7 @@ EVENT_CARRY_DAYS = 60
 POSITIVE_FORECASTS = {"预增", "扭亏", "续盈", "略增"}
 NEGATIVE_FORECASTS = {"预减", "首亏", "续亏", "略减"}
 EVENT_FIELDS = ["fc_chg_mid", "fc_positive", "fc_age", "ex_eps_chg", "ex_roe", "ex_gr_yoy"]
-INTRADAY_FIELDS = ["rv_5m", "tail30_vol_share", "open30_ret", "updown_vol_share"]
+INTRADAY_FIELDS = ["rv_intraday", "tail30_vol_share", "open30_ret", "updown_vol_share"]
 
 
 def forecast_rows(fc: pd.DataFrame) -> pd.DataFrame:
@@ -69,8 +69,10 @@ def attach_events(panel: pd.DataFrame, aligned: pd.DataFrame, calendar: list[str
     return merged.drop(columns=["event_pos"])
 
 
-def intraday_features(bars: pd.DataFrame) -> pd.DataFrame:
-    """Daily features from one stock's 5-minute bars (48 per full day)."""
+def intraday_features(bars: pd.DataFrame, minutes: int = 5) -> pd.DataFrame:
+    """Daily features from one stock's intraday bars (240 / minutes per full day)."""
+    per_day = 240 // minutes
+    edge = max(1, 30 // minutes)
     if bars.empty:
         return pd.DataFrame(columns=["date", "code", *INTRADAY_FIELDS])
     bars = bars.sort_values(["date", "time"]).copy()
@@ -80,14 +82,14 @@ def intraday_features(bars: pd.DataFrame) -> pd.DataFrame:
     g = bars.groupby("date")
     total_vol = g["volume"].sum()
     out = pd.DataFrame({
-        "rv_5m": np.sqrt(g["ret"].apply(lambda r: float((r**2).sum()))),
-        "tail30_vol_share": g["volume"].apply(lambda v: float(v.iloc[-6:].sum())) / total_vol.replace(0, np.nan),
-        "open30_ret": g.apply(lambda d: float(d["close"].iloc[min(5, len(d) - 1)] / d["open"].iloc[0] - 1)
+        "rv_intraday": np.sqrt(g["ret"].apply(lambda r: float((r**2).sum()))),
+        "tail30_vol_share": g["volume"].apply(lambda v: float(v.iloc[-edge:].sum())) / total_vol.replace(0, np.nan),
+        "open30_ret": g.apply(lambda d: float(d["close"].iloc[min(edge - 1, len(d) - 1)] / d["open"].iloc[0] - 1)
                               if d["open"].iloc[0] > 0 else np.nan, include_groups=False),
         "updown_vol_share": g.apply(lambda d: float(d.loc[d["ret"] > 0, "volume"].sum()), include_groups=False)
         / total_vol.replace(0, np.nan),
         "bars": g.size(),
     })
-    out = out[out["bars"] >= 40].drop(columns=["bars"]).reset_index()
+    out = out[out["bars"] >= int(0.8 * per_day)].drop(columns=["bars"]).reset_index()
     out["code"] = bars["code"].iloc[0]
     return out[["date", "code", *INTRADAY_FIELDS]]

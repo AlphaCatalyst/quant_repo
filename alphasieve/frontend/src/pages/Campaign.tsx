@@ -64,6 +64,9 @@ export default function Campaign({ id }: { id: string }) {
             股票池 {c.spec.universe} · 预测周期 {c.spec.horizon} 日 · 领域 {c.spec.domains.join(", ")} · agent{" "}
             {c.spec.agents.map((a: Json) => `${a.harness}/${a.model}`).join(" 与 ")}
           </div>
+          {Object.entries((c.stats?.disabled_agents ?? {}) as Record<string, string>).map(([h, why]) => (
+            <div key={h} className="error small">已停用 {h}：{why.slice(0, 200)}</div>
+          ))}
         </div>
         <button className="btn" onClick={() => getText(`/api/campaigns/${id}/report`).then(setReport).catch(() => setReport("还没有日报"))}>
           查看日报

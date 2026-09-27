@@ -46,15 +46,15 @@ def backtest(settings: Settings, conn: sqlite3.Connection, universe: str = "csi8
              model: str = "ridge", retrain: str = "monthly", train_years: int = 5, rebalance_every: int = 5,
              industry_dev: float = 0.03, name_cap: float = 0.02, turnover_cap: float = 0.30,
              factor_refs: list[str] | None = None, seed_library: bool = False, n_jobs: int = 8,
-             warmup_years: int = 2) -> dict:
+             warmup_years: int = 2, size_limit: float = 0.3) -> dict:
     panel = load_panel(settings, "dev", role="system", universe=universe)
     if seed_library and not lib.library_members(conn):
         lib.seed_library(settings, conn, panel)
     features = feature_set(settings, conn, panel, factor_refs)
     scores, model_info = walk_forward_scores(features, panel, horizon, model, retrain, train_years, warmup_years,
                                              n_jobs=n_jobs)
-    weights = build_weights(scores, panel, rebalance_every, industry_dev, name_cap, turnover_cap)
-    diag = weight_diagnostics(weights, panel)
+    weights = build_weights(scores, panel, rebalance_every, industry_dev, name_cap, turnover_cap, size_limit)
+    diag = weight_diagnostics(weights, panel, turnover_cap)
     costs = load_config(settings, "costs").get("b3", {})
     sim = simulate(weights, panel, costs, BENCHMARKS.get(universe))
     run_id = uuid.uuid4().hex[:12]
@@ -67,7 +67,7 @@ def backtest(settings: Settings, conn: sqlite3.Connection, universe: str = "csi8
     config = {"universe": universe, "horizon": horizon, "model": model, "retrain": retrain,
               "train_years": train_years, "warmup_years": warmup_years, "rebalance_every": rebalance_every,
               "industry_dev": industry_dev, "name_cap": name_cap, "turnover_cap": turnover_cap,
-              "features": list(features), "costs": costs, "panel_signature": panel.signature,
+              "size_limit": size_limit, "features": list(features), "costs": costs, "panel_signature": panel.signature,
               "window": [str(d.date()) for d in panel.window]}
     result = {"run_id": run_id, "config": config, "model": model_info, "portfolio": diag, "execution": sim,
               "outputs": str(out_dir),

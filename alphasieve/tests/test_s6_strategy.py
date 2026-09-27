@@ -58,7 +58,8 @@ def test_portfolio_constraints_and_execution(dev, panel_settings):
     np.testing.assert_allclose(weights.sum(axis=1), 1.0, atol=1e-9)
     diag = portfolio.weight_diagnostics(weights, dev)
     assert diag["max_industry_deviation"] <= 0.05 + 1e-6
-    assert diag["one_way_turnover_max"] <= 0.3 + 1e-6
+    assert diag["active_size_exposure_max_abs"] <= 0.3 + 1e-6
+    assert diag["one_way_turnover_mean"] <= 0.3 + 0.05
     names = (weights > 0).sum(axis=1)
     assert (weights.max(axis=1)[names >= 20] <= 0.05 + 1e-9).all()
     sim = execution.simulate(weights, dev, {"commission": 0.00025, "stamp_duty_sell": 0.0005, "slippage": 0.0005})

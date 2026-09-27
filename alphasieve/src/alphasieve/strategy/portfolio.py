@@ -64,8 +64,47 @@ def target_weights(score: np.ndarray, cap_mv: np.ndarray, groups: np.ndarray, el
     return w / w.sum() if w.sum() > 0 else w
 
 
+def _size_z(cap_mv: np.ndarray, ok: np.ndarray) -> np.ndarray:
+    size = np.log(np.where(ok & (cap_mv > 0), cap_mv, np.nan))
+    z = (size - np.nanmean(size)) / (np.nanstd(size) or 1.0)
+    return np.nan_to_num(z)
+
+
+def enforce_size(w: np.ndarray, bench: np.ndarray, z: np.ndarray, limit: float) -> np.ndarray:
+    """Blend towards the benchmark just enough to bring active size exposure within +-limit."""
+    exposure = float(((w - bench) * z).sum())
+    if abs(exposure) <= limit:
+        return w
+    alpha = 1 - limit / abs(exposure)
+    return (1 - alpha) * w + alpha * bench
+
+
+def enforce_industries(w: np.ndarray, bench: np.ndarray, groups: np.ndarray, dev: float) -> np.ndarray:
+    """Scale each industry's total into [bench - dev, bench + dev] and renormalise."""
+    labels = np.unique(groups)
+    for _ in range(20):
+        totals = {g: w[groups == g].sum() for g in labels}
+        worst = 0.0
+        for g in labels:
+            b = bench[groups == g].sum()
+            lo, hi = max(b - dev, 0.0), b + dev
+            t = totals[g]
+            target = min(max(t, lo), hi)
+            worst = max(worst, abs(t - target))
+            if t > 0 and target != t:
+                w[groups == g] *= target / t
+            elif t == 0 and target > 0:
+                members = (groups == g) & (bench > 0)
+                if members.any():
+                    w[members] = bench[members] / bench[members].sum() * target
+        w = w / w.sum()
+        if worst < 1e-9:
+            break
+    return w
+
+
 def build_weights(scores: pd.DataFrame, panel: Panel, rebalance_every: int = 5, industry_dev: float = 0.03,
-                  name_cap: float = 0.02, turnover_cap: float = 0.30) -> pd.DataFrame:
+                  name_cap: float = 0.02, turnover_cap: float = 0.30, size_limit: float = 0.3) -> pd.DataFrame:
     dates, codes = panel.dates, panel.codes
     s = scores.reindex(index=dates, columns=codes).to_numpy(dtype=float)
     cap = panel.wide("circ_mv").to_numpy(dtype=float)
@@ -79,17 +118,21 @@ def build_weights(scores: pd.DataFrame, panel: Panel, rebalance_every: int = 5, 
         target = target_weights(s[t], cap[t], groups, universe[t], industry_dev, name_cap)
         if target.sum() == 0:
             continue
+        ok = universe[t] & np.isfinite(cap[t]) & (cap[t] > 0)
+        bench = np.where(ok, cap[t], 0.0) / cap[t][ok].sum()
+        z = _size_z(cap[t], ok)
+        target = enforce_size(target, bench, z, size_limit)
         oneway = 0.5 * np.abs(target - prev).sum()
         lam = 1.0 if prev.sum() == 0 or oneway <= turnover_cap else turnover_cap / oneway
-        w = prev + lam * (target - prev)
-        w = np.clip(w, 0, None)
-        w = w / w.sum()
+        w = np.clip(prev + lam * (target - prev), 0, None)
+        w = enforce_industries(w / w.sum(), bench, groups, industry_dev)
+        w = enforce_size(w, bench, z, size_limit)
         rows[dates[t]] = w
         prev = w
     return pd.DataFrame.from_dict(rows, orient="index", columns=codes)
 
 
-def weight_diagnostics(weights: pd.DataFrame, panel: Panel) -> dict:
+def weight_diagnostics(weights: pd.DataFrame, panel: Panel, turnover_cap: float = 0.30) -> dict:
     if weights.empty:
         return {"rebalances": 0}
     groups = panel.industry().reindex(weights.columns).fillna("unknown")
@@ -101,8 +144,11 @@ def weight_diagnostics(weights: pd.DataFrame, panel: Panel) -> dict:
     size = np.log(cap.where(cap > 0))
     size_z = size.sub(size.where(uni).mean(axis=1), axis=0).div(size.where(uni).std(axis=1), axis=0)
     active_size = ((weights - bench) * size_z.fillna(0)).sum(axis=1)
+    raw_turnover = turnover
     return {"rebalances": int(len(weights)), "names_held_mean": float((weights > 0).sum(axis=1).mean()),
             "max_name_weight": float(weights.max().max()), "max_industry_deviation": float(ind_dev),
             "one_way_turnover_mean": float(turnover.mean()) if len(turnover) else 0.0,
             "one_way_turnover_max": float(turnover.max()) if len(turnover) else 0.0,
-            "active_size_exposure_mean": float(active_size.mean())}
+            "active_size_exposure_mean": float(active_size.mean()),
+            "active_size_exposure_max_abs": float(active_size.abs().max()),
+            "turnover_over_cap_share": float((raw_turnover > turnover_cap + 1e-6).mean()) if len(raw_turnover) else 0.0}

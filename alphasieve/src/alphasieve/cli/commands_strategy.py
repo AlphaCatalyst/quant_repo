@@ -14,6 +14,7 @@ def _configure_backtest(p):
     p.add_argument("--industry-dev", type=float, default=0.03)
     p.add_argument("--name-cap", type=float, default=0.02)
     p.add_argument("--turnover-cap", type=float, default=0.30)
+    p.add_argument("--size-limit", type=float, default=0.3, help="max |active size exposure| in cross-sectional sd")
     p.add_argument("--factors", default=None, help="comma-separated factor ids (default: the library)")
     p.add_argument("--seed-library", action="store_true", help="seed the library first if it is empty")
     p.add_argument("--jobs", type=int, default=8)
@@ -27,4 +28,5 @@ def cmd_strategy_backtest(args, ctx) -> CommandResult:
     refs = [r.strip() for r in args.factors.split(",")] if args.factors else None
     return CommandResult(data=backtest(ctx.settings, ctx.conn, args.universe, args.horizon, args.model, args.retrain,
                                        args.train_years, args.rebalance_every, args.industry_dev, args.name_cap,
-                                       args.turnover_cap, refs, args.seed_library, args.jobs, args.warmup_years))
+                                       args.turnover_cap, refs, args.seed_library, args.jobs, args.warmup_years,
+                                       args.size_limit))

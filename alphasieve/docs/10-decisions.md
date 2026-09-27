@@ -61,6 +61,14 @@ verifier 本身的正确性要靠测试证明；gate 阈值用零假设模拟与
 **D-19 L1 阈值暂不调整，等 L3 上线后重新校准**
 首次校准显示 v0 的 `min_icir = 0.25` 高于约 80% 的种子因子；但降到种子中位数 0.186 会让超过 10% 的盲目搜索候选满足 ICIR 条件，筛选压力转到尚未实现的 L3。因此 M3 期间继续使用 gate_policy v0；M4 完成 L3（DSR、BH-FDR）后，在 L3 下重新跑校准，再决定是否发布 v1。依据见 [acceptance-m0-m2.md](acceptance-m0-m2.md) §5。
 
+**D-20 研究循环的模型分工与接入方式**
+2026-09-27 实测：
+- 主力 miner：Codex CLI 0.156.1 + GPT-6 Sol（本机已配置，reasoning effort 设为 high）。执行器为 Codex 使用独立的 `CODEX_HOME`，不加载用户全局的插件、hooks 与 MCP（全局配置下一个空请求就消耗约 1.2 万 token，且会扩大 agent 可用的工具面）。
+- 第二 miner：Claude Code 2.1.119 + Claude Opus 5，经 AIHub 的 Anthropic 兼容接口 `/standard/v1/messages` 接入；本机默认的 Bedrock 通道返回 402（预算耗尽），不使用。AIHub 上的 Opus 5 不接受 Claude Code 默认的 reasoning effort 参数，需在单次运行时设置 `MAX_THINKING_TOKENS=0` 并关闭 thinking（与 scicomp-foundry 的做法一致）；全部通过运行时环境变量与 `--settings` 注入，不修改用户的 `~/.claude/settings.json`。
+- Reviewer agent（M4 起）使用与 miner 不同家族的模型；规模化阶段（M5）再评估 DeepSeek V4 Pro 等低成本模型。
+- 两种 miner 按 turn 交替或按搜索空间格子分工；每条 trial 记录模型与 harness，M4 之后按各模型候选的 holdout 通过率调整分配。
+- 费用：M3 试点 campaign 先用运行上限约束（最多 60 个 turn、每个 turn 最长 30 分钟、trial 预算 200），按实测的每 trial 成本的约 1.5 倍设定正式上限。
+
 ## 待定问题
 
 | 编号 | 问题 | 影响 | 计划决定时间 |
@@ -68,7 +76,7 @@ verifier 本身的正确性要靠测试证明；gate 阈值用零假设模拟与
 | Q-1 | ~~数据源选择~~ 已决定：见 D-18。需要中证 1000 或申万 PIT 行业时再评估 Tushare / 商业数据 | — | 已关闭 |
 | Q-2 | holdout 区间长度（默认 2023-01-01 至项目启动日）是否足够 | L4 统计功效 | M1 结束时 |
 | Q-3 | ~~是否发布 gate_policy v1~~ 已决定：见 D-19 | — | 已关闭 |
-| Q-4 | agent 默认使用哪个模型、单 campaign 费用上限 | 预算默认值 | M3 开始前 |
+| Q-4 | ~~agent 默认模型与费用上限~~ 已决定：见 D-20（金额上限待试点实测后确定） | — | 已关闭 |
 | Q-5 | Researcher 与 Approver 是否强制分离 | 审批流程与权限 | F2 开始前 |
 | Q-6 | 是否需要多用户部署（团队共享一台服务器）以及认证方式 | API 认证、部署 | F2 开始前 |
 | Q-7 | 通知渠道：企业微信机器人还是企业微信应用消息 | 通知实现 | F2 |

@@ -96,5 +96,5 @@ planner（本机）：按覆盖矩阵选 K 个格子，生成 K 个 MinerTask
 ## 6. 模型选择
 
 - 参考 scicomp-foundry 的实测：不同模型在同一任务上的强弱并不一致，单模型会同时高估和低估难度；因此研究循环中保留至少两种模型与两种 harness。
-- 具体默认模型与单 campaign 费用上限在 M3 开始前决定（[10-decisions.md](10-decisions.md) Q-4）。
+- 默认模型、接入方式与试点费用约束见 [10-decisions.md](10-decisions.md) D-20：主力 Codex + GPT-6 Sol，第二通道 Claude Code + Claude Opus 5（经 AIHub）。
 - 模型切换不改变任何评估逻辑；trial 记录模型信息，用于事后分析“哪种模型提出的候选更能通过 holdout”。

@@ -1,0 +1,11 @@
+campaign_id: all-a-smoke-001
+title: 全 A 股票池验证（S-4，程序化 4 个 trial）
+question: Does evaluation on the rule-based all-A universe work end to end through platform workers?
+universe: ashare_all
+domains: [price, volume, turnover_liquidity]
+cells:
+  - {domain: price, form: reversal, scale: short}
+budgets: {trials: 4, turns: 1, turn_minutes: 30, max_hours: 4, holdout_reads: 0}
+stop: {no_improvement_turns: 5, max_consecutive_failed_turns: 3}
+agents:
+  - {harness: program, model: random}

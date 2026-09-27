@@ -99,10 +99,10 @@
 
 ### 3.1 实施进展（2026-09-27）
 
-- **S-4**：股票池可配置（D-26），全 A 日线正在本机同步。平台访问不到 BaoStock，而 BaoStock 服务端限速，预计需要 4–5 小时。财报同步更慢，将在日线之后进行，完成后重建 panel。
+- **S-4**：完成。全 A 日线已同步，dev panel 在平台构建，holdout 只在本机，全 A campaign 经平台 worker 评估跑通（见 [acceptance-scaling.md](acceptance-scaling.md)）。全 A 财报尚未同步。
 - **S-5**：并行 lane 与模板展开已完成，并做过真实验证（D-27）。
 - **S-6**：`strategy backtest` 可以作为平台任务运行，结果写入 RunLab（D-28）。组合层补上了市值与行业约束，需要重跑。
-- **S-7**：事件数据已纳入中证 800 panel；日内特征放在单独的 `hs300_2020` 范围；程序化搜索在独立的 `program` campaign 中运行（D-28）。稀疏的事件字段用 `fill_na` 把没有事件的日子填为中性值。
+- **S-7**：完成。事件数据已纳入中证 800 panel；`hs300_2020` 日内 panel 已构建（15 分钟线）；程序化搜索在独立的 `program` campaign 中运行，400 个 trial 已完整结题（D-28）。稀疏的事件字段用 `fill_na` 把没有事件的日子填为中性值。
 
 常用命令：
 

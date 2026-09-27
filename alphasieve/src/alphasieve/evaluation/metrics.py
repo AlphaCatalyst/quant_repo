@@ -28,6 +28,8 @@ def summarize_ic(ic: pd.Series) -> dict:
         "icir": mean / std if std and std > 0 else float("nan"),
         "ic_positive_ratio": float((ic > 0).mean()) if len(ic) else float("nan"),
         "valid_dates": int(len(ic)),
+        "ic_skew": float(ic.skew()) if len(ic) > 2 else 0.0,
+        "ic_kurtosis": float(ic.kurt()) + 3.0 if len(ic) > 3 else 3.0,
     }
 
 

@@ -81,15 +81,37 @@ class TrialLedgerEntry(_Model):
     artifact_id: str | None = None
 
 
+class Budgets(_Model):
+    trials: int = Field(200, ge=1)
+    turns: int = Field(60, ge=1)
+    turn_minutes: int = Field(30, ge=1)
+    max_hours: float = Field(72, gt=0)
+    holdout_reads: int = Field(2, ge=0)
+
+
+class StopConditions(_Model):
+    no_improvement_turns: int = Field(20, ge=1)
+    max_consecutive_failed_turns: int = Field(3, ge=1)
+
+
+class AgentSlot(_Model):
+    harness: Literal["codex", "claude", "fake"]
+    model: str
+    effort: str | None = None
+
+
 class Campaign(_Model):
-    campaign_id: str
-    question_id: str
+    campaign_id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{2,63}$")
+    title: str
+    question: str
     universe: str = "csi800"
-    horizon: int = 5
-    search_space_id: str
-    budgets: dict = Field(default_factory=dict)
-    stop_conditions: dict = Field(default_factory=dict)
-    status: str = "draft"
+    horizon: Literal[1, 5, 10, 20] = 5
+    search_space_id: str = "ss-ashare-daily-v1"
+    cells: list[Cell]
+    domains: list[str]
+    budgets: Budgets = Field(default_factory=Budgets)
+    stop: StopConditions = Field(default_factory=StopConditions)
+    agents: list[AgentSlot]
 
 
 MODELS = (ResearchQuestion, DataContract, FactorSpec, TrialLedgerEntry, Campaign, Cell)

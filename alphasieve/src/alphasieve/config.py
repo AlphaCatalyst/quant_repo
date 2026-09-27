@@ -24,6 +24,8 @@ class Settings:
     config_dir: Path
     role: str
     user: str
+    campaign: str | None = None
+    trial_ceiling: int | None = None
 
     @property
     def state_db(self) -> Path:
@@ -58,6 +60,14 @@ class Settings:
     def reports_dir(self) -> Path:
         return self.store_root / "reports"
 
+    @property
+    def workspaces_dir(self) -> Path:
+        return self.hot_root / "workspaces"
+
+    @property
+    def transcripts_dir(self) -> Path:
+        return self.store_root / "transcripts"
+
 
 def get_settings(role: str | None = None) -> Settings:
     role = role or os.environ.get("ALPHASIEVE_ROLE", "human")
@@ -75,6 +85,8 @@ def get_settings(role: str | None = None) -> Settings:
         config_dir=Path(os.environ.get("ALPHASIEVE_CONFIG_DIR", PACKAGE_CONFIG_DIR)),
         role=role,
         user=os.environ.get("ALPHASIEVE_USER", getpass.getuser()),
+        campaign=os.environ.get("ALPHASIEVE_CAMPAIGN") or None,
+        trial_ceiling=int(ceiling) if (ceiling := os.environ.get("ALPHASIEVE_TRIAL_CEILING")) else None,
     )
 
 

@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 import yaml
+from fixtures.campaign import campaign_spec, start_campaign
 
 from alphasieve.cli.main import main
 from alphasieve.config import get_settings, load_config
@@ -137,6 +138,9 @@ def test_cli_workflow(panel_settings, capsys, tmp_path, monkeypatch):
     spec_path = write_spec(tmp_path, REVERSAL)
     code, out = run_cli(capsys, "factor", "validate", spec_path)
     assert code == 0 and out["data"]["canonical"] == "ts_sum(excess_ret_1d,3)"
+    code, out = run_cli(capsys, "factor", "eval", spec_path)
+    assert code == 4 and "campaign" in out["error"]["message"]
+    start_campaign(panel_settings, campaign_spec("cli-workflow"), monkeypatch)
     code, out = run_cli(capsys, "factor", "eval", spec_path)
     assert code in (0, 3)
     assert out["data"]["outcome"] in ("evaluation_failed", "robust_passed", "robust_failed")

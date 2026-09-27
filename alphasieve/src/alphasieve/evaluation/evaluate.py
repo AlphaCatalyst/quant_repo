@@ -4,6 +4,7 @@ import sqlite3
 import uuid
 
 from alphasieve.artifacts import write_artifact
+from alphasieve.campaigns.service import domain_violations, ensure_can_evaluate
 from alphasieve.config import Settings, load_config
 from alphasieve.contracts import FactorSpec, TrialLedgerEntry
 from alphasieve.data.access import check_tier_access, load_panel
@@ -11,7 +12,7 @@ from alphasieve.errors import AlphaSieveError
 from alphasieve.evaluation.core import EvalInputs, l1_metrics, l2_metrics, public_metrics
 from alphasieve.factors import library as lib
 from alphasieve.factors.derived import DERIVED_VERSION
-from alphasieve.factors.dsl import DSLError, compile_expression, evaluate
+from alphasieve.factors.dsl import DSLError, DSLIssue, compile_expression, evaluate
 from alphasieve.factors.registry import neighborhood_count, register
 from alphasieve.gates import advance, gate_l0, gate_l1, gate_l2
 from alphasieve.ledger import append_trial
@@ -22,7 +23,8 @@ METRICS_SCHEMA = 1
 
 
 def _summary(metrics: dict) -> dict:
-    keys = ("ic_mean", "icir", "ic_positive_ratio", "coverage", "valid_dates", "turnover_proxy")
+    keys = ("ic_mean", "icir", "ic_positive_ratio", "coverage", "valid_dates", "turnover_proxy", "ic_skew",
+            "ic_kurtosis")
     out = {k: metrics.get(k) for k in keys if k in metrics}
     if "library" in metrics:
         out["library_max_abs_corr"] = metrics["library"]["max_abs_corr"]
@@ -57,6 +59,7 @@ def evaluate_spec(settings: Settings, conn: sqlite3.Connection, spec: FactorSpec
                   tier: str = "dev") -> dict:
     role = settings.role
     check_tier_access(role, tier)
+    campaign = ensure_can_evaluate(conn, settings, campaign_id) if tier == "dev" else None
     policy = load_config(settings, "gate_policy")
     costs = load_config(settings, "costs")
     space = load_search_space(settings)
@@ -66,6 +69,11 @@ def evaluate_spec(settings: Settings, conn: sqlite3.Connection, spec: FactorSpec
         compiled = compile_expression(spec.expression, space)
     except DSLError as exc:
         issues = exc.issues
+    if compiled is not None:
+        outside = domain_violations(campaign, compiled.terminals, settings)
+        if outside:
+            issues = [DSLIssue("campaign_domain",
+                               f"terminals {outside} are outside campaign domains {campaign.domains}")]
     canonical = compiled.canonical if compiled else spec.expression.strip()
     candidate_hash = compiled.candidate_hash if compiled else sha256_hex("invalid:" + canonical)[:16]
     factor_id, version, created = register(conn, spec, canonical, candidate_hash, role)

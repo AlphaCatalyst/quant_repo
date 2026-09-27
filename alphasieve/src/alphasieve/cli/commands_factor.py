@@ -4,6 +4,7 @@ from pathlib import Path
 import yaml
 from pydantic import ValidationError
 
+from alphasieve.campaigns.service import masked_state
 from alphasieve.cli.registry import CommandResult, command
 from alphasieve.contracts import FactorSpec
 from alphasieve.data.access import load_panel
@@ -61,7 +62,10 @@ def cmd_factor_eval(args, ctx) -> CommandResult:
     from alphasieve.evaluation.evaluate import evaluate_spec
 
     spec = load_spec(args.spec)
-    result = evaluate_spec(ctx.settings, ctx.conn, spec, campaign_id=args.campaign)
+    campaign_id = args.campaign or ctx.settings.campaign
+    if ctx.settings.role == "agent" and campaign_id != ctx.settings.campaign:
+        raise AlphaSieveError("PERMISSION_DENIED", "agent may only evaluate inside its assigned campaign")
+    result = evaluate_spec(ctx.settings, ctx.conn, spec, campaign_id=campaign_id)
     error = None
     if result["outcome"] != "robust_passed":
         failed = [f"{lvl}.{c['name']}" for lvl, g in result["gates"].items() for c in g["checks"] if not c["passed"]]
@@ -83,6 +87,7 @@ def cmd_factor_show(args, ctx) -> CommandResult:
         (factor["factor_id"], factor["version"]))]
     for t in trials:
         t["metrics"] = json.loads(t.pop("metrics_json"))
+    factor["state"] = masked_state(factor["state"], ctx.settings.role)
     return CommandResult(data={**factor, "dev_trials": trials, "trial_count": len(trials)})
 
 
@@ -93,7 +98,12 @@ def _configure_list(p):
 
 @command("factor list", AGENT_HUMAN, configure=_configure_list, help="list factors")
 def cmd_factor_list(args, ctx) -> CommandResult:
-    rows = list_factors(ctx.conn, args.state, min(args.limit, 1000))
+    limit = min(args.limit, 1000)
+    if ctx.settings.role == "agent":
+        rows = [{**r, "state": masked_state(r["state"], "agent")} for r in list_factors(ctx.conn, None, 100_000)]
+        rows = [r for r in rows if args.state is None or r["state"] == args.state][:limit]
+    else:
+        rows = list_factors(ctx.conn, args.state, limit)
     return CommandResult(data={"factors": rows, "count": len(rows)})
 
 

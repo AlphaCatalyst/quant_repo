@@ -1,10 +1,16 @@
 import argparse
 import json
+import os
 import sys
 import traceback
 
 from alphasieve.audit import record_event
-from alphasieve.cli import commands_core, commands_data, commands_factor  # noqa: F401  (register commands)
+from alphasieve.cli import (  # noqa: F401  (register commands)
+    commands_campaign,
+    commands_core,
+    commands_data,
+    commands_factor,
+)
 from alphasieve.cli.registry import COMMANDS, Context, envelope
 from alphasieve.config import get_settings
 from alphasieve.errors import AlphaSieveError, permission_denied
@@ -62,7 +68,7 @@ def main(argv: list[str] | None = None) -> int:
                 "command",
                 status=out["status"] if out["error"] is None else out["error"]["code"],
                 command=name,
-                payload={"args": _audit_args(args)},
+                payload={"args": _audit_args(args), "turn": os.environ.get("ALPHASIEVE_TURN")},
             )
         except AlphaSieveError:
             pass

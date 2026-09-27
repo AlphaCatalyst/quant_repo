@@ -84,6 +84,110 @@ MIGRATIONS: list[str] = [
     ALTER TABLE library ADD COLUMN name TEXT;
     ALTER TABLE library ADD COLUMN metrics_json TEXT;
     """,
+    """
+    CREATE TABLE campaigns (
+        campaign_id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        spec_json TEXT NOT NULL,
+        status TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        started_at TEXT,
+        concluded_at TEXT,
+        memory_frozen_at TEXT,
+        stats_json TEXT NOT NULL DEFAULT '{}'
+    );
+    CREATE TABLE turns (
+        turn_id TEXT PRIMARY KEY,
+        campaign_id TEXT NOT NULL,
+        turn_index INTEGER NOT NULL,
+        harness TEXT NOT NULL,
+        model TEXT NOT NULL,
+        status TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        ended_at TEXT,
+        transcript_path TEXT,
+        prompt_version TEXT,
+        trials_before INTEGER,
+        trials_after INTEGER,
+        robust_passed_new INTEGER,
+        usage_json TEXT NOT NULL DEFAULT '{}',
+        summary TEXT,
+        error TEXT
+    );
+    CREATE INDEX turns_campaign ON turns(campaign_id, turn_index);
+    CREATE TABLE directives (
+        directive_id TEXT PRIMARY KEY,
+        campaign_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        content TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        status TEXT NOT NULL,
+        consumed_turn_id TEXT
+    );
+    CREATE TABLE agent_requests (
+        request_id TEXT PRIMARY KEY,
+        campaign_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        content TEXT NOT NULL,
+        status TEXT NOT NULL,
+        response TEXT,
+        created_at TEXT NOT NULL,
+        responded_by TEXT,
+        responded_at TEXT
+    );
+    CREATE TABLE memory_items (
+        item_id TEXT PRIMARY KEY,
+        campaign_id TEXT,
+        scope TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        content_json TEXT NOT NULL,
+        source_trials TEXT NOT NULL DEFAULT '[]',
+        created_at TEXT NOT NULL
+    );
+    CREATE TABLE shortlists (
+        shortlist_id TEXT PRIMARY KEY,
+        campaign_id TEXT NOT NULL,
+        members_json TEXT NOT NULL,
+        l3_json TEXT NOT NULL,
+        status TEXT NOT NULL,
+        locked_at TEXT NOT NULL,
+        locked_by TEXT NOT NULL
+    );
+    CREATE TABLE holdout_requests (
+        request_id TEXT PRIMARY KEY,
+        shortlist_id TEXT NOT NULL,
+        campaign_id TEXT NOT NULL,
+        reads_requested INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        decided_by TEXT,
+        decided_at TEXT,
+        reason TEXT,
+        result_json TEXT
+    );
+    CREATE TABLE review_packets (
+        packet_id TEXT PRIMARY KEY,
+        factor_id TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        campaign_id TEXT NOT NULL,
+        shortlist_id TEXT NOT NULL,
+        artifact_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    );
+    CREATE TABLE decisions (
+        decision_id TEXT PRIMARY KEY,
+        object_type TEXT NOT NULL,
+        object_id TEXT NOT NULL,
+        decision TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        decided_by TEXT NOT NULL,
+        decided_at TEXT NOT NULL,
+        evidence_hash TEXT
+    );
+    """,
 ]
 
 

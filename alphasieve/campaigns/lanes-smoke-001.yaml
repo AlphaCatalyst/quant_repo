@@ -1,0 +1,21 @@
+campaign_id: lanes-smoke-001
+title: 并行 lane 冒烟（S-5 验证，GPT-5.5）
+question: >
+  Do point-in-time profitability and growth signals, on their own, relative to industry peers, or conditioned on
+  price and turnover behaviour, carry information about 20-day CSI 800 returns beyond the seed library?
+universe: csi800
+domains: [profitability, growth, price, turnover_liquidity, size_value]
+cells:
+  - {domain: profitability, form: level, scale: quarterly}
+  - {domain: profitability, form: change_momentum, scale: medium}
+  - {domain: profitability, form: group_relative, scale: quarterly}
+  - {domain: profitability, form: conditional_interaction, scale: medium}
+  - {domain: growth, form: level, scale: quarterly}
+  - {domain: growth, form: change_momentum, scale: medium}
+  - {domain: growth, form: group_relative, scale: quarterly}
+  - {domain: growth, form: conditional_interaction, scale: medium}
+lanes: 3
+budgets: {trials: 12, turns: 3, turn_minutes: 25, max_hours: 4, holdout_reads: 0}
+stop: {no_improvement_turns: 10, max_consecutive_failed_turns: 3}
+agents:
+  - {harness: codex, model: gpt-5.5, effort: high}

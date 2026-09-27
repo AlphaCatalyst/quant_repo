@@ -93,6 +93,11 @@ def conclude(conn: sqlite3.Connection, settings: Settings, campaign_id: str, rea
         set_status(conn, settings, campaign_id, "concluded", "no L3 survivors")
         out["holdout_request"] = None
         return out
+    if _approved_reads(conn, campaign_id) >= get_campaign(conn, campaign_id)["spec"].budgets.holdout_reads:
+        set_status(conn, settings, campaign_id, "concluded", "shortlist locked; no holdout read budget left")
+        out["holdout_request"] = None
+        out["note"] = "no holdout read budget; the shortlist is locked but no request was created"
+        return out
     out["holdout_request"] = create_holdout_request(conn, settings, campaign_id, shortlist_id)
     set_status(conn, settings, campaign_id, "awaiting_holdout_approval", reason)
     return out

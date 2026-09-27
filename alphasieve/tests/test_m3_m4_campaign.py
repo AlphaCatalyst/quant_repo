@@ -368,3 +368,15 @@ def test_template_expansion_records_default_and_neighbours(panel_settings, monke
     assert specs[0]["params_source"] == "default"
     assert all(s["params_source"] == "neighborhood" and s["neighborhood_of"] == default_id for s in specs[1:])
     assert len(service.completed_trials(conn, "c-expand")) == 3
+
+
+def test_conclude_without_holdout_budget(lenient):
+    spec = campaign_spec("c-nobudget", budgets={"trials": 2, "turns": 5, "holdout_reads": 0})
+    start_campaign(lenient, spec)
+    system = as_role(lenient, "system")
+    out = orchestrator.run_campaign(system, "c-nobudget",
+                                    executor_for=fake_executors(system, spec_script([[REVERSAL, MOMENTUM]])))
+    assert out["outcome"]["concluded"] == "trial_budget_exhausted"
+    assert out["outcome"]["holdout_request"] is None
+    conn = connect(lenient.state_db)
+    assert service.get_campaign(conn, "c-nobudget")["status"] == "concluded"

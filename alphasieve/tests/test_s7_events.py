@@ -66,3 +66,31 @@ def test_panel_attaches_events(built_root, tmp_path, monkeypatch):
     assert row["fc_chg_mid"] == -20.0 and row["fc_positive"] == -1.0
     assert panel.loc[panel["code"] != code, "fc_chg_mid"].isna().all()
     assert os.path.exists(raw / "events")
+
+
+def test_programmatic_search_has_its_own_accounting(panel_settings):
+    from dataclasses import replace
+
+    from fixtures.campaign import campaign_spec, start_campaign
+
+    from alphasieve.campaigns import service
+    from alphasieve.search.generator import Generator, run_search
+    from alphasieve.state import connect
+
+    gen = Generator(["close", "volume"], [5, 10, 250], seed=1)
+    assert all(e for e in (gen.expr() for _ in range(20)))
+    spec = campaign_spec("c-prog", domains=["price", "volume"], agents=[{"harness": "program", "model": "random"}],
+                         budgets={"trials": 6, "turns": 1})
+    start_campaign(panel_settings, spec)
+    system = replace(panel_settings, role="system")
+    out = run_search(system, "c-prog", trials=6, method="evolve", population=4, seed=3)
+    assert sum(out["outcomes"].values()) == 6
+    conn = connect(panel_settings.state_db)
+    assert len(service.completed_trials(conn, "c-prog")) == 6
+    assert service.get_campaign(conn, "c-prog")["status"] in ("concluded", "awaiting_holdout_approval")
+    names = [r[0] for r in conn.execute("SELECT name FROM factor_specs WHERE name LIKE 'prog_c_prog_%'")]
+    assert len(names) == 6
+    llm = campaign_spec("c-not-prog")
+    start_campaign(panel_settings, llm)
+    with pytest.raises(Exception):
+        run_search(system, "c-not-prog", trials=1)

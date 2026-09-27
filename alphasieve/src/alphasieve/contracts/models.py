@@ -96,7 +96,7 @@ class StopConditions(_Model):
 
 
 class AgentSlot(_Model):
-    harness: Literal["codex", "claude", "fake"]
+    harness: Literal["codex", "claude", "fake", "program"]
     model: str
     effort: str | None = None
 

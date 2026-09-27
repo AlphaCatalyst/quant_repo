@@ -116,6 +116,10 @@ def universe_codes(settings: Settings, universe: str | None = None) -> list[str]
     cfg = universe_config(settings, universe)
     if cfg["codes"] == "index_members":
         return member_codes(settings)
+    if cfg["codes"] == "hs300_members":
+        members = pd.read_parquet(raw_root(settings) / "members.parquet")
+        members = members[(members["index"] == "hs300") & (members["snapshot_date"] >= cfg["history_start"])]
+        return sorted(members["code"].unique())
     basic = pd.read_parquet(raw_root(settings, universe) / "stock_basic.parquet")
     stocks = basic[(basic["type"].astype(str) == "1") & basic["code"].str.startswith(("sh.", "sz."))]
     ipo_ok = stocks["ipoDate"].fillna("") <= date.today().isoformat()
@@ -263,3 +267,60 @@ def mirror_to_store(settings: Settings, universe: str | None = None) -> dict:
         shutil.copy2(src, dst)
         copied += 1
     return {"copied": copied, "store": str(dst_root)}
+
+
+def _events_job(code: str, start: str, end: str, root: str) -> dict:
+    root_path = Path(root) / "events"
+    fc = _SESSION.forecast(code, start, end)
+    ex = _SESSION.express(code, start, end)
+    _write_parquet(fc, root_path / "forecast" / f"{code}.parquet")
+    _write_parquet(ex, root_path / "express" / f"{code}.parquet")
+    return {"code": code, "forecast": len(fc), "express": len(ex)}
+
+
+def sync_events(settings: Settings, conn: sqlite3.Connection, end: str, workers: int = 4, progress=None,
+                universe: str | None = None) -> dict:
+    root = raw_root(settings, universe)
+    codes = universe_codes(settings, universe)
+    items = [(code, history_start(settings, universe), end, str(root)) for code in codes]
+    results = _run_jobs(_events_job, items, workers, progress)
+    errors = [e for r in results for e in r.get("errors", [])]
+    paths = sorted((root / "events").rglob("*.parquet"))
+    snap = record_snapshot(conn, _dataset("events", universe), {"end": end}, paths, len(paths))
+    return {"codes": len(codes), "forecasts": sum(r.get("forecast", 0) for r in results),
+            "express": sum(r.get("express", 0) for r in results), "errors": errors, "snapshot": snap}
+
+
+def _intraday_job(code: str, start: str, end: str, root: str) -> dict:
+    from alphasieve.data.events import intraday_features
+
+    path = Path(root) / "intraday" / f"{code}.parquet"
+    existing = pd.read_parquet(path) if path.exists() else None
+    fetch_start = start if existing is None or existing.empty else _next_day(str(existing["date"].max())[:10])
+    new_rows = 0
+    year = int(fetch_start[:4])
+    frames = [] if existing is None else [existing]
+    while fetch_start <= end:
+        chunk_end = min(end, f"{year}-12-31")
+        bars = _SESSION.minute(code, fetch_start, chunk_end)
+        if not bars.empty:
+            bars["code"] = code
+            feats = intraday_features(bars)
+            new_rows += len(feats)
+            frames.append(feats)
+            _write_parquet(pd.concat(frames, ignore_index=True).drop_duplicates(["date"], keep="last"), path)
+        year += 1
+        fetch_start = f"{year}-01-01"
+    return {"code": code, "new_rows": new_rows}
+
+
+def sync_intraday(settings: Settings, conn: sqlite3.Connection, start: str, end: str, workers: int = 4,
+                  progress=None, universe: str | None = None) -> dict:
+    root = raw_root(settings, universe)
+    codes = universe_codes(settings, universe)
+    results = _run_jobs(_intraday_job, [(code, start, end, str(root)) for code in codes], workers, progress)
+    errors = [e for r in results for e in r.get("errors", [])]
+    paths = sorted((root / "intraday").glob("*.parquet"))
+    snap = record_snapshot(conn, _dataset("intraday", universe), {"start": start, "end": end}, paths, len(paths))
+    return {"codes": len(codes), "new_rows": sum(r.get("new_rows", 0) for r in results), "errors": errors,
+            "snapshot": snap}

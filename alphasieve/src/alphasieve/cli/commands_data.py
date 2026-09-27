@@ -11,7 +11,7 @@ from alphasieve.errors import validation_error
 ALL = ("agent", "human", "system")
 HUMAN_SYSTEM = ("human", "system")
 MAX_SAMPLE_ROWS = 200
-SYNC_DATASETS = ("reference", "members", "daily", "financials", "mirror", "core")
+SYNC_DATASETS = ("reference", "members", "daily", "financials", "events", "intraday", "mirror", "core")
 
 
 def _universe_arg(p):
@@ -39,6 +39,7 @@ def _configure_sync(p):
                    help="core = reference + members + daily + mirror")
     p.add_argument("--end", default=None, help="last date to fetch (default: latest trading day)")
     p.add_argument("--workers", type=int, default=6)
+    p.add_argument("--start", default="2020-01-01", help="first date for intraday bars")
     _universe_arg(p)
 
 
@@ -62,10 +63,14 @@ def cmd_data_sync(args, ctx) -> CommandResult:
         out["daily"] = sync.sync_daily(settings, conn, end, args.workers, _progress("daily"), u)
     if "financials" in datasets:
         out["financials"] = sync.sync_financials(settings, conn, end, args.workers, _progress("financials"), u)
+    if "events" in datasets:
+        out["events"] = sync.sync_events(settings, conn, end, args.workers, _progress("events"), u)
+    if "intraday" in datasets:
+        out["intraday"] = sync.sync_intraday(settings, conn, args.start, end, args.workers, _progress("intraday"), u)
     if "mirror" in datasets or ("financials" in datasets and u in (None, "csi800")):
         out["mirror"] = sync.mirror_to_store(settings, u)
     warnings = []
-    for key in ("daily", "financials"):
+    for key in ("daily", "financials", "events", "intraday"):
         if out.get(key, {}).get("errors"):
             warnings.append(f"{key}: {len(out[key]['errors'])} items failed; rerun to resume")
     return CommandResult(data=out, warnings=warnings)

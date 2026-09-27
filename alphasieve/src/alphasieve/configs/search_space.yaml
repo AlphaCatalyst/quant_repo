@@ -1,4 +1,4 @@
-version: 1
+version: 2
 search_space_id: ss-ashare-daily-v1
 expressiveness: [E1]
 derived_version: dv1
@@ -14,6 +14,8 @@ domains:
   size_value: [circ_mv, pe_ttm, pb_mrq, ps_ttm]
   profitability: [roe_avg, np_margin, eps_ttm]
   growth: [yoy_ni, yoy_equity, yoy_asset]
+  events: [fc_chg_mid, fc_positive, fc_age, ex_eps_chg, ex_roe, ex_gr_yoy]   # v2: earnings forecasts / preliminary results (PIT)
+  intraday: [rv_5m, tail30_vol_share, open30_ret, updown_vol_share]        # v2: daily aggregates of 5-minute bars (2020+)
 default_horizon:            # prediction horizon (trading days) by the signal's data domain (D-24)
   price: 5
   volume: 5
@@ -21,6 +23,8 @@ default_horizon:            # prediction horizon (trading days) by the signal's 
   size_value: 20
   profitability: 20
   growth: 20
+  events: 20
+  intraday: 5
 forms:
   - level
   - change_momentum

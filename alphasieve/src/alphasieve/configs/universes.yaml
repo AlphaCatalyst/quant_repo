@@ -21,3 +21,10 @@ ashare_all:
     exclude_suspended: true
     liquidity_window: 20
     liquidity_drop_fraction: 0.2     # drop the least liquid 20% by trailing average amount, per date
+hs300_2020:
+  description: CSI 300 point-in-time members from 2020, the span covered by 5-minute bars (intraday features)
+  codes: hs300_members
+  raw_subdir: baostock
+  history_start: "2019-10-08"
+  dev_start: "2020-03-02"
+  membership: hs300

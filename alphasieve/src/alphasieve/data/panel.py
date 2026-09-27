@@ -130,6 +130,34 @@ def _load_financials(root: Path, codes: list[str], calendar: list[str]) -> pd.Da
     return frames
 
 
+def _attach_event_data(root: Path, codes: list[str], calendar: list[str]):
+    from alphasieve.data.events import align_events, attach_events, express_rows, forecast_rows
+
+    fc_parts = [pd.read_parquet(p) for c in codes if (p := root / "events" / "forecast" / f"{c}.parquet").exists()]
+    ex_parts = [pd.read_parquet(p) for c in codes if (p := root / "events" / "express" / f"{c}.parquet").exists()]
+    if not fc_parts and not ex_parts:
+        return None
+    fc = align_events(forecast_rows(pd.concat(fc_parts, ignore_index=True) if fc_parts else pd.DataFrame()),
+                      calendar, ["fc_chg_mid", "fc_positive"])
+    ex = align_events(express_rows(pd.concat(ex_parts, ignore_index=True) if ex_parts else pd.DataFrame()),
+                      calendar, ["ex_eps_chg", "ex_roe", "ex_gr_yoy"])
+
+    def apply(panel: pd.DataFrame) -> pd.DataFrame:
+        panel = attach_events(panel, fc, calendar, ["fc_chg_mid", "fc_positive"], age_field="fc_age")
+        return attach_events(panel, ex, calendar, ["ex_eps_chg", "ex_roe", "ex_gr_yoy"])
+
+    return apply
+
+
+def _load_intraday(root: Path, codes: list[str]) -> pd.DataFrame | None:
+    parts = [pd.read_parquet(p) for c in codes if (p := root / "intraday" / f"{c}.parquet").exists()]
+    if not parts:
+        return None
+    out = pd.concat(parts, ignore_index=True)
+    out["date"] = pd.to_datetime(out["date"])
+    return out
+
+
 def _attach_financials(panel: pd.DataFrame, frames: list[pd.DataFrame]) -> pd.DataFrame:
     panel = panel.sort_values(["date", "code"])
     for aligned in frames:
@@ -211,7 +239,7 @@ def build_long_panel(settings: Settings, end: str, universe: str | None = None) 
             frames.append(frame)
     panel = pd.concat(frames, ignore_index=True)
     panel["date"] = pd.to_datetime(panel["date"])
-    if cfg["membership"] == "csi800":
+    if cfg["membership"] in ("csi800", "hs300"):
         panel = _membership(panel, pd.read_parquet(root / "members.parquet"))
     industry = pd.read_parquet(root / "industry.parquet")
     ind_map = dict(zip(industry["code"], industry["industry"].replace("", "unknown"), strict=True))
@@ -219,14 +247,25 @@ def build_long_panel(settings: Settings, end: str, universe: str | None = None) 
     fin_frames = _load_financials(root, codes, calendar)
     if fin_frames:
         panel = _attach_financials(panel, fin_frames)
+    has_events = _attach_event_data(root, codes, calendar)
+    if has_events is not None:
+        panel = has_events(panel)
+    intraday = _load_intraday(root, codes)
+    if intraday is not None:
+        panel = panel.merge(intraday, on=["date", "code"], how="left")
     panel = panel.sort_values(["date", "code"]).reset_index(drop=True)
-    if cfg["membership"] == "csi800":
+    if cfg["membership"] == "hs300":
+        panel["in_universe"] = (
+            panel["in_hs300"] & ~panel["is_st"] & (panel["days_listed"] >= MIN_DAYS_LISTED) & ~panel["is_suspended"]
+        )
+    elif cfg["membership"] == "csi800":
         panel["in_universe"] = (
             panel["in_csi800"] & ~panel["is_st"] & (panel["days_listed"] >= MIN_DAYS_LISTED) & ~panel["is_suspended"]
         )
     else:
         panel["in_universe"] = _rule_universe(panel, cfg["rule"]).fillna(False).astype(bool)
-    info = {"codes": len(codes), "missing_codes": missing, "has_financials": bool(fin_frames), "universe": cfg["name"]}
+    info = {"codes": len(codes), "missing_codes": missing, "has_financials": bool(fin_frames), "universe": cfg["name"],
+            "has_events": has_events is not None, "has_intraday": intraday is not None}
     return panel, calendar, info
 
 

@@ -1,0 +1,13 @@
+campaign_id: margin-001
+title: 融资融券首测（D-30，沪深 300 2020+，周频快照，人工 4 个 trial）
+question: Do margin-trading balances (weekly westock snapshots) carry cross-sectional signal in CSI 300 members 2020-03 to 2022?
+universe: hs300_2020
+horizon: 20
+domains: [margin]
+cells:
+  - {domain: margin, form: level, scale: medium}
+  - {domain: margin, form: change_momentum, scale: medium}
+budgets: {trials: 6, turns: 1, turn_minutes: 60, max_hours: 6, holdout_reads: 0}
+stop: {no_improvement_turns: 5, max_consecutive_failed_turns: 3}
+agents:
+  - {harness: program, model: random}

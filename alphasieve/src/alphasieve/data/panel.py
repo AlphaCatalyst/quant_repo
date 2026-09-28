@@ -175,7 +175,12 @@ def _load_westock(root: Path, codes: list[str], calendar: list[str]):
         financials = financials.rename(columns={"stat_date": "ws_stat_date"})
     flow_parts = [pd.read_parquet(p) for c in codes if (p := root / "fund_flow" / f"{c}.parquet").exists()]
     flow = pd.concat(flow_parts, ignore_index=True) if flow_parts else None
-    return financials, flow
+    wanted = set(codes)
+    margin_parts = [df[df["code"].isin(wanted)] for p in sorted((root / "margin").glob("*.parquet"))
+                    if not (df := pd.read_parquet(p)).empty]
+    margin = pd.concat(margin_parts, ignore_index=True) if margin_parts else None
+    margin = None if margin is None or margin.empty else margin
+    return financials, flow, margin
 
 
 def _attach_financials(panel: pd.DataFrame, frames: list[pd.DataFrame]) -> pd.DataFrame:
@@ -275,13 +280,17 @@ def build_long_panel(settings: Settings, end: str, universe: str | None = None,
     intraday = _load_intraday(root, codes)
     if intraday is not None:
         panel = panel.merge(intraday, on=["date", "code"], how="left")
-    ws_financials, ws_flow = _load_westock(westock_root(settings), codes, calendar)
+    ws_financials, ws_flow, ws_margin = _load_westock(westock_root(settings), codes, calendar)
     if ws_financials is not None:
         panel = _attach_financials(panel, [ws_financials.astype({"code": panel["code"].dtype})])
     if ws_flow is not None:
         from alphasieve.data.fundamentals import attach_fund_flow
 
         panel = attach_fund_flow(panel, ws_flow)
+    if ws_margin is not None:
+        from alphasieve.data.fundamentals import attach_margin
+
+        panel = attach_margin(panel, ws_margin.astype({"code": panel["code"].dtype}), calendar)
     panel = panel.sort_values(["date", "code"]).reset_index(drop=True)
     if cfg["membership"] == "hs300":
         panel["in_universe"] = (
@@ -295,7 +304,8 @@ def build_long_panel(settings: Settings, end: str, universe: str | None = None,
         panel["in_universe"] = _rule_universe(panel, cfg["rule"]).fillna(False).astype(bool)
     info = {"codes": len(codes), "missing_codes": missing, "has_financials": bool(fin_frames), "universe": cfg["name"],
             "has_events": has_events is not None, "has_intraday": intraday is not None,
-            "has_westock_financials": ws_financials is not None, "has_fund_flow": ws_flow is not None}
+            "has_westock_financials": ws_financials is not None, "has_fund_flow": ws_flow is not None,
+            "has_margin": ws_margin is not None}
     return panel, calendar, info
 
 
@@ -373,6 +383,7 @@ def build_panel(settings: Settings, conn: sqlite3.Connection | None = None, end:
             "has_financials": info["has_financials"],
             "has_westock_financials": info["has_westock_financials"],
             "has_fund_flow": info["has_fund_flow"],
+            "has_margin": info["has_margin"],
             "horizons": list(HORIZONS),
             "embargo": {f"label_{h}d": 1 + h for h in HORIZONS},
             "fields": sorted(tier_panel.columns),

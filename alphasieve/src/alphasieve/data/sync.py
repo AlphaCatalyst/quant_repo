@@ -407,6 +407,25 @@ def sync_margin_snapshot(settings: Settings, conn: sqlite3.Connection, day: str,
     return {"date": day, "codes": len(codes), "rows": len(df), "errors": errors, "snapshot": snap}
 
 
+def week_ends(calendar: pd.Series, start: str, end: str) -> list[str]:
+    days = pd.to_datetime(calendar[(calendar >= start) & (calendar <= end)])
+    return sorted(days.groupby(days.dt.strftime("%G-%V")).max().dt.strftime("%Y-%m-%d"))
+
+
+def sync_margin_history(settings: Settings, conn: sqlite3.Connection, start: str, end: str, workers: int = 8,
+                        progress=None, universe: str | None = None) -> dict:
+    """Weekly margin snapshots (last trading day of each week); resumable per date. westock has data from 2018."""
+    dates = week_ends(load_calendar(settings, universe), start, end)
+    out, errors = [], []
+    for i, day in enumerate(dates, start=1):
+        res = sync_margin_snapshot(settings, conn, day, workers, None, universe)
+        out.append(res["rows"])
+        errors += res["errors"]
+        if progress:
+            progress(i, len(dates))
+    return {"dates": len(dates), "rows": sum(out), "errors": errors}
+
+
 def _intraday_job(code: str, start: str, end: str, root: str, minutes: int = 5) -> dict:
     from alphasieve.data.events import intraday_features
 

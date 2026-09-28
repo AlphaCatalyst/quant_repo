@@ -71,6 +71,42 @@ def statement_rows(lrb: pd.DataFrame, zcfz: pd.DataFrame, xjll: pd.DataFrame) ->
     return out[["code", "statDate", "pubDate", *STATEMENT_FIELDS]].sort_values(["code", "statDate"])
 
 
+MARGIN_FIELDS = ["mg_fin_to_mv", "mg_fin_chg_4w", "mg_fin_buy_share", "mg_short_to_fin"]
+MARGIN_CARRY_DAYS = 10
+
+
+def margin_rows(snapshots: pd.DataFrame) -> pd.DataFrame:
+    """Margin features per (code, snapshot date). Exchanges publish day-t balances the next morning, so the
+    snapshot date doubles as the publication date: rows become usable on the first trading day after it."""
+    cols = ["code", "pub_date", "_fin_value", *MARGIN_FIELDS[1:]]
+    if snapshots.empty:
+        return pd.DataFrame(columns=cols)
+    df = snapshots.dropna(subset=["FinanceValue"]).sort_values(["date", "code"]).copy()
+    df["ts"] = pd.to_datetime(df["date"])
+    prior = df[["code", "ts", "FinanceValue"]].rename(columns={"FinanceValue": "fin_4w"})
+    prior["ts"] = prior["ts"] + pd.Timedelta(days=28)
+    df = pd.merge_asof(df, prior.sort_values("ts"), on="ts", by="code", direction="backward",
+                       tolerance=pd.Timedelta(days=7))
+    flow = df["FinanceBuyValue"] + df["FinanceRefundValue"]
+    out = pd.DataFrame({
+        "code": df["code"], "pub_date": df["date"], "_fin_value": df["FinanceValue"],
+        "mg_fin_chg_4w": _ratio(df["FinanceValue"], df["fin_4w"]) - 1,
+        "mg_fin_buy_share": _ratio(df["FinanceBuyValue"], flow),
+        "mg_short_to_fin": _ratio(df["SecurityValue"], df["FinanceValue"]),
+    })
+    return out.replace([np.inf, -np.inf], np.nan)[cols]
+
+
+def attach_margin(panel: pd.DataFrame, snapshots: pd.DataFrame, calendar: list[str]) -> pd.DataFrame:
+    from alphasieve.data.events import align_events, attach_events
+
+    fields = ["_fin_value", *MARGIN_FIELDS[1:]]
+    aligned = align_events(margin_rows(snapshots), calendar, fields)
+    panel = attach_events(panel, aligned, calendar, fields, carry_days=MARGIN_CARRY_DAYS)
+    panel["mg_fin_to_mv"] = _ratio(panel["_fin_value"], panel["circ_mv"])
+    return panel.drop(columns=["_fin_value"])
+
+
 def attach_fund_flow(panel: pd.DataFrame, flow: pd.DataFrame) -> pd.DataFrame:
     """Same-day flows scaled by traded amount; known after the close like the close price itself."""
     flow = flow.assign(date=pd.to_datetime(flow["date"])).astype({"code": panel["code"].dtype})

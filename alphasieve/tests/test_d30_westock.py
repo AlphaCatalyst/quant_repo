@@ -65,6 +65,36 @@ def test_fund_flow_ratios_use_traded_amount():
     assert "MainNetFlow" not in out.columns
 
 
+def _margin_snapshots(code="sh.600000"):
+    dates = ["2021-01-08", "2021-01-15", "2021-01-22", "2021-01-29", "2021-02-05"]
+    return pd.DataFrame({"code": code, "date": dates, "FinanceValue": [100.0, 102, 104, 106, 120],
+                         "SecurityValue": [5.0] * 5, "FinanceBuyValue": [30.0] * 5,
+                         "FinanceRefundValue": [10.0] * 5, "TradingValue": [105.0] * 5})
+
+
+def test_margin_rows_and_next_day_availability():
+    rows = fundamentals.margin_rows(_margin_snapshots()).set_index("pub_date")
+    assert rows.loc["2021-02-05", "mg_fin_chg_4w"] == pytest.approx(120 / 100 - 1)
+    assert np.isnan(rows.loc["2021-01-29", "mg_fin_chg_4w"])       # no snapshot 28 days earlier
+    assert rows.loc["2021-01-08", "mg_fin_buy_share"] == pytest.approx(0.75)
+    assert rows.loc["2021-01-08", "mg_short_to_fin"] == pytest.approx(0.05)
+    calendar = [d.strftime("%Y-%m-%d") for d in pd.bdate_range("2021-01-04", "2021-03-31")]
+    panel = pd.DataFrame({"date": pd.to_datetime(calendar), "code": "sh.600000", "circ_mv": 1000.0})
+    out = fundamentals.attach_margin(panel, _margin_snapshots(), calendar).set_index("date")
+    assert np.isnan(out.loc["2021-01-08", "mg_fin_to_mv"])          # published the next morning
+    assert out.loc["2021-01-11", "mg_fin_to_mv"] == pytest.approx(0.1)
+    assert out.loc["2021-02-08", "mg_fin_chg_4w"] == pytest.approx(0.2)
+    assert np.isnan(out.loc["2021-02-23", "mg_fin_to_mv"])          # stale after 10 trading days
+    assert "_fin_value" not in out.columns
+
+
+def test_week_ends_pick_last_trading_day_of_each_week():
+    from alphasieve.data.sync import week_ends
+
+    cal = pd.Series(["2021-01-04", "2021-01-05", "2021-01-08", "2021-01-11", "2021-01-14", "2021-01-18"])
+    assert week_ends(cal, "2021-01-01", "2021-01-31") == ["2021-01-08", "2021-01-14", "2021-01-18"]
+
+
 FAKE_CLI = """
 import json, sys
 args = sys.argv[1:]

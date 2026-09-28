@@ -37,7 +37,7 @@
 |---|---|---|---|
 | 三大报表 | `alphasieve data sync --dataset ws_financials --universe ashare_all` | 全 A，2000 年起 | `ws_*`：ROE、ROA、毛利率、营业利润率、经营现金流/资产、应计、资产负债率、有息负债/权益、商誉/权益、现金/资产、研发/营收（单季）、资产同比、营收 TTM 同比、单季净利同比、单季净利变化/资产，以及净利润 TTM、营收 TTM、经营现金流 TTM、归母权益四个金额 |
 | 资金流向 | `--dataset fund_flow` | 全 A，2020 年起 | `mf_main_net_ratio` 等：主力（超大单加大单）、超大单、大单、中单、小单的净流入除以当日成交额 |
-| 融资融券 | `--dataset margin` | 当日快照，从首次运行起积累 | 暂不进 panel |
+| 融资融券 | `--dataset margin`（当日全 A 快照）；`--dataset margin_history --universe hs300_2020 --start 2019-10-08`（周频回补） | 沪深 300 成分 2019-10 起周频；全 A 从首次运行起逐日积累 | `mg_fin_to_mv`（融资余额/流通市值）、`mg_fin_chg_4w`（融资余额 4 周变化）、`mg_fin_buy_share`（融资买入/(买入+偿还)）、`mg_short_to_fin`（融券余额/融资余额）；次日可用，最多沿用 10 个交易日 |
 
 - 报表字段的生效日：三张表中最晚的公告日之后的第一个交易日；同比用上年同期报表计算。
 - 已知局限：约三分之一的年报资产负债表是追溯调整后的数值（D-30），写入 panel `warnings`。

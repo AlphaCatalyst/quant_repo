@@ -52,7 +52,7 @@ def align_events(rows: pd.DataFrame, calendar: list[str], fields: list[str]) -> 
 
 
 def attach_events(panel: pd.DataFrame, aligned: pd.DataFrame, calendar: list[str], fields: list[str],
-                  age_field: str | None = None) -> pd.DataFrame:
+                  age_field: str | None = None, carry_days: int = EVENT_CARRY_DAYS) -> pd.DataFrame:
     positions = {pd.Timestamp(d): i for i, d in enumerate(calendar)}
     panel = panel.sort_values(["date", "code"])
     if aligned.empty:
@@ -62,7 +62,7 @@ def attach_events(panel: pd.DataFrame, aligned: pd.DataFrame, calendar: list[str
     aligned = aligned.astype({"code": panel["code"].dtype})
     merged = pd.merge_asof(panel, aligned.sort_values(["date", "code"]), on="date", by="code", direction="backward")
     age = merged["date"].map(positions) - merged["event_pos"]
-    stale = ~(age <= EVENT_CARRY_DAYS)
+    stale = ~(age <= carry_days)
     merged.loc[stale, fields] = np.nan
     if age_field:
         merged[age_field] = age.where(~stale).astype(float)

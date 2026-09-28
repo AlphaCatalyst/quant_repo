@@ -1,4 +1,4 @@
-version: 2
+version: 3
 search_space_id: ss-ashare-daily-v1
 expressiveness: [E1]
 derived_version: dv1
@@ -16,6 +16,12 @@ domains:
   growth: [yoy_ni, yoy_equity, yoy_asset]
   events: [fc_chg_mid, fc_positive, fc_age, ex_eps_chg, ex_roe, ex_gr_yoy]   # v2: earnings forecasts / preliminary results (PIT)
   intraday: [rv_intraday, tail30_vol_share, open30_ret, updown_vol_share]        # v2: daily aggregates of intraday bars (2020+)
+  # v3: full statements from westock (all A-shares, PIT on announcement date; D-30). Levels are in yuan.
+  fin_quality: [ws_roe_ttm, ws_roa_ttm, ws_gross_margin_ttm, ws_op_margin_ttm, ws_cfoa_ttm, ws_accruals_ttm,
+                ws_debt_to_assets, ws_ibd_to_equity, ws_goodwill_to_equity, ws_cash_to_assets, ws_rd_to_rev_q,
+                ws_np_ttm, ws_rev_ttm, ws_ocf_ttm, ws_equity]
+  fin_growth: [ws_asset_growth_yoy, ws_rev_growth_yoy, ws_np_growth_q_yoy, ws_np_surprise_q]
+  fund_flow: [mf_main_net_ratio, mf_jumbo_net_ratio, mf_block_net_ratio, mf_mid_net_ratio, mf_small_net_ratio]  # v3: 2020+
 default_horizon:            # prediction horizon (trading days) by the signal's data domain (D-24)
   price: 5
   volume: 5
@@ -25,6 +31,9 @@ default_horizon:            # prediction horizon (trading days) by the signal's 
   growth: 20
   events: 20
   intraday: 5
+  fin_quality: 20
+  fin_growth: 20
+  fund_flow: 5
 forms:
   - level
   - change_momentum

@@ -2,6 +2,8 @@ from dataclasses import dataclass
 
 from alphasieve.config import Settings, load_config
 
+FINANCIAL_DOMAINS = ("profitability", "growth", "fin_quality", "fin_growth")
+
 
 @dataclass(frozen=True)
 class SearchSpace:
@@ -38,7 +40,7 @@ class SearchSpace:
 
     def infer_scale(self, max_window: int | None, terminals: set[str]) -> str | None:
         if max_window is None:
-            financial = {t for t in terminals if self.domain_of(t) in ("profitability", "growth")}
+            financial = {t for t in terminals if self.domain_of(t) in FINANCIAL_DOMAINS}
             return "quarterly" if financial and financial == terminals else None
         for scale in ("short", "medium", "long"):
             if max_window <= self.scale_bounds[scale]:

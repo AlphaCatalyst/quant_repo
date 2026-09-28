@@ -42,14 +42,15 @@ def _write_parquet(df: pd.DataFrame, path: Path) -> None:
     os.replace(tmp, path)
 
 
-def record_snapshot(conn: sqlite3.Connection, dataset: str, params: dict, paths: list[Path], rows: int) -> str:
+def record_snapshot(conn: sqlite3.Connection, dataset: str, params: dict, paths: list[Path], rows: int,
+                    source: str = SOURCE) -> str:
     content_hash = sha256_hex("".join(sorted(f"{p.name}:{file_sha256(p)}" for p in paths if p.exists())))
     snapshot_id = sha256_hex(canonical_json({"dataset": dataset, "params": params, "content": content_hash}))[:16]
     root = str(paths[0].parent) if paths else ""
     conn.execute(
         "INSERT OR REPLACE INTO data_snapshots (snapshot_id, source, dataset, params_json, rows, content_hash, path,"
         " fetched_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (snapshot_id, SOURCE, dataset, canonical_json(params), rows, content_hash, root, utcnow_iso()),
+        (snapshot_id, source, dataset, canonical_json(params), rows, content_hash, root, utcnow_iso()),
     )
     return snapshot_id
 
@@ -292,6 +293,118 @@ def sync_events(settings: Settings, conn: sqlite3.Connection, end: str, workers:
     snap = record_snapshot(conn, _dataset("events", universe), {"end": end}, paths, len(paths))
     return {"codes": len(codes), "forecasts": sum(r.get("forecast", 0) for r in results),
             "express": sum(r.get("express", 0) for r in results), "errors": errors, "snapshot": snap}
+
+
+WESTOCK_BATCH = 50
+WESTOCK_FINANCIALS_START = "2000-01-01"
+FUND_FLOW_START = "2020-01-01"
+
+
+def westock_root(settings: Settings) -> Path:
+    """westock data is shared by every universe: one file per code, whichever universe asked for it first."""
+    return settings.raw_dir / "westock"
+
+
+def _batches(items: list, size: int = WESTOCK_BATCH) -> list[list]:
+    return [items[i:i + size] for i in range(0, len(items), size)]
+
+
+def _run_threads(job, batches: list, workers: int, progress=None) -> tuple[list, list]:
+    from concurrent.futures import ThreadPoolExecutor
+
+    results, errors = [], []
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(job, batch): batch for batch in batches}
+        for i, fut in enumerate(as_completed(futures), start=1):
+            try:
+                results.append(fut.result())
+            except Exception as exc:  # noqa: BLE001
+                errors.append({"item": futures[fut][0], "error": str(exc)[:300]})
+            if progress and (i % 10 == 0 or i == len(batches)):
+                progress(i, len(batches))
+    return results, errors
+
+
+def sync_westock_financials(settings: Settings, conn: sqlite3.Connection, end: str, workers: int = 4,
+                            progress=None, universe: str | None = None) -> dict:
+    """Full re-fetch of the three statements (westock keeps one version per period; history is cheap)."""
+    from alphasieve.data.providers import westock
+
+    root = westock_root(settings) / "financials"
+    codes = universe_codes(settings, universe)
+
+    def job(batch: list[str]) -> int:
+        frames = {k: westock.statements(batch, k, WESTOCK_FINANCIALS_START, end) for k in westock.STATEMENTS}
+        for code in batch:
+            for kind, df in frames.items():
+                part = df[df["code"] == code] if not df.empty else df
+                if not part.empty:
+                    _write_parquet(part.reset_index(drop=True), root / kind / f"{code}.parquet")
+        return sum(len(df) for df in frames.values())
+
+    results, errors = _run_threads(job, _batches(codes), workers, progress)
+    paths = sorted(root.rglob("*.parquet"))
+    snap = record_snapshot(conn, "westock:financials", {"end": end, "universe": universe or "csi800"}, paths,
+                           sum(results), source="westock")
+    return {"codes": len(codes), "rows": sum(results), "files": len(paths), "errors": errors, "snapshot": snap}
+
+
+def sync_fund_flow(settings: Settings, conn: sqlite3.Connection, end: str, workers: int = 4, progress=None,
+                   universe: str | None = None) -> dict:
+    """Daily fund flow from 2020, fetched one calendar year per request (the service caps rows per call)."""
+    from alphasieve.data.providers import westock
+
+    root = westock_root(settings) / "fund_flow"
+    codes = universe_codes(settings, universe)
+
+    def job(batch: list[str]) -> int:
+        existing = {c: pd.read_parquet(p) for c in batch if (p := root / f"{c}.parquet").exists()}
+        last = min((str(existing[c]["date"].max()) if c in existing else "") for c in batch)
+        start = _next_day(last) if last else FUND_FLOW_START
+        frames = []
+        for year in range(int(start[:4]), int(end[:4]) + 1):
+            lo, hi = max(start, f"{year}-01-01"), min(end, f"{year}-12-31")
+            if lo <= hi:
+                frames.append(westock.fund_flow(batch, lo, hi))
+        new = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+        for code in batch:
+            part = new[new["code"] == code] if not new.empty else new
+            if part.empty:
+                continue
+            old = [existing[code]] if code in existing else []
+            merged = pd.concat(old + [part], ignore_index=True).drop_duplicates("date", keep="last")
+            _write_parquet(merged.sort_values("date").reset_index(drop=True), root / f"{code}.parquet")
+        return len(new)
+
+    results, errors = _run_threads(job, _batches(codes), workers, progress)
+    paths = sorted(root.glob("*.parquet"))
+    snap = record_snapshot(conn, "westock:fund_flow", {"end": end, "universe": universe or "csi800"}, paths,
+                           sum(results), source="westock")
+    return {"codes": len(codes), "new_rows": sum(results), "files": len(paths), "errors": errors, "snapshot": snap}
+
+
+def sync_margin_snapshot(settings: Settings, conn: sqlite3.Connection, day: str, workers: int = 8, progress=None,
+                         universe: str | None = None) -> dict:
+    """Margin balances for one trading day (one call per code); history accumulates from the first run (D-30)."""
+    from alphasieve.data.providers import westock
+
+    path = westock_root(settings) / "margin" / f"{day}.parquet"
+    codes = universe_codes(settings, universe)
+    done = pd.read_parquet(path) if path.exists() else pd.DataFrame(columns=["code"])
+    todo = [c for c in codes if c not in set(done["code"])]
+
+    def job(batch: list[str]) -> list[dict]:
+        return [r for c in batch if (r := westock.margin(c, day)) is not None]
+
+    results, errors = _run_threads(job, _batches(todo, 10), workers, progress)
+    rows = [r for batch in results for r in batch]
+    df = pd.concat([done, pd.DataFrame(rows)], ignore_index=True) if rows else done
+    if not df.empty:
+        _write_parquet(df.drop_duplicates("code", keep="last"), path)
+    snap = None
+    if path.exists():
+        snap = record_snapshot(conn, "westock:margin", {"date": day}, [path], len(df), "westock")
+    return {"date": day, "codes": len(codes), "rows": len(df), "errors": errors, "snapshot": snap}
 
 
 def _intraday_job(code: str, start: str, end: str, root: str, minutes: int = 5) -> dict:

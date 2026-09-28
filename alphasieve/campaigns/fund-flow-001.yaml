@@ -1,0 +1,15 @@
+campaign_id: fund-flow-001
+title: 资金流向首测（D-30，全 A 2020+，人工 5 个 trial）
+question: Does westock order-size fund flow carry cross-sectional signal in all A-shares (2020-03 to 2022)?
+universe: ashare_2020
+horizon: 5
+domains: [fund_flow]
+cells:
+  - {domain: fund_flow, form: level, scale: short}
+  - {domain: fund_flow, form: level, scale: medium}
+  - {domain: fund_flow, form: conditional_interaction, scale: short}
+  - {domain: fund_flow, form: reversal, scale: short}
+budgets: {trials: 8, turns: 1, turn_minutes: 60, max_hours: 6, holdout_reads: 0}
+stop: {no_improvement_turns: 5, max_consecutive_failed_turns: 3}
+agents:
+  - {harness: program, model: random}

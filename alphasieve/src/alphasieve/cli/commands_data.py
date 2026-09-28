@@ -11,7 +11,8 @@ from alphasieve.errors import validation_error
 ALL = ("agent", "human", "system")
 HUMAN_SYSTEM = ("human", "system")
 MAX_SAMPLE_ROWS = 200
-SYNC_DATASETS = ("reference", "members", "daily", "financials", "events", "intraday", "mirror", "core")
+SYNC_DATASETS = ("reference", "members", "daily", "financials", "events", "intraday", "mirror", "core",
+                 "ws_financials", "fund_flow", "margin")
 
 
 def _universe_arg(p):
@@ -67,10 +68,17 @@ def cmd_data_sync(args, ctx) -> CommandResult:
         out["events"] = sync.sync_events(settings, conn, end, args.workers, _progress("events"), u)
     if "intraday" in datasets:
         out["intraday"] = sync.sync_intraday(settings, conn, args.start, end, args.workers, _progress("intraday"), u)
+    if "ws_financials" in datasets:
+        out["ws_financials"] = sync.sync_westock_financials(settings, conn, end, args.workers,
+                                                            _progress("ws_financials"), u)
+    if "fund_flow" in datasets:
+        out["fund_flow"] = sync.sync_fund_flow(settings, conn, end, args.workers, _progress("fund_flow"), u)
+    if "margin" in datasets:
+        out["margin"] = sync.sync_margin_snapshot(settings, conn, end, args.workers, _progress("margin"), u)
     if "mirror" in datasets or ("financials" in datasets and u in (None, "csi800")):
         out["mirror"] = sync.mirror_to_store(settings, u)
     warnings = []
-    for key in ("daily", "financials", "events", "intraday"):
+    for key in ("daily", "financials", "events", "intraday", "ws_financials", "fund_flow", "margin"):
         if out.get(key, {}).get("errors"):
             warnings.append(f"{key}: {len(out[key]['errors'])} items failed; rerun to resume")
     return CommandResult(data=out, warnings=warnings)
@@ -188,9 +196,13 @@ def cmd_data_daily_update(args, ctx) -> CommandResult:
     out["end"] = end
     out["members"] = sync.sync_members(settings, conn, end)
     out["daily"] = sync.sync_daily(settings, conn, end, 6)
+    out["fund_flow"] = sync.sync_fund_flow(settings, conn, end, 4, universe="ashare_all")
+    out["margin"] = sync.sync_margin_snapshot(settings, conn, end, 8, universe="ashare_all")
     if today.weekday() == 5:
         out["financials"] = sync.sync_financials(settings, conn, end, 4)
+        out["ws_financials"] = sync.sync_westock_financials(settings, conn, end, 4, universe="ashare_all")
     out["mirror"] = sync.mirror_to_store(settings)
+    keys = ("daily", "financials", "fund_flow", "margin", "ws_financials")
     warnings = [f"{k}: {len(out[k]['errors'])} items failed; rerun to resume"
-                for k in ("daily", "financials") if out.get(k, {}).get("errors")]
+                for k in keys if out.get(k, {}).get("errors")]
     return CommandResult(data=out, warnings=warnings)

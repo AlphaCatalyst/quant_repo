@@ -22,6 +22,7 @@
 | [14-agent-execution.md](14-agent-execution.md) | 用哪种 agent 执行：本机 Claude Code / Codex、Cursor、Nexus Cloud 的分工与规则 |
 | [15-task-layers.md](15-task-layers.md) | 量化任务怎么分层（信号、模型、组合、执行）、同时预测多少标的、组合问题在哪；AlphaSieve 的覆盖核对与待决定的调整 |
 | [16-scaling.md](16-scaling.md) | 扩大算力与数据量：实测瓶颈、评估提速、常驻评估服务与平台 worker、全 A 与更多数据、规模化下的统计纪律 |
+| [17-data-vendors.md](17-data-vendors.md) | 更长历史的分钟线、两融、资金流向去哪买、多少钱，推荐方案与接入步骤 |
 | [acceptance-m0-m2.md](acceptance-m0-m2.md) | M0–M2 验收记录：真实数据同步结果、测试、端到端评估、gate 校准 |
 | [acceptance-scaling.md](acceptance-scaling.md) | 扩容 S-1 至 S-7 验收记录：评估性能、常驻服务、程序化搜索、策略回测、全 A 与事件、日内数据 |
 | [acceptance-m3-m4-f1.md](acceptance-m3-m4-f1.md) | M3 / M4 / F1 验收记录：agent 循环、holdout 链路、前端、真实冒烟、试点结果与操作手册 |

@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 from alphasieve.config import Settings, load_config
-from alphasieve.data.sync import INDEX_CODES, history_start, raw_root, universe_codes
+from alphasieve.data.sync import INDEX_CODES, history_start, raw_root, universe_codes, westock_root
 from alphasieve.data.universe import universe_config
 from alphasieve.util import file_sha256, utcnow_iso
 
@@ -20,6 +20,8 @@ FINANCIAL_FIELDS = {
     "profit": {"roeAvg": "roe_avg", "npMargin": "np_margin", "epsTTM": "eps_ttm"},
     "growth": {"YOYNI": "yoy_ni", "YOYEquity": "yoy_equity", "YOYAsset": "yoy_asset"},
 }
+WESTOCK_WARNING = ("ws_* statement fields: announcement dates are first publication, but about a third of annual "
+                   "balance sheets hold later restated values (D-30)")
 PANEL_WARNINGS = [
     "industry classification is a current snapshot (CSRC), not point-in-time",
     "universe is CSI 800 (HS300 + ZZ500) because free historical constituents are only available for these indices",
@@ -158,6 +160,24 @@ def _load_intraday(root: Path, codes: list[str]) -> pd.DataFrame | None:
     return out
 
 
+def _load_westock(root: Path, codes: list[str], calendar: list[str]):
+    from alphasieve.data.fundamentals import STATEMENT_FIELDS, statement_rows
+
+    def read(kind: str) -> pd.DataFrame:
+        parts = [pd.read_parquet(p) for c in codes if (p := root / "financials" / kind / f"{c}.parquet").exists()]
+        return pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
+
+    statements = {k: read(k) for k in ("lrb", "zcfz", "xjll")}
+    financials = None
+    if any(not df.empty for df in statements.values()):
+        rows = statement_rows(statements["lrb"], statements["zcfz"], statements["xjll"])
+        financials = align_financials_pit(rows, calendar, {f: f for f in STATEMENT_FIELDS})
+        financials = financials.rename(columns={"stat_date": "ws_stat_date"})
+    flow_parts = [pd.read_parquet(p) for c in codes if (p := root / "fund_flow" / f"{c}.parquet").exists()]
+    flow = pd.concat(flow_parts, ignore_index=True) if flow_parts else None
+    return financials, flow
+
+
 def _attach_financials(panel: pd.DataFrame, frames: list[pd.DataFrame]) -> pd.DataFrame:
     panel = panel.sort_values(["date", "code"])
     for aligned in frames:
@@ -255,6 +275,13 @@ def build_long_panel(settings: Settings, end: str, universe: str | None = None,
     intraday = _load_intraday(root, codes)
     if intraday is not None:
         panel = panel.merge(intraday, on=["date", "code"], how="left")
+    ws_financials, ws_flow = _load_westock(westock_root(settings), codes, calendar)
+    if ws_financials is not None:
+        panel = _attach_financials(panel, [ws_financials.astype({"code": panel["code"].dtype})])
+    if ws_flow is not None:
+        from alphasieve.data.fundamentals import attach_fund_flow
+
+        panel = attach_fund_flow(panel, ws_flow)
     panel = panel.sort_values(["date", "code"]).reset_index(drop=True)
     if cfg["membership"] == "hs300":
         panel["in_universe"] = (
@@ -267,7 +294,8 @@ def build_long_panel(settings: Settings, end: str, universe: str | None = None,
     else:
         panel["in_universe"] = _rule_universe(panel, cfg["rule"]).fillna(False).astype(bool)
     info = {"codes": len(codes), "missing_codes": missing, "has_financials": bool(fin_frames), "universe": cfg["name"],
-            "has_events": has_events is not None, "has_intraday": intraday is not None}
+            "has_events": has_events is not None, "has_intraday": intraday is not None,
+            "has_westock_financials": ws_financials is not None, "has_fund_flow": ws_flow is not None}
     return panel, calendar, info
 
 
@@ -343,12 +371,15 @@ def build_panel(settings: Settings, conn: sqlite3.Connection | None = None, end:
             "codes": int(tier_panel["code"].nunique()),
             "missing_codes": info["missing_codes"],
             "has_financials": info["has_financials"],
+            "has_westock_financials": info["has_westock_financials"],
+            "has_fund_flow": info["has_fund_flow"],
             "horizons": list(HORIZONS),
             "embargo": {f"label_{h}d": 1 + h for h in HORIZONS},
             "fields": sorted(tier_panel.columns),
             "source_snapshots": snapshots,
-            "warnings": PANEL_WARNINGS if cfg["name"] == "csi800" else [
-                w for w in PANEL_WARNINGS if not w.startswith("universe is CSI 800")] + [_universe_note(cfg)],
+            "warnings": (PANEL_WARNINGS if cfg["name"] == "csi800" else [
+                w for w in PANEL_WARNINGS if not w.startswith("universe is CSI 800")] + [_universe_note(cfg)])
+            + ([WESTOCK_WARNING] if info["has_westock_financials"] else []),
             "built_at": utcnow_iso(),
         }
         bench = _benchmark(raw_root(settings, universe), calendar, window_end)

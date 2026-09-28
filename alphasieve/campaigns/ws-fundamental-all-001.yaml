@@ -1,0 +1,13 @@
+campaign_id: ws-fundamental-all-001
+title: westock 报表因子全 A 复现（D-30，预先登记 2 个 trial）
+question: Do the two CSI 800 L2 passes (seasonal earnings change, operating cash flow over assets) replicate in all A-shares 2006-2022?
+universe: ashare_all
+horizon: 20
+domains: [fin_quality, fin_growth]
+cells:
+  - {domain: fin_quality, form: level, scale: quarterly}
+  - {domain: fin_growth, form: change_momentum, scale: quarterly}
+budgets: {trials: 2, turns: 1, turn_minutes: 60, max_hours: 6, holdout_reads: 0}
+stop: {no_improvement_turns: 5, max_consecutive_failed_turns: 3}
+agents:
+  - {harness: program, model: random}

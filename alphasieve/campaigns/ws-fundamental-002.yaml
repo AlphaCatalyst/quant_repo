@@ -1,0 +1,13 @@
+campaign_id: ws-fundamental-002
+title: westock 全报表因子首测（D-30，人工 10 个 trial，001 因 horizon 缺失作废后重跑）
+question: Do classic statement factors built on westock full statements (PIT on announcement date) carry signal in CSI 800?
+domains: [fin_quality, fin_growth, size_value]
+cells:
+  - {domain: fin_quality, form: level, scale: quarterly}
+  - {domain: fin_quality, form: group_relative, scale: quarterly}
+  - {domain: fin_growth, form: change_momentum, scale: quarterly}
+  - {domain: fin_growth, form: level, scale: quarterly}
+budgets: {trials: 12, turns: 1, turn_minutes: 60, max_hours: 6, holdout_reads: 0}
+stop: {no_improvement_turns: 5, max_consecutive_failed_turns: 3}
+agents:
+  - {harness: program, model: random}

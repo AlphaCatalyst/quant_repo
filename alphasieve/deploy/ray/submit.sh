@@ -28,6 +28,7 @@ uv pip install -q --no-deps --reinstall-package alphasieve --python "\$venv/bin/
 if [ -r ${remote_root}/secrets/runlab.env ]; then
   set -a; . ${remote_root}/secrets/runlab.env; set +a
   export ALPHASIEVE_TRACKING=runlab WANDB_BASE_URL=\${WANDB_BASE_URL:-http://runlab.woa.com} WANDB_SILENT=true
+  export ALPHASIEVE_RUNLAB_ENTITY=${ALPHASIEVE_RUNLAB_ENTITY:-felixjjiang}
 fi
 export ALPHASIEVE_JOB_ID=${job_id} ALPHASIEVE_EVAL_POLL=${ALPHASIEVE_EVAL_POLL:-0.2}
 export ALPHASIEVE_ROLE=system ALPHASIEVE_USER=ray:${job_id} ALPHASIEVE_STORE_MOUNT=

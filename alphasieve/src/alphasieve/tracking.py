@@ -41,6 +41,7 @@ def record(command: str, args: dict, envelope: dict, settings) -> str | None:
     from alphasieve.util import code_version
 
     run = wandb.init(
+        entity=os.environ.get("ALPHASIEVE_RUNLAB_ENTITY") or None,
         project=os.environ.get("ALPHASIEVE_RUNLAB_PROJECT", "alphasieve"),
         name=os.environ.get("ALPHASIEVE_JOB_ID") or None,
         job_type=command.replace(" ", "-"),

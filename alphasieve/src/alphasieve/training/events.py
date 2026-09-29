@@ -182,8 +182,11 @@ def run_event_task(settings, task, bundle, panel: Panel, processes=None, threads
     report = {str(h): decile_report(score, table.R[h], np.asarray(quarter)) for h in task.label.horizons}
     weights, entry_info = event_weights(panel, ev, score, task.portfolio.holding_days)
     costs = load_config(settings, "costs").get("b3", {})
-    sim = simulate(weights, panel, costs, bench, aum=task.portfolio.aum,
+    sim = simulate(weights, panel, costs, None, aum=task.portfolio.aum,
                    max_participation=task.portfolio.max_participation)
+    vs_index = simulate(weights, panel, costs, bench, aum=task.portfolio.aum,
+                        max_participation=task.portfolio.max_participation)
+    vs_index = {k: v for k, v in vs_index.items() if not k.startswith("_")}
     rule = mandates.ACCEPTANCE["C"]
     main = report[str(h_max)]
     checks = {"car_spread_t": [main.get("t_stat"), rule["car_spread_t_min"],
@@ -200,7 +203,8 @@ def run_event_task(settings, task, bundle, panel: Panel, processes=None, threads
               "events": {"total": int(len(ev)), "by_type": {k: {"events": int(r["size"]), "scored": int(r["sum"])}
                                                             for k, r in by_type.iterrows()}},
               "features": {"names": table.feature_names}, "car_deciles": report,
-              "portfolio": {"entry_rule": entry_info, "execution": sim, "acceptance": acceptance},
+              "portfolio": {"entry_rule": entry_info, "benchmark_basis": "total-return universe proxy (cap-weighted)",
+                            "execution": sim, "execution_vs_price_index": vs_index, "acceptance": acceptance},
               "acceptance": acceptance, "headline": {"car_spread_t": main.get("t_stat"),
                                                      "annual_excess": sim["annual_excess"]}}
     from alphasieve.training.run import _series

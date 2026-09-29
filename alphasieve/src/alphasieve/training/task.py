@@ -103,6 +103,7 @@ class PortfolioLink(_Model):
     active_scale: float = 1.0
     neutralize_score: list[Literal["industry", "log_circ_mv"]] = Field(default_factory=list)
     hold_unchanged: bool = False
+    construction: Literal["heuristic", "lp"] = "heuristic"
     aum: float = 5e8
     max_participation: float = 0.10
     top_k: int = 5

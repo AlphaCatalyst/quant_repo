@@ -72,10 +72,17 @@ def neutral_score(panel: Panel, score: pd.DataFrame, members: np.ndarray, factor
 def index_enhancement(panel: Panel, score: pd.DataFrame, members: np.ndarray, beta: np.ndarray, cfg, costs: dict,
                       benchmark: str, index_returns: np.ndarray | None) -> dict:
     score = neutral_score(panel, score, members, list(cfg.neutralize_score))
-    weights = build_weights(score, panel, cfg.rebalance_every, cfg.industry_dev, cfg.name_cap, cfg.turnover_cap,
-                            cfg.size_limit, universe_mask=members, beta=beta, beta_range=tuple(cfg.beta_range),
-                            active_scale=cfg.active_scale)
-    diag = weight_diagnostics(weights, panel, cfg.turnover_cap, universe_mask=members, beta=beta)
+    if cfg.construction == "lp":
+        from alphasieve.strategy.portfolio_lp import build_weights_lp
+
+        weights, lp_info = build_weights_lp(score, panel, members, cfg.rebalance_every, cfg.industry_dev, cfg.name_cap,
+                                            cfg.turnover_cap, cfg.size_limit, beta, tuple(cfg.beta_range))
+    else:
+        weights = build_weights(score, panel, cfg.rebalance_every, cfg.industry_dev, cfg.name_cap, cfg.turnover_cap,
+                                cfg.size_limit, universe_mask=members, beta=beta, beta_range=tuple(cfg.beta_range),
+                                active_scale=cfg.active_scale)
+        lp_info = {"construction": "heuristic"}
+    diag = weight_diagnostics(weights, panel, cfg.turnover_cap, universe_mask=members, beta=beta) | lp_info
     # Portfolio returns use adjusted (total-return) prices while the index is a price index, so acceptance is
     # judged against the total-return member proxy; the price-index comparison is reported alongside.
     base = simulate(weights, panel, costs, None, universe_mask=members)

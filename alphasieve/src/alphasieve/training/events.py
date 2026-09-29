@@ -172,7 +172,7 @@ def event_weights(panel: Panel, ev: pd.DataFrame, score: np.ndarray, holding: in
 
 
 def run_event_task(settings, task, bundle, panel: Panel, processes=None, threads=None, progress=None):
-    bench = task.portfolio.benchmark or BENCHMARK_OF.get(task.universe_train, "zz500")
+    bench = task.label.benchmark or BENCHMARK_OF.get(task.universe_train, "zz500")
     table, ev = build_event_table(panel, task, bench)
     window = panel.window_mask().to_numpy()
     wf = walk_forward(table, panel.dates, window, task, processes, threads, progress)
@@ -182,10 +182,12 @@ def run_event_task(settings, task, bundle, panel: Panel, processes=None, threads
     report = {str(h): decile_report(score, table.R[h], np.asarray(quarter)) for h in task.label.horizons}
     weights, entry_info = event_weights(panel, ev, score, task.portfolio.holding_days)
     costs = load_config(settings, "costs").get("b3", {})
-    sim = simulate(weights, panel, costs, None, aum=task.portfolio.aum,
-                   max_participation=task.portfolio.max_participation)
-    vs_index = simulate(weights, panel, costs, bench, aum=task.portfolio.aum,
-                        max_participation=task.portfolio.max_participation)
+    basis = "equal_weight" if task.portfolio.benchmark == "equal_weight" else None
+    sim = simulate(weights, panel, costs, basis, aum=task.portfolio.aum,
+                   max_participation=task.portfolio.max_participation, hold_unchanged=task.portfolio.hold_unchanged)
+    vs_index = simulate(weights, panel, costs, BENCHMARK_OF.get(task.universe_train, "zz500"),
+                        aum=task.portfolio.aum, max_participation=task.portfolio.max_participation,
+                        hold_unchanged=task.portfolio.hold_unchanged)
     vs_index = {k: v for k, v in vs_index.items() if not k.startswith("_")}
     rule = mandates.ACCEPTANCE["C"]
     main = report[str(h_max)]
@@ -203,7 +205,9 @@ def run_event_task(settings, task, bundle, panel: Panel, processes=None, threads
               "events": {"total": int(len(ev)), "by_type": {k: {"events": int(r["size"]), "scored": int(r["sum"])}
                                                             for k, r in by_type.iterrows()}},
               "features": {"names": table.feature_names}, "car_deciles": report,
-              "portfolio": {"entry_rule": entry_info, "benchmark_basis": "total-return universe proxy (cap-weighted)",
+              "portfolio": {"entry_rule": entry_info,
+                            "benchmark_basis": "equal-weighted universe (total return)" if basis
+                            else "total-return universe proxy (cap-weighted)",
                             "execution": sim, "execution_vs_price_index": vs_index, "acceptance": acceptance},
               "acceptance": acceptance, "headline": {"car_spread_t": main.get("t_stat"),
                                                      "annual_excess": sim["annual_excess"]}}

@@ -18,7 +18,10 @@ DEFAULT_COSTS = {"commission": 0.00025, "stamp_duty_sell": 0.0005, "slippage": 0
 
 def simulate(weights: pd.DataFrame, panel: Panel, costs: dict | None = None, benchmark: str | None = None,
              aum: float | None = None, max_participation: float = 0.10,
-             universe_mask: np.ndarray | None = None) -> dict:
+             universe_mask: np.ndarray | None = None, hold_unchanged: bool = False) -> dict:
+    """``hold_unchanged``: on a target day, names whose target equals their previous target are not traded (their
+    weight drifts), which is how an event book is run; ``benchmark="equal_weight"`` uses the equal-weighted
+    universe (total return) instead of a named index."""
     c = {**DEFAULT_COSTS, **(costs or {})}
     dates, codes = panel.dates, panel.codes
     w_target = weights.reindex(columns=codes).fillna(0.0)
@@ -41,7 +44,10 @@ def simulate(weights: pd.DataFrame, panel: Panel, costs: dict | None = None, ben
     holdings = np.zeros(len(codes))
     cash, nav_prev, rows = 1.0, 1.0, []
     bench_close = None
-    if benchmark and panel.benchmark is not None and f"{benchmark}_close" in panel.benchmark.columns:
+    equal_weight = benchmark == "equal_weight"
+    prev_goal = np.zeros(len(codes))
+    named = benchmark and not equal_weight and panel.benchmark is not None
+    if named and f"{benchmark}_close" in panel.benchmark.columns:
         b = panel.benchmark.set_index(pd.to_datetime(panel.benchmark["date"]))[f"{benchmark}_close"]
         bench_close = b.reindex(dates).ffill().to_numpy(dtype=float)
     for t in range(start, len(dates)):
@@ -54,6 +60,10 @@ def simulate(weights: pd.DataFrame, panel: Panel, costs: dict | None = None, ben
             value = holdings.sum() + cash
             current = holdings / value
             goal = targets[t - 1]
+            if hold_unchanged:
+                same = np.isclose(goal, prev_goal) & (goal > 0)
+                goal = np.where(same, current, goal)
+                prev_goal = targets[t - 1]
             blocked = ((goal > current) & ~buy_ok[t]) | ((goal < current) & ~sell_ok[t])
             new = np.where(blocked, current, goal)
             impact = 0.0
@@ -89,7 +99,10 @@ def simulate(weights: pd.DataFrame, panel: Panel, costs: dict | None = None, ben
             ok = universe[t - 1] & np.isfinite(cap[t - 1]) & (cap[t - 1] > 0)
             with np.errstate(invalid="ignore", divide="ignore"):
                 r = np.nan_to_num(close_px[t] / close_px[t - 1] - 1, nan=0.0, posinf=0.0, neginf=0.0)
-            bench_ret = float((cap[t - 1, ok] * r[ok]).sum() / cap[t - 1, ok].sum()) if ok.any() else 0.0
+            if equal_weight:
+                bench_ret = float(r[ok].mean()) if ok.any() else 0.0
+            else:
+                bench_ret = float((cap[t - 1, ok] * r[ok]).sum() / cap[t - 1, ok].sum()) if ok.any() else 0.0
         rows.append({"date": dates[t], "ret": day_ret, "bench": bench_ret, "cost": cost,
                      "invested": holdings.sum() / nav if nav > 0 else 0.0})
     df = pd.DataFrame(rows).set_index("date")
@@ -109,7 +122,8 @@ def simulate(weights: pd.DataFrame, panel: Panel, costs: dict | None = None, ben
         "annual_cost": float(df["cost"].sum() * ann / len(df)),
         "invested_mean": float(df["invested"].mean()),
         "excess_by_year": {str(k): v for k, v in by_year.items()},
-        "benchmark": benchmark if bench_close is not None else "cap_weighted_universe",
+        "benchmark": benchmark if bench_close is not None else ("equal_weight_universe" if equal_weight
+                                                                else "cap_weighted_universe"),
         "aum": aum, "annual_impact_cost": float(impact_total * ann / len(df)),
         "capped_trade_share": float(capped_trades / trades_total) if trades_total else 0.0,
         "_daily": df,

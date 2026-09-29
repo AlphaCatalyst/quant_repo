@@ -1,0 +1,58 @@
+task_id: c_pead_event_v2
+mandate: C
+description: As v1 with an equal-weighted all-A benchmark (the book is equal-weighted) and trading only entries and exits. Post-earnings drift on westock periodic reports in all A-shares; CAR vs CSI 500 at 20/40/60 days (docs/19 §3). The all-A panel has no BaoStock forecast / preliminary-result events.
+universe_train: ashare_all
+universe_predict: ashare_all
+label:
+  kind: event_car
+  horizons: [20, 40, 60]
+  formula_version: next_open_relative_car_v1
+  event_types: [ws_report]
+  mask: [buyable_entry, dedupe_same_period]
+  standardize: cross_sectional_rank
+  benchmark: zz500
+sample:
+  frequency: event
+  membership_asof: event_date
+  min_history_years: 3
+  min_train_rows: 3000
+  overlap: keep_with_purge
+  purge_days: 61
+  embargo_days: 61
+features:
+  factor_refs: []
+  panel_fields: [ws_roe_ttm, ws_cfoa_ttm, ws_accruals_ttm, turnover_rate]
+  preprocess: event_type_zscore
+  missing_policy: median_plus_indicator
+split:
+  tier: dev
+  window: expanding
+  warmup_years: 3
+  retrain: quarterly
+  select_every: yearly
+  inner_folds: 3
+models:
+  - family: ridge
+    grid: {alpha: [10.0, 100.0]}
+  - family: lgbm
+    grid: {num_leaves: [15, 31], min_child_samples: [200]}
+  - family: lambdarank
+    grid: {num_leaves: [15]}
+search:
+  max_configs: 8
+  selection_metric: rank_icir
+  seeds: [0]
+ensemble:
+  horizon_weights: {20: 0.5, 40: 0.3, 60: 0.2}
+output:
+  score_field: event_score_c
+portfolio:
+  kind: event_calendar
+  benchmark: equal_weight
+  hold_unchanged: true
+  holding_days: 40
+  aum: 500000000
+  max_participation: 0.10
+platform:
+  cluster: http://28.83.35.117:8081
+  processes: 24

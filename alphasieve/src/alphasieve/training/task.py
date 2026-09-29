@@ -102,6 +102,7 @@ class PortfolioLink(_Model):
     turnover_cap: float = 0.15
     active_scale: float = 1.0
     neutralize_score: list[Literal["industry", "log_circ_mv"]] = Field(default_factory=list)
+    hold_unchanged: bool = False
     aum: float = 5e8
     max_participation: float = 0.10
     top_k: int = 5

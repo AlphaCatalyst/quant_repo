@@ -101,6 +101,7 @@ class PortfolioLink(_Model):
     beta_range: tuple[float, float] = (0.95, 1.05)
     turnover_cap: float = 0.15
     active_scale: float = 1.0
+    neutralize_score: list[Literal["industry", "log_circ_mv"]] = Field(default_factory=list)
     aum: float = 5e8
     max_participation: float = 0.10
     top_k: int = 5

@@ -55,8 +55,23 @@ def _years_positive(sim: dict) -> tuple[int, int]:
     return sum(1 for v in years.values() if v > 0), len(years)
 
 
+def neutral_score(panel: Panel, score: pd.DataFrame, members: np.ndarray, factors: list[str]) -> pd.DataFrame:
+    """Per-date residual of the score on industry dummies and log float cap inside the benchmark members, so the
+    size limit does not have to be met by blending the whole portfolio back towards the benchmark."""
+    from alphasieve.training.samples import industry_codes, residualize
+
+    if not factors:
+        return score
+    extra = [np.log(panel.wide("circ_mv").to_numpy(dtype=float).clip(min=1.0))] if "log_circ_mv" in factors else []
+    ind = industry_codes(panel) if "industry" in factors else np.zeros(len(panel.codes), dtype=int)
+    values = score.reindex(index=panel.dates, columns=panel.codes).to_numpy(dtype=float)
+    res = residualize(values, members & np.isfinite(values), ind, extra, min_names=50)
+    return pd.DataFrame(res, index=panel.dates, columns=panel.codes)
+
+
 def index_enhancement(panel: Panel, score: pd.DataFrame, members: np.ndarray, beta: np.ndarray, cfg, costs: dict,
                       benchmark: str, index_returns: np.ndarray | None) -> dict:
+    score = neutral_score(panel, score, members, list(cfg.neutralize_score))
     weights = build_weights(score, panel, cfg.rebalance_every, cfg.industry_dev, cfg.name_cap, cfg.turnover_cap,
                             cfg.size_limit, universe_mask=members, beta=beta, beta_range=tuple(cfg.beta_range),
                             active_scale=cfg.active_scale)

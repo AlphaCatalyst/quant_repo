@@ -119,12 +119,26 @@ def enforce_active_names(w: np.ndarray, bench: np.ndarray, cap: float) -> np.nda
     return w
 
 
+def enforce_beta(w: np.ndarray, bench: np.ndarray, beta: np.ndarray, lo: float, hi: float) -> np.ndarray:
+    """Blend towards the benchmark just enough to bring the portfolio beta into [lo, hi]."""
+    b = np.nan_to_num(beta, nan=1.0)
+    bw, bb = float((w * b).sum()), float((bench * b).sum())
+    target = min(max(bw, lo), hi)
+    if target == bw or abs(bw - bb) < 1e-12:
+        return w
+    alpha = float(np.clip((bw - target) / (bw - bb), 0.0, 1.0))
+    return (1 - alpha) * w + alpha * bench
+
+
 def build_weights(scores: pd.DataFrame, panel: Panel, rebalance_every: int = 5, industry_dev: float = 0.03,
-                  name_cap: float = 0.02, turnover_cap: float = 0.30, size_limit: float = 0.3) -> pd.DataFrame:
+                  name_cap: float = 0.02, turnover_cap: float = 0.30, size_limit: float = 0.3,
+                  universe_mask: np.ndarray | None = None, beta: np.ndarray | None = None,
+                  beta_range: tuple[float, float] | None = None, active_scale: float = 1.0) -> pd.DataFrame:
+    """``universe_mask`` defines both the benchmark proxy (cap-weighted members) and the investable names."""
     dates, codes = panel.dates, panel.codes
     s = scores.reindex(index=dates, columns=codes).to_numpy(dtype=float)
     cap = panel.wide("circ_mv").to_numpy(dtype=float)
-    universe = panel.mask("in_universe").to_numpy()
+    universe = panel.mask("in_universe").to_numpy() if universe_mask is None else universe_mask
     groups = panel.industry().reindex(codes).fillna("unknown").to_numpy()
     active = np.flatnonzero(np.isfinite(s).any(axis=1))
     rebal = active[::rebalance_every]
@@ -138,6 +152,10 @@ def build_weights(scores: pd.DataFrame, panel: Panel, rebalance_every: int = 5, 
         bench = np.where(ok, cap[t], 0.0) / cap[t][ok].sum()
         z = _size_z(cap[t], ok)
         target = enforce_size(target, bench, z, size_limit)
+        if active_scale < 1.0:
+            target = active_scale * target + (1 - active_scale) * bench
+        if beta is not None and beta_range is not None:
+            target = enforce_beta(target, bench, beta[t], *beta_range)
         oneway = 0.5 * np.abs(target - prev).sum()
         lam = 1.0 if prev.sum() == 0 or oneway <= turnover_cap else turnover_cap / oneway
         w = np.clip(prev + lam * (target - prev), 0, None)
@@ -146,6 +164,8 @@ def build_weights(scores: pd.DataFrame, panel: Panel, rebalance_every: int = 5, 
             w = enforce_industries(w, bench, groups, industry_dev)
             w = enforce_size(w, bench, z, size_limit)
             w = enforce_active_names(w, bench, name_cap)
+            if beta is not None and beta_range is not None:
+                w = enforce_beta(w, bench, beta[t], *beta_range)
             dev = max(abs(w[groups == g].sum() - bench[groups == g].sum()) for g in np.unique(groups))
             if dev <= industry_dev + 1e-6:
                 break
@@ -154,12 +174,15 @@ def build_weights(scores: pd.DataFrame, panel: Panel, rebalance_every: int = 5, 
     return pd.DataFrame.from_dict(rows, orient="index", columns=codes)
 
 
-def weight_diagnostics(weights: pd.DataFrame, panel: Panel, turnover_cap: float = 0.30) -> dict:
+def weight_diagnostics(weights: pd.DataFrame, panel: Panel, turnover_cap: float = 0.30,
+                       universe_mask: np.ndarray | None = None, beta: np.ndarray | None = None) -> dict:
     if weights.empty:
         return {"rebalances": 0}
     groups = panel.industry().reindex(weights.columns).fillna("unknown")
     cap = panel.wide("circ_mv").reindex(index=weights.index, columns=weights.columns)
-    uni = panel.mask("in_universe").reindex(index=weights.index, columns=weights.columns).fillna(False)
+    uni_full = panel.mask("in_universe") if universe_mask is None else pd.DataFrame(
+        universe_mask, index=panel.dates, columns=panel.codes)
+    uni = uni_full.reindex(index=weights.index, columns=weights.columns).fillna(False).astype(bool)
     bench = cap.where(uni).div(cap.where(uni).sum(axis=1), axis=0).fillna(0.0)
     ind_dev = (weights.T.groupby(groups).sum() - bench.T.groupby(groups).sum()).abs().max().max()
     turnover = 0.5 * weights.diff().abs().sum(axis=1).iloc[1:]
@@ -167,7 +190,15 @@ def weight_diagnostics(weights: pd.DataFrame, panel: Panel, turnover_cap: float 
     size_z = size.sub(size.where(uni).mean(axis=1), axis=0).div(size.where(uni).std(axis=1), axis=0)
     active_size = ((weights - bench) * size_z.fillna(0)).sum(axis=1)
     raw_turnover = turnover
-    return {"rebalances": int(len(weights)), "names_held_mean": float((weights > 0).sum(axis=1).mean()),
+    extra = {}
+    if beta is not None:
+        bw = pd.DataFrame(beta, index=panel.dates, columns=panel.codes).reindex(
+            index=weights.index, columns=weights.columns).fillna(1.0)
+        port_beta = (weights * bw).sum(axis=1)
+        extra = {"portfolio_beta_mean": float(port_beta.mean()), "portfolio_beta_min": float(port_beta.min()),
+                 "portfolio_beta_max": float(port_beta.max()),
+                 "benchmark_beta_mean": float((bench * bw).sum(axis=1).mean())}
+    return extra | {"rebalances": int(len(weights)), "names_held_mean": float((weights > 0).sum(axis=1).mean()),
             "max_name_weight": float(weights.max().max()),
             "max_active_name_weight": float((weights - bench).abs().max().max()),
             "max_industry_deviation": float(ind_dev),

@@ -45,6 +45,25 @@ def _configure_stats(p):
     p.add_argument("--tier", default="dev", choices=["dev", "holdout", "fresh"])
 
 
+def _configure_void(p):
+    p.add_argument("--trial-id", required=True)
+    p.add_argument("--seq", type=int, required=True)
+    p.add_argument("--reason", required=True)
+
+
+@command("ledger void-duplicate", ("human",), configure=_configure_void,
+         help="void a duplicated result record (append-only; the row stays in the hash chain)")
+def cmd_ledger_void(args, ctx) -> CommandResult:
+    from alphasieve.errors import validation_error
+    from alphasieve.ledger.ledger import void_duplicate_result
+
+    try:
+        row = void_duplicate_result(ctx.conn, args.trial_id, args.seq, args.reason, ctx.settings.role)
+    except ValueError as exc:
+        raise validation_error(str(exc)) from exc
+    return CommandResult(data={"seq": row["seq"], "trial_id": args.trial_id, "voids_seq": args.seq})
+
+
 @command("ledger stats", ALL, configure=_configure_stats, help="trial counts and failure reasons")
 def cmd_ledger_stats(args, ctx) -> CommandResult:
     if ctx.settings.role == "agent" and args.tier != "dev":

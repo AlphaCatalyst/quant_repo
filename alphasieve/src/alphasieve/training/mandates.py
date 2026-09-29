@@ -1,0 +1,124 @@
+"""Portfolio construction, backtests and dev acceptance per mandate (docs/18 §3–6, docs/19 §2.5, §5).
+
+Acceptance thresholds are the dev thresholds written in docs/18; results are reported against them, they never
+change a gate. The futures-hedged mandate has no index-futures data (docs/17): it is simulated by shorting the
+index itself, which omits the basis, so its result carries ``basis_included = False`` and cannot claim neutrality.
+"""
+
+import numpy as np
+import pandas as pd
+
+from alphasieve.data.access import Panel
+from alphasieve.strategy.execution import simulate
+from alphasieve.strategy.portfolio import build_weights, weight_diagnostics
+
+ACCEPTANCE = {
+    "A": {"annual_excess_min": 0.06, "information_ratio_min": 1.0, "max_drawdown_excess_min": -0.08,
+          "positive_years_share_min": 5 / 7, "capacity_drop_max": 0.015},
+    "D": {"annual_return_min": 0.05, "annual_vol_max": 0.06, "max_drawdown_min": -0.05, "sharpe_min": 1.0},
+    "C": {"car_spread_t_min": 3.0, "decile_monotonicity_min": 0.8, "annual_excess_min": 0.05},
+    "B": {"annual_excess_min": 0.05, "sharpe_min": 0.8},
+}
+CAPACITY_AUMS = (1e8, 5e8, 2e9)
+TE_TARGET = (0.04, 0.06)
+ANN = 252
+
+
+def _clean(sim: dict) -> dict:
+    return {k: v for k, v in sim.items() if not k.startswith("_")}
+
+
+def proxy_tracking(panel: Panel, members: np.ndarray, index_returns: np.ndarray | None) -> dict:
+    """How well the cap-weighted member proxy tracks the real index (docs/18 G-2)."""
+    if index_returns is None:
+        return {"available": False}
+    cap = panel.wide("circ_mv").to_numpy(dtype=float)
+    close = panel.wide("close").to_numpy(dtype=float)
+    r = np.full(close.shape, np.nan)
+    r[1:] = close[1:] / close[:-1] - 1
+    w = np.where(members & np.isfinite(cap) & (cap > 0), cap, 0.0)
+    w_prev = np.zeros_like(w)
+    w_prev[1:] = w[:-1]
+    denom = w_prev.sum(axis=1)
+    safe = np.where(denom > 0, denom, 1.0)
+    proxy = np.where(denom > 0, np.nansum(w_prev * np.nan_to_num(r), axis=1) / safe, np.nan)
+    window = panel.window_mask().to_numpy()
+    ok = window & np.isfinite(proxy) & np.isfinite(index_returns) & (denom > 0)
+    diff = proxy[ok] - index_returns[ok]
+    return {"available": True, "days": int(ok.sum()), "tracking_error": float(diff.std() * np.sqrt(ANN)),
+            "annual_gap": float(diff.mean() * ANN),
+            "correlation": float(np.corrcoef(proxy[ok], index_returns[ok])[0, 1])}
+
+
+def _years_positive(sim: dict) -> tuple[int, int]:
+    years = sim.get("excess_by_year", {})
+    return sum(1 for v in years.values() if v > 0), len(years)
+
+
+def index_enhancement(panel: Panel, score: pd.DataFrame, members: np.ndarray, beta: np.ndarray, cfg, costs: dict,
+                      benchmark: str, index_returns: np.ndarray | None) -> dict:
+    weights = build_weights(score, panel, cfg.rebalance_every, cfg.industry_dev, cfg.name_cap, cfg.turnover_cap,
+                            cfg.size_limit, universe_mask=members, beta=beta, beta_range=tuple(cfg.beta_range),
+                            active_scale=cfg.active_scale)
+    diag = weight_diagnostics(weights, panel, cfg.turnover_cap, universe_mask=members, beta=beta)
+    base = simulate(weights, panel, costs, benchmark, universe_mask=members)
+    runs = {f"{aum:.0e}": simulate(weights, panel, costs, benchmark, aum=aum, max_participation=cfg.max_participation,
+                                   universe_mask=members) for aum in CAPACITY_AUMS}
+    main = simulate(weights, panel, costs, benchmark, aum=cfg.aum, max_participation=cfg.max_participation,
+                    universe_mask=members)
+    capacity = {k: {"annual_excess": v["annual_excess"], "information_ratio": v["information_ratio"],
+                    "annual_impact_cost": v["annual_impact_cost"], "capped_trade_share": v["capped_trade_share"]}
+                for k, v in runs.items()}
+    pos, n_years = _years_positive(main)
+    rule = ACCEPTANCE["A"]
+    drop = base["annual_excess"] - main["annual_excess"]
+    checks = {
+        "annual_excess": [main["annual_excess"], rule["annual_excess_min"],
+                          main["annual_excess"] >= rule["annual_excess_min"]],
+        "information_ratio": [main["information_ratio"], rule["information_ratio_min"],
+                              main["information_ratio"] >= rule["information_ratio_min"]],
+        "max_drawdown_excess": [main["max_drawdown_excess"], rule["max_drawdown_excess_min"],
+                                main["max_drawdown_excess"] >= rule["max_drawdown_excess_min"]],
+        "positive_years": [f"{pos}/{n_years}", rule["positive_years_share_min"],
+                           n_years > 0 and pos / n_years >= rule["positive_years_share_min"] - 1e-9],
+        "capacity_drop_at_aum": [drop, rule["capacity_drop_max"], drop <= rule["capacity_drop_max"]],
+    }
+    te = main["tracking_error"]
+    diag["tracking_error_target"] = {"value": te, "range": TE_TARGET, "inside": TE_TARGET[0] <= te <= TE_TARGET[1]}
+    return {"weights": weights, "portfolio": diag, "execution": _clean(main), "execution_no_impact": _clean(base),
+            "capacity": capacity, "benchmark_proxy": proxy_tracking(panel, members, index_returns),
+            "acceptance": {"checks": checks, "passed": all(c[2] for c in checks.values())},
+            "_daily": main["_daily"], "_excess_nav": main["_excess_nav"], "_nav": main["_nav"]}
+
+
+def futures_hedged(panel: Panel, long_result: dict, beta: np.ndarray, cfg, index_returns: np.ndarray) -> dict:
+    """Long the A portfolio, short ``beta_hat`` x index notional; capital also funds margin and a cash buffer."""
+    daily = long_result["_daily"]
+    weights = long_result["weights"]
+    b = pd.DataFrame(beta, index=panel.dates, columns=panel.codes).reindex(
+        index=weights.index, columns=weights.columns).fillna(1.0)
+    beta_hat = (weights * b).sum(axis=1).reindex(daily.index, method="ffill").shift(1).bfill()
+    idx = pd.Series(index_returns, index=panel.dates).reindex(daily.index).fillna(0.0)
+    long_share = 1.0 / (1.0 + cfg.margin + cfg.cash_buffer)
+    ret = long_share * (daily["ret"] - beta_hat * idx)
+    nav = (1 + ret).cumprod()
+    vol = float(ret.std() * np.sqrt(ANN))
+    annual = float((1 + ret).prod() ** (ANN / len(ret)) - 1)
+    mdd = float((nav / nav.cummax() - 1).min())
+    sharpe = float(ret.mean() * ANN / vol) if vol > 0 else float("nan")
+    corr = float(np.corrcoef(ret, idx)[0, 1]) if len(ret) > 2 else float("nan")
+    rule = ACCEPTANCE["D"]
+    checks = {"annual_return": [annual, rule["annual_return_min"], annual >= rule["annual_return_min"]],
+              "annual_vol": [vol, rule["annual_vol_max"], vol <= rule["annual_vol_max"]],
+              "max_drawdown": [mdd, rule["max_drawdown_min"], mdd >= rule["max_drawdown_min"]],
+              "sharpe": [sharpe, rule["sharpe_min"], sharpe >= rule["sharpe_min"]]}
+    by_year = ret.groupby(ret.index.year).apply(lambda s: float((1 + s).prod() - 1))
+    return {"basis_included": False,
+            "note": "short leg is the index itself: futures basis, roll and margin calls are not modelled",
+            "long_share_of_capital": long_share, "annual_return": annual, "annual_vol": vol, "max_drawdown": mdd,
+            "sharpe": sharpe, "correlation_with_index": corr, "beta_hat_mean": float(beta_hat.mean()),
+            "return_by_year": {str(k): v for k, v in by_year.items()},
+            "acceptance": {"checks": checks, "passed": False,
+                           "passed_without_basis": all(c[2] for c in checks.values()),
+                           "blocked": "index-futures data (docs/17) is needed before D can pass"},
+            "_nav": nav}

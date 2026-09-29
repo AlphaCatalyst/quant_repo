@@ -12,6 +12,7 @@ from alphasieve.cli import (  # noqa: F401  (register commands)
     commands_factor,
     commands_service,
     commands_strategy,
+    commands_train,
     commands_web,
 )
 from alphasieve.cli.registry import COMMANDS, Context, envelope

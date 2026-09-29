@@ -80,6 +80,8 @@ class TrialLedgerEntry(_Model):
     created_by: Role
     artifact_id: str | None = None
     turn_id: str | None = None   # not part of the hash chain (added after M2)
+    layer: Literal["factor", "strategy"] = "factor"   # hashed only for strategy rows, so older rows still verify
+    scope: str | None = None     # strategy rows: the mandate whose search discount the trial counts towards
 
 
 class Budgets(_Model):

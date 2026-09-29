@@ -1,0 +1,65 @@
+task_id: d_ic_neutral_v1
+mandate: D
+description: Long the CSI 500 enhancement portfolio, short beta-matched CSI 500 exposure (basis head disabled until index-futures data exists; docs/19 §5)
+universe_train: csi800
+universe_predict: csi500
+label:
+  kind: residual_plus_basis
+  horizons: [20]
+  formula_version: residual_open_v1
+  neutralize: [industry, log_circ_mv, log_circ_mv_sq, beta_60d]
+  mask: [buyable_entry, not_st, not_suspended]
+  winsorize: [0.01, 0.99]
+  standardize: cross_sectional_zscore
+sample:
+  frequency: daily
+  membership_asof: month_start
+  min_history_years: 3
+  train_stride: 5
+  purge_days: 21
+  embargo_days: 21
+features:
+  factor_refs: library
+  panel_fields: [ws_roe_ttm, ws_roa_ttm, ws_gross_margin_ttm, ws_cfoa_ttm, ws_accruals_ttm, ws_debt_to_assets,
+                 ws_asset_growth_yoy, ws_rev_growth_yoy, ws_np_growth_q_yoy, ws_np_surprise_q, roe_avg, yoy_ni,
+                 fc_chg_mid, fc_positive, ex_eps_chg]
+  preprocess: industry_rank_then_zscore
+  missing_policy: median_plus_indicator
+split:
+  tier: dev
+  window: rolling
+  train_years: 5
+  warmup_years: 4
+  retrain: monthly
+  select_every: yearly
+  inner_folds: 3
+models:
+  - family: ridge
+    grid: {alpha: [10.0, 100.0]}
+  - family: lgbm
+    grid: {num_leaves: [15, 63], min_child_samples: [300, 1500]}
+search:
+  max_configs: 8
+  selection_metric: residual_icir
+  seeds: [0]
+ensemble:
+  horizon_weights: {20: 1.0}
+output:
+  score_field: score_d
+portfolio:
+  kind: futures_hedged
+  benchmark: zz500
+  rebalance_every: 5
+  industry_dev: 0.02
+  name_cap: 0.01
+  size_limit: 0.2
+  beta_range: [0.95, 1.05]
+  turnover_cap: 0.15
+  aum: 500000000
+  hedge: IC
+  margin: 0.15
+  cash_buffer: 0.25
+  basis_head: disabled
+platform:
+  cluster: http://21.234.200.155:8081
+  processes: 6

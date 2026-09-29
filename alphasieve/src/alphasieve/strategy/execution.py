@@ -4,6 +4,8 @@ Target weights decided at a rebalance date's close are executed at the next day'
 bought (suspended or opening limit-up) keeps its old weight when the target is higher; a name that cannot be sold
 (suspended or opening limit-down) keeps its old weight when the target is lower; unfilled weight stays in cash.
 Costs follow configs/costs.yaml B3 values when present (commission both sides, stamp duty on sells, slippage).
+With ``aum`` set, each trade is capped at ``max_participation`` of the trailing 20-day average traded amount
+(the rest waits for the next rebalance) and pays square-root impact ``impact_k * vol_20d * sqrt(participation)``.
 """
 
 import numpy as np
@@ -14,7 +16,9 @@ from alphasieve.data.access import Panel
 DEFAULT_COSTS = {"commission": 0.00025, "stamp_duty_sell": 0.0005, "slippage": 0.0005}
 
 
-def simulate(weights: pd.DataFrame, panel: Panel, costs: dict | None = None, benchmark: str | None = None) -> dict:
+def simulate(weights: pd.DataFrame, panel: Panel, costs: dict | None = None, benchmark: str | None = None,
+             aum: float | None = None, max_participation: float = 0.10,
+             universe_mask: np.ndarray | None = None) -> dict:
     c = {**DEFAULT_COSTS, **(costs or {})}
     dates, codes = panel.dates, panel.codes
     w_target = weights.reindex(columns=codes).fillna(0.0)
@@ -23,7 +27,13 @@ def simulate(weights: pd.DataFrame, panel: Panel, costs: dict | None = None, ben
     buy_ok = panel.mask("tradable_buy").to_numpy()
     sell_ok = panel.mask("tradable_sell").to_numpy()
     cap = panel.wide("circ_mv").to_numpy(dtype=float)
-    universe = panel.mask("in_universe").to_numpy()
+    universe = panel.mask("in_universe").to_numpy() if universe_mask is None else universe_mask
+    if aum:
+        amount = pd.DataFrame(panel.wide("amount").to_numpy(dtype=float), index=dates)
+        adv = amount.rolling(20, min_periods=5).mean().shift(1).to_numpy()
+        rets = pd.DataFrame(panel.wide("ret_1d").to_numpy(dtype=float), index=dates)
+        vol = rets.rolling(20, min_periods=5).std().shift(1).to_numpy()
+    impact_total, capped_trades, trades_total = 0.0, 0, 0
     targets = {dates.get_loc(d): row.to_numpy() for d, row in w_target.iterrows()}
     if not targets:
         return {"days": 0}
@@ -46,13 +56,27 @@ def simulate(weights: pd.DataFrame, panel: Panel, costs: dict | None = None, ben
             goal = targets[t - 1]
             blocked = ((goal > current) & ~buy_ok[t]) | ((goal < current) & ~sell_ok[t])
             new = np.where(blocked, current, goal)
+            impact = 0.0
+            if aum:
+                limit = max_participation * np.nan_to_num(adv[t], nan=0.0) / max(value * aum, 1.0)
+                delta = new - current
+                over = np.abs(delta) > limit + 1e-12
+                trades_total += int((np.abs(delta) > 1e-9).sum())
+                capped_trades += int((over & (np.abs(delta) > 1e-9)).sum())
+                new = np.where(over, current + np.sign(delta) * limit, new)
+                traded = np.abs(new - current)
+                with np.errstate(invalid="ignore", divide="ignore"):
+                    part = np.where(np.nan_to_num(adv[t]) > 0, traded * value * aum / adv[t], 0.0)
+                impact = float((c.get("impact_k", 0.5) * np.nan_to_num(vol[t], nan=0.02) * np.sqrt(part)
+                                * traded).sum())
             if new.sum() > 1:
                 free = ~blocked
                 new = np.where(free, new * max(0.0, 1 - (new.sum() - 1) / max(new[free].sum(), 1e-12)), new)
             buys = np.clip(new - current, 0, None).sum()
             sells = np.clip(current - new, 0, None).sum()
             cost = buys * (c["commission"] + c["slippage"]) + sells * (c["commission"] + c["slippage"]
-                                                                        + c["stamp_duty_sell"])
+                                                                        + c["stamp_duty_sell"]) + impact
+            impact_total += impact
             holdings = new * value
             cash = value - holdings.sum() - cost * value
         holdings = holdings * (1 + intraday)
@@ -86,5 +110,8 @@ def simulate(weights: pd.DataFrame, panel: Panel, costs: dict | None = None, ben
         "invested_mean": float(df["invested"].mean()),
         "excess_by_year": {str(k): v for k, v in by_year.items()},
         "benchmark": benchmark if bench_close is not None else "cap_weighted_universe",
+        "aum": aum, "annual_impact_cost": float(impact_total * ann / len(df)),
+        "capped_trade_share": float(capped_trades / trades_total) if trades_total else 0.0,
+        "_daily": df,
         "_nav": df["ret"].add(1).cumprod(), "_excess_nav": curve,
     }

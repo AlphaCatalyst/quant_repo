@@ -63,6 +63,7 @@ def backtest(settings: Settings, conn: sqlite3.Connection, universe: str = "csi8
     scores.astype("float32").to_parquet(out_dir / "scores.parquet")
     weights.astype("float32").to_parquet(out_dir / "weights.parquet")
     nav, excess_nav = sim.pop("_nav", pd.Series(dtype=float)), sim.pop("_excess_nav", pd.Series(dtype=float))
+    sim.pop("_daily", None)
     monthly = pd.DataFrame({"nav": nav, "excess_nav": excess_nav}).resample("ME").last().dropna()
     config = {"universe": universe, "horizon": horizon, "model": model, "retrain": retrain,
               "train_years": train_years, "warmup_years": warmup_years, "rebalance_every": rebalance_every,

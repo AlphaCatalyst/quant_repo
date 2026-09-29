@@ -6,6 +6,8 @@
 # RunLab tracking: put WANDB_API_KEY=... in <remote root>/secrets/runlab.env (chmod 600); it is read on the node
 # and never passed through Ray job arguments, which are visible on the shared dashboard.
 # ALPHASIEVE_PRE: optional shell snippet run on the node before the command (e.g. unpacking raw data locally).
+# ALPHASIEVE_ENTRYPOINT_CPUS: reserve that many CPUs for the job, which places it on a node that has them free.
+# ALPHASIEVE_NO_WAIT=1: return after submission instead of following the job logs.
 set -euo pipefail
 here="$(cd "$(dirname "$0")/../.." && pwd)"
 name="${1:?job name}"; shift
@@ -42,5 +44,9 @@ mkdir -p ${remote_root}/runs/${job_id}
 EOF
 )
 encoded=$(printf '%s' "$script" | base64 -w0)
-ray job submit --submission-id "$job_id" --runtime-env-json "$runtime_env" -- bash -c "echo $encoded | base64 -d | bash -l"
+extra=()
+[ -n "${ALPHASIEVE_ENTRYPOINT_CPUS:-}" ] && extra+=(--entrypoint-num-cpus "$ALPHASIEVE_ENTRYPOINT_CPUS")
+[ -n "${ALPHASIEVE_NO_WAIT:-}" ] && extra+=(--no-wait)
+ray job submit --submission-id "$job_id" "${extra[@]}" --runtime-env-json "$runtime_env" -- \
+  bash -c "echo $encoded | base64 -d | bash -l"
 echo "job ${job_id}; outputs in ${remote_root}/runs/${job_id}"

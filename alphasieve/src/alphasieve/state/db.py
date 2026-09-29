@@ -192,6 +192,25 @@ MIGRATIONS: list[str] = [
     ALTER TABLE trials ADD COLUMN turn_id TEXT;
     CREATE INDEX trials_turn ON trials(turn_id);
     """,
+    """
+    ALTER TABLE trials ADD COLUMN layer TEXT NOT NULL DEFAULT 'factor';
+    ALTER TABLE trials ADD COLUMN scope TEXT;
+    CREATE INDEX trials_layer_scope ON trials(layer, scope);
+    CREATE TABLE strategy_holdout_requests (
+        request_id TEXT PRIMARY KEY,
+        mandate TEXT NOT NULL,
+        task_id TEXT NOT NULL,
+        trial_id TEXT NOT NULL,
+        config_hash TEXT NOT NULL,
+        status TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        decided_by TEXT,
+        decided_at TEXT,
+        reason TEXT,
+        result_json TEXT
+    );
+    """,
 ]
 
 

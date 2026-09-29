@@ -12,7 +12,7 @@ ALL = ("agent", "human", "system")
 HUMAN_SYSTEM = ("human", "system")
 MAX_SAMPLE_ROWS = 200
 SYNC_DATASETS = ("reference", "members", "daily", "financials", "events", "intraday", "mirror", "core",
-                 "ws_financials", "fund_flow", "margin", "margin_history")
+                 "ws_financials", "fund_flow", "margin", "margin_history", "etf")
 
 
 def _universe_arg(p):
@@ -75,6 +75,10 @@ def cmd_data_sync(args, ctx) -> CommandResult:
         out["fund_flow"] = sync.sync_fund_flow(settings, conn, end, args.workers, _progress("fund_flow"), u)
     if "margin" in datasets:
         out["margin"] = sync.sync_margin_snapshot(settings, conn, end, args.workers, _progress("margin"), u)
+    if "etf" in datasets:
+        from alphasieve.data.etf import sync_etf
+
+        out["etf"] = sync_etf(settings, conn, end)
     if "margin_history" in datasets:
         out["margin_history"] = sync.sync_margin_history(settings, conn, args.start, end, args.workers,
                                                          _progress("margin_history"), u)
@@ -102,6 +106,19 @@ def cmd_build_panel(args, ctx) -> CommandResult:
     results = build_panel(ctx.settings, ctx.conn, args.end, args.universe, tiers, args.warmup_start)
     warnings = [f"{tier}: quality checks failed" for tier, r in results.items() if not r["quality_ok"]]
     return CommandResult(data=results, warnings=warnings)
+
+
+def _configure_etf_build(p):
+    p.add_argument("--tiers", default="dev,holdout", help="which tiers to build (holdout only on the local host)")
+
+
+@command("data build-etf-panel", HUMAN_SYSTEM, configure=_configure_etf_build,
+         help="build the sector-ETF panels (universe etf_sector) from westock bars")
+def cmd_build_etf_panel(args, ctx) -> CommandResult:
+    from alphasieve.data.etf import build_etf_panel
+
+    tiers = tuple(t.strip() for t in args.tiers.split(",") if t.strip())
+    return CommandResult(data=build_etf_panel(ctx.settings, tiers))
 
 
 @command("data status", ALL, help="data boundaries, freshness and quality summary")

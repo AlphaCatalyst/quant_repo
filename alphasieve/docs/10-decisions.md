@@ -210,6 +210,14 @@ verifier 本身的正确性要靠测试证明；gate 阈值用零假设模拟与
 - 搜索空间 v3 新增 `fin_quality`、`fin_growth`（默认预测周期 20 天）、`fund_flow`（5 天）和 `margin`（20 天）。新增股票池 `ashare_2020`：全 A 规则股票池，dev 为 2020-03 至 2022-12，与资金流向的覆盖区间一致。
 - 平台上只放 dev 区间的原始数据：上传到 taijifs 的 tar 截断到 2022-12-31。检查时发现之前的全 A tar 含有 2023 年以后的日线（S-4 的疏漏），已换成截断版并删除旧文件。
 
+**D-31 训练任务与 mandate 的实现口径（2026-09-29）**
+- 按 [19-training-tasks.md](19-training-tasks.md) 实现训练任务（`src/alphasieve/training/`），四个 mandate 的配置在 `configs/training_tasks/`。一次完整运行是一个策略层 trial；换任何配置都是新 trial。
+- 验收基准用全收益口径：组合收益是后复权的全收益，而指数是价格指数。A、D 对照中证 500 成员按流通市值加权的全收益代理，C、B 对照各自股票池的全收益基准；对价格指数的结果作为参考一并报告。
+- 指数增强的组合构建增加线性规划选项（`construction: lp`）：在个股主动权重、行业、市值、beta、单边换手这些线性约束下最大化分数加权持仓。原来的启发式方法会向基准混合，实际在复制基准。
+- ledger：`trials` 表新增 `layer` 和 `scope`，只有策略层记录把这两列纳入哈希；新增 `strategy_holdout_requests` 表；启用 `void` 记录，只能作废重复的结果记录，被作废的行仍留在哈希链里。按 mandate 计算搜索折扣：零假设下 N 次尝试的最优年化信息比率期望，从实测值中扣除。
+- 策略层 holdout 每个 mandate 一次读取，只能由人工申请和批准，批准后按锁定的配置（同一配置哈希、同一冻结特征集）重跑。
+- dev 结果与阻塞项见 [acceptance-training.md](acceptance-training.md)。
+
 ## 待定问题
 
 | 编号 | 问题 | 影响 | 计划决定时间 |

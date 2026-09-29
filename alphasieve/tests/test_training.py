@@ -207,3 +207,56 @@ def test_etf_relative_labels_sum_to_zero():
     rel = relative_labels(panel, np.ones((3, 3), bool), [5])[5]
     np.testing.assert_allclose(np.nansum(rel, axis=1), 0.0, atol=1e-12)
     assert np.isnan(rel[1, 2]) and rel[0, 0] == pytest.approx(0.1)
+
+
+def test_lp_portfolio_respects_limits(panel_settings):
+    from alphasieve.strategy.portfolio_lp import build_weights_lp
+
+    dev = load_panel(panel_settings, "dev", role="system")
+    members = samples.universe_mask(dev, "csi500")
+    score = dev.wide("ret_1d").rolling(20, min_periods=5).mean() * -1
+    weights, info = build_weights_lp(score, dev, members, rebalance_every=5, industry_dev=0.05, name_cap=0.03,
+                                     turnover_cap=0.3, size_limit=0.5)
+    assert len(weights) > 5 and info["infeasible_dates"] == 0
+    np.testing.assert_allclose(weights.sum(axis=1), 1.0, atol=1e-8)
+    cap = dev.wide("circ_mv").reindex(index=weights.index, columns=weights.columns)
+    mem = pd_frame(members, dev).reindex(index=weights.index, columns=weights.columns)
+    bench = cap.where(mem).div(cap.where(mem).sum(axis=1), axis=0).fillna(0.0)
+    in_index = mem.to_numpy()
+    active = (weights - bench).to_numpy()
+    assert np.abs(active[in_index]).max() <= 0.03 + 1e-6
+    groups = dev.industry().reindex(weights.columns)
+    ind_dev = (weights.T.groupby(groups).sum() - bench.T.groupby(groups).sum()).abs().max().max()
+    assert ind_dev <= 0.05 + 1e-6
+    turnover = 0.5 * weights.diff().abs().sum(axis=1).iloc[1:]
+    assert turnover.max() <= 0.3 + 1e-6 or info["turnover_relaxed_dates"] > 0
+
+
+def pd_frame(mask, panel):
+    import pandas as pd
+
+    return pd.DataFrame(mask, index=panel.dates, columns=panel.codes)
+
+
+def test_hold_unchanged_does_not_trade_kept_names(panel_settings):
+    import pandas as pd
+
+    from alphasieve.strategy.execution import simulate
+
+    dev = load_panel(panel_settings, "dev", role="system")
+    codes = dev.codes[:4]
+    days = dev.dates[100:103]
+    w = pd.DataFrame(0.0, index=days, columns=dev.codes)
+    w.loc[days[0], codes[:2]] = 0.25
+    w.loc[days[1], codes[:3]] = 0.25
+    w.loc[days[2], codes[1:3]] = 0.25
+    kept = simulate(w, dev, hold_unchanged=True)
+    full = simulate(w, dev, hold_unchanged=False)
+    assert kept["annual_cost"] <= full["annual_cost"] + 1e-12
+
+
+def test_search_discount_grows_with_trials():
+    one = tr.search_discount(1, 252 * 7, 1.0)
+    many = tr.search_discount(20, 252 * 7, 1.0)
+    assert one["null_expected_max_ratio"] == 0.0 and one["deflated_ratio"] == 1.0
+    assert 0.5 < many["null_expected_max_ratio"] < 1.0 and many["deflated_ratio"] < 0.5

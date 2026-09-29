@@ -98,6 +98,9 @@ def run_etf_task(settings, task, bundle, panel: Panel, processes=None, threads=N
     mask = table.extra["mask"]
     rel = relative_labels(panel, mask, task.label.horizons)
     diag = score_diagnostics(score, rel, mask, task.output.decay_lags)
+    real = mask & ~panel.mask("is_proxy").to_numpy() if panel.has("is_proxy") else mask
+    diag_real = score_diagnostics(score, rel, real, task.output.decay_lags)
+    proxy_share = float(1 - real[mask].mean()) if mask.any() else 0.0
     weights = top_k_weights(panel, score, mask, task.portfolio.top_k, task.portfolio.rebalance_every)
     costs = {**load_config(settings, "costs").get("b3", {}), **ETF_COSTS}
     sim = simulate(weights, panel, costs, None, universe_mask=mask)
@@ -118,6 +121,7 @@ def run_etf_task(settings, task, bundle, panel: Panel, processes=None, threads=N
     names = table.extra["names_per_date"]
     scored_days = np.isfinite(score).any(axis=1)
     result = {"model": {k: v for k, v in wf.items() if k not in ("score", "per_horizon")}, "scores": diag,
+              "scores_real_etf_rows": diag_real, "proxy_row_share": proxy_share,
               "features": {"names": table.feature_names},
               "universe": {"names_per_scored_day_mean": float(names[scored_days].mean()) if scored_days.any() else 0,
                            "first_scored_day": str(panel.dates[np.flatnonzero(scored_days)[0]].date())

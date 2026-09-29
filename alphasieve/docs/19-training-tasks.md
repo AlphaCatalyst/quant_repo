@@ -1,6 +1,6 @@
 # 19 · 投资任务的模型训练定义
 
-状态：设计规范，待实现。起草日期 2026-09-29。
+状态：已实现（2026-09-29，见 §10）。起草日期 2026-09-29。
 
 本文定义四个 mandate 的**训练任务**。训练任务的产物是日期 × 标的的样本外分数，组合、执行和最终收益判断仍由策略层完成。本文不打开 holdout 或 fresh，也不改变现有评测、回测、gate、ledger 和 strategy 代码。
 
@@ -256,3 +256,44 @@ platform: {cluster: http://21.234.200.155:8081, remote_root: /taijifs_zw35/r2/fe
 | A 的训练池是否 CSI 800 | 统计功效与分布迁移的权衡 | dev 内预注册 csi500/csi800 两候选，由任务配置锁定 |
 | A 第一版是否允许 20% 非成分股 | 约束与容量定义变化 | 本规范第一版禁止，需用户另行确认后新增版本 |
 
+
+## 10. 实现状态
+
+代码在 `src/alphasieve/training/`，任务配置在 `src/alphasieve/configs/training_tasks/`，ETF 数据在 `src/alphasieve/data/etf.py`。
+
+| 模块 | 内容 |
+|---|---|
+| `task.py` | `TrainingTask` 结构与校验：只允许 dev；任何字段出现 holdout / fresh 即拒绝；`purge_days`、`embargo_days` ≥ 最长周期 + 1；候选配置 ≤ 12、seed ≤ 3；事件任务必须声明去重；D 的基差头在没有期货数据时不能开启 |
+| `samples.py` | 训练池与预测池（`csi800` 训练、`csi500` 预测用 `in_zz500`）、60 日 beta、按日的行业 + 市值（含平方）+ beta 残差标签、1%/99% winsorize 与 z-score、行业内排名再标准化的特征、缺失值填中位数并加指示列 |
+| `engine.py` | 滚动训练：每年第一个重训点在内层前向折（每折 purge）上比较候选，选中的配置在当年各重训点重拟合，预先声明的 seed 平均；多周期 z-score 后按权重合成；fork 进程池并行；分数诊断（RankIC、ICIR、十分组差、按滞后的 IC 衰减、排名自相关、换手代理） |
+| `mandates.py` | A 的指数增强组合（基准代理、行业、个股主动权重、市值、beta 约束、换手上限）、容量与冲击（1 亿 / 5 亿 / 20 亿）、对照 18 的 dev 验收；D 的对冲模拟 |
+| `events.py` | C 的事件识别、累计超额标签、事件组合（按时点阈值入场、固定槽位权重） |
+| `etf.py` | B 的 ETF 特征、相对等权标签、前 k 只等权轮动 |
+| `run.py` / `holdout.py` | 一次运行 = 一个策略层 trial；平台任务包；结果记账；策略层 holdout 申请与人工批准 |
+
+命令：
+
+```text
+alphasieve train list | train validate <task>
+alphasieve train run --task <task>            # 本机运行，直接记 trial
+alphasieve train submit --task <task>         # 本机记 started，任务包写到 taijifs，提交 Ray 任务
+alphasieve train collect --trial-id <id> --result <result.json>
+alphasieve train abandon --trial-id <id> --reason ...        # 平台任务因缺陷停止时如实记为失败
+alphasieve train holdout-request --trial-id <id>             # 人工
+alphasieve train holdout-approve <request_id> --reason ...   # 人工，每个 mandate 一次
+alphasieve data sync --dataset etf ; alphasieve data build-etf-panel
+alphasieve ledger void-duplicate --trial-id <id> --seq <n> --reason ...   # 只能作废重复的结果记录
+```
+
+与前文设计不同或新增的地方（dev 结果见 [acceptance-training.md](acceptance-training.md)）：
+
+- **基准口径**：组合收益用后复权价格（全收益），而中证 500 指数是价格指数，直接相比会把约 1.5%–2% 的股息率算成超额。验收改为对照全收益的成员代理（A、D：中证 500 成员按流通市值加权；C：全 A 规则股票池按市值加权），对价格指数的结果作为参考一并报告。
+- **训练行抽样**：A、D 的训练行每 5 个交易日取一次（`train_stride: 5`），打分仍是每日；重叠标签带来的信息很少，训练时间降为五分之一。
+- **选参频率**：每年选一次、月度按选定配置重拟合，拟合次数从约 3,600 次降到约 500 次。
+- **C 的事件类型**：全 A 的 panel 只有 westock 定期报告；BaoStock 的业绩预告与快报只同步了中证 800。
+- **B 的特征**：westock 的指数成分接口报错，拿不到 ETF 对应的行业成分股，所以首版只用 ETF 自身量价，行业汇总的基本面待补。westock 的 ETF 成交额在 2018 年年中以前为 0，流动性门槛只在有成交额的年份起作用。
+- **D 的空头腿**：没有期货数据，用全收益成员代理乘以组合 beta 模拟，结果标注 `basis_included: false`，验收一律记为未通过（阻塞项：期货数据）。
+- **ledger**：`trials` 表新增 `layer` 与 `scope` 两列，只有策略层记录把这两列纳入哈希，旧记录照常校验；新增 `strategy_holdout_requests` 表；启用 `void` 记录类型，只用于作废重复的结果记录，被作废的行仍留在哈希链里。
+- **组合构建**：指数增强增加线性规划选项（`portfolio.construction: lp`）与分数中性化（`portfolio.neutralize_score`）；事件组合增加等权基准与只交易进出（`portfolio.benchmark: equal_weight`、`portfolio.hold_unchanged`）。
+- **搜索折扣**：每次完成记账时计算同一 mandate 的 trial 数 N 对应的零假设最优信息比率，并记录扣除后的值（`search_discount`）。
+- **B 的历史延长**：ETF 上市前用其跟踪指数（westock `etf detail` 的 `trackIndexCode`）按比例拼接，`is_proxy` 标记这些行；报告同时给出只看真实 ETF 行的分数诊断。

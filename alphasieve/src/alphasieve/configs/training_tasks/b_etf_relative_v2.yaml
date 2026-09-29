@@ -1,0 +1,53 @@
+task_id: b_etf_relative_v2
+mandate: B
+description: As v1 on the ETF panel with each ETF's tracked index (rescaled) standing in before listing (docs/19 §4.1); proxy rows are reported separately
+universe_train: etf_sector
+universe_predict: etf_sector
+label:
+  kind: etf_relative_return
+  horizons: [5, 20]
+  formula_version: open_t1_relative_equal_weight_v1
+  mask: [listed_1y, tradable_entry, amount_threshold]
+  winsorize: [0.02, 0.98]
+  standardize: cross_sectional_zscore
+sample:
+  frequency: daily
+  membership_asof: date
+  min_history_years: 2
+  min_names_per_date: 10
+  min_train_rows: 3000
+  overlap: keep_with_purge
+  purge_days: 21
+  embargo_days: 21
+features:
+  factor_refs: []
+  panel_fields: []
+  preprocess: rank_zscore
+  missing_policy: median_plus_indicator
+split:
+  tier: dev
+  window: expanding
+  warmup_years: 2
+  retrain: weekly
+  select_every: yearly
+  inner_folds: 3
+models:
+  - family: ridge
+    grid: {alpha: [10.0, 100.0]}
+  - family: lgbm
+    grid: {num_leaves: [7, 15], min_child_samples: [100]}
+search:
+  max_configs: 6
+  selection_metric: rank_icir
+  seeds: [0]
+ensemble:
+  horizon_weights: {5: 0.5, 20: 0.5}
+output:
+  score_field: score_b
+portfolio:
+  kind: etf_rotation
+  rebalance_every: 5
+  top_k: 5
+platform:
+  cluster: http://21.234.200.155:8081
+  processes: 6

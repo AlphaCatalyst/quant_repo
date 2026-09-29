@@ -170,6 +170,38 @@ def summary_metrics(result: dict) -> dict:
     return out
 
 
+EULER_GAMMA = 0.5772156649
+
+
+def search_discount(n_trials: int, days: int, ratio: float | None) -> dict:
+    """Expected best annualised IR / Sharpe among ``n_trials`` null strategies over ``days`` trading days
+    (Bailey & Lopez de Prado), and the observed ratio net of it: the per-mandate search discount (15 §4 P-5)."""
+    from scipy.stats import norm
+
+    years = days / 252 if days else 0.0
+    if n_trials < 1 or years <= 0:
+        return {"trials": n_trials}
+    if n_trials == 1:
+        e_max = 0.0
+    else:
+        e_max = ((1 - EULER_GAMMA) * norm.ppf(1 - 1 / n_trials)
+                 + EULER_GAMMA * norm.ppf(1 - 1 / (n_trials * np.e)))
+    hurdle = float(e_max / np.sqrt(years))
+    out = {"trials": n_trials, "years": round(years, 2), "null_expected_max_ratio": hurdle}
+    if ratio is not None and np.isfinite(ratio):
+        out["deflated_ratio"] = float(ratio - hurdle)
+    return out
+
+
+def _headline_ratio(result: dict) -> tuple[float | None, int]:
+    ex = (result.get("portfolio") or {}).get("execution") or {}
+    if "hedged" in result:
+        return result["hedged"].get("sharpe"), ex.get("days", 0)
+    if "information_ratio" in ex:
+        return ex["information_ratio"], ex.get("days", 0)
+    return (result.get("portfolio") or {}).get("sharpe"), ex.get("days", 0)
+
+
 def start_trial(conn: sqlite3.Connection, settings: Settings, task: TrainingTask, trial_id: str) -> None:
     append_trial(conn, TrialLedgerEntry(
         trial_id=trial_id, record_kind="started", candidate_hash=task.config_hash, evidence_tier="dev",
@@ -187,7 +219,11 @@ def complete_trial(conn: sqlite3.Connection, settings: Settings, task: TrainingT
     report = "# Training run\n\n```json\n" + pretty_json({k: v for k, v in result.items() if k != "series"}) + "\n```\n"
     artifact_id = write_artifact(settings, manifest, metrics={k: v for k, v in result.items()}, report=report)
     metrics = summary_metrics(result)
-    metrics["strategy_trials_for_mandate"] = strategy_trial_count(conn, task.mandate)
+    n = strategy_trial_count(conn, task.mandate, tier)
+    metrics["strategy_trials_for_mandate"] = n
+    ratio, days = _headline_ratio(result)
+    metrics["search_discount"] = search_discount(n, days, ratio)
+    result["search_discount"] = metrics["search_discount"]
     append_trial(conn, TrialLedgerEntry(
         trial_id=trial_id, record_kind="completed", candidate_hash=task.config_hash, evidence_tier=tier,
         data_window="/".join(result["manifest"]["window"]), search_space_version=f"training_task:{task.task_id}",

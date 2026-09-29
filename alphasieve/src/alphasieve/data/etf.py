@@ -27,6 +27,7 @@ MIN_LISTED_DAYS = 250
 MIN_AMOUNT_20D = 2e7
 HORIZONS = (1, 5, 10, 20)
 FETCH_RETRIES = 6
+INDEX_START = "2011-01-01"
 CALL_GAP_S = 1.5          # the kline endpoint throttles after a handful of quick calls
 THROTTLE_BACKOFF_S = 20
 
@@ -63,6 +64,49 @@ def _fetch(code: str, start: str, end: str) -> pd.DataFrame:
     return df.sort_values("date").reset_index(drop=True)
 
 
+def _track_index(code: str) -> str | None:
+    from alphasieve.data.providers.westock import WestockError, _call
+
+    for attempt in range(FETCH_RETRIES):
+        time.sleep(CALL_GAP_S)
+        try:
+            data = _call(["etf", "detail", code])
+        except WestockError:
+            data = None
+        if isinstance(data, dict) and data.get("sections"):
+            first = data["sections"][0][0] if data["sections"][0] else {}
+            return first.get("trackIndexCode")
+        time.sleep(THROTTLE_BACKOFF_S * (attempt + 1))
+    return None
+
+
+def sync_etf_indices(settings: Settings, end: str, start: str = INDEX_START) -> dict:
+    """Tracked index of every ETF (westock ``etf detail``) and its daily bars, for the pre-listing proxy."""
+    root = etf_root(settings)
+    meta_path = root / "_track_index.json"
+    mapping = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+    for code in ETF_UNIVERSE:
+        if not mapping.get(code):
+            mapping[code] = _track_index(code)
+    meta_path.parent.mkdir(parents=True, exist_ok=True)
+    meta_path.write_text(json.dumps(mapping, ensure_ascii=False, indent=1))
+    out, errors = {}, []
+    for index in sorted({v for v in mapping.values() if v}):
+        path = root.parent / "etf_index" / f"{index}.parquet"
+        if path.exists():
+            out[index] = {"rows": int(len(pd.read_parquet(path, columns=["date"]))), "cached": True}
+            continue
+        try:
+            df = _fetch(index, start, end)
+        except Exception as exc:  # noqa: BLE001
+            errors.append({"index": index, "error": str(exc)[:200]})
+            continue
+        if not df.empty:
+            _write_parquet(df, path)
+        out[index] = {"rows": int(len(df)), "first": df["date"].min() if len(df) else None}
+    return {"mapping": mapping, "indices": out, "errors": errors}
+
+
 def sync_etf(settings: Settings, conn, end: str, start: str = "2013-01-01") -> dict:
     root = etf_root(settings)
     out, errors = {}, []
@@ -81,18 +125,44 @@ def sync_etf(settings: Settings, conn, end: str, start: str = "2013-01-01") -> d
         if not df.empty:
             _write_parquet(df, root / f"{code}.parquet")
         out[code] = {"rows": int(len(df)), "first": df["date"].min() if len(df) else None}
-    paths = sorted(root.glob("*.parquet"))
+    indices = sync_etf_indices(settings, end)
+    paths = sorted(root.glob("*.parquet")) + sorted((root.parent / "etf_index").glob("*.parquet"))
     snap = record_snapshot(conn, "westock:etf", {"end": end}, paths, sum(v["rows"] for v in out.values()), "westock")
-    return {"etfs": out, "errors": errors, "snapshot": snap}
+    return {"etfs": out, "errors": errors, "indices": indices, "snapshot": snap}
+
+
+def _with_proxy(df: pd.DataFrame, index: pd.DataFrame | None) -> pd.DataFrame:
+    """Prepend the tracked index, rescaled to the ETF's first close, for the dates before the ETF existed."""
+    df = df.assign(is_proxy=False)
+    if index is None or index.empty or df.empty:
+        return df
+    first = df["date"].min()
+    ref = index[index["date"] == first]
+    if ref.empty or not ref["close"].iloc[0]:
+        return df
+    scale = float(df.loc[df["date"] == first, "close"].iloc[0]) / float(ref["close"].iloc[0])
+    pre = index[index["date"] < first].copy()
+    for c in ("open", "high", "low", "close"):
+        pre[c] = pre[c] * scale
+    pre["volume"] = np.nan
+    pre["amount"] = np.nan
+    pre["is_proxy"] = True
+    return pd.concat([pre[df.columns], df], ignore_index=True)
 
 
 def _long_panel(settings: Settings, end: str) -> pd.DataFrame:
+    root = etf_root(settings)
+    meta_path = root / "_track_index.json"
+    mapping = json.loads(meta_path.read_text()) if meta_path.exists() else {}
     frames = []
     for code in ETF_UNIVERSE:
-        path = etf_root(settings) / f"{code}.parquet"
+        path = root / f"{code}.parquet"
         if not path.exists():
             continue
         df = pd.read_parquet(path)
+        index_path = root.parent / "etf_index" / f"{mapping.get(code)}.parquet"
+        index = pd.read_parquet(index_path) if mapping.get(code) and index_path.exists() else None
+        df = _with_proxy(df, index)
         df = df[df["date"] <= end].copy()
         df["code"] = f"{code[:2]}.{code[2:]}"
         frames.append(df)
@@ -113,7 +183,8 @@ def build_etf_panel(settings: Settings, tiers: tuple[str, ...] = ("dev", "holdou
         dates = pd.DatetimeIndex(sorted(long["date"].unique()))
         codes = sorted(long["code"].unique())
         wide = {f: long.pivot(index="date", columns="code", values=f).reindex(index=dates, columns=codes)
-                for f in ("open", "high", "low", "close", "volume", "amount")}
+                for f in ("open", "high", "low", "close", "volume", "amount", "is_proxy")}
+        is_proxy = wide.pop("is_proxy").astype(float).fillna(0).astype(bool)
         close, open_ = wide["close"], wide["open"]
         listed = close.notna().cumsum()
         amount20 = wide["amount"].where(wide["amount"] > 0).rolling(20, min_periods=10).mean()
@@ -132,7 +203,7 @@ def build_etf_panel(settings: Settings, tiers: tuple[str, ...] = ("dev", "holdou
                  "volume": wide["volume"], "amount": wide["amount"], "ret_1d": close / close.shift(1) - 1,
                  "in_universe": in_universe, "tradable_buy": has_bar, "tradable_sell": has_bar,
                  "is_suspended": ~has_bar, "days_listed": listed.astype(float),
-                 "circ_mv": has_bar.astype(float).where(has_bar), **labels}
+                 "circ_mv": has_bar.astype(float).where(has_bar), "is_proxy": is_proxy, **labels}
         long_out = pd.concat({k: v.stack(future_stack=True) for k, v in frame.items()}, axis=1)
         long_out.index.names = ["date", "code"]
         long_out = long_out.reset_index()
@@ -140,6 +211,7 @@ def build_etf_panel(settings: Settings, tiers: tuple[str, ...] = ("dev", "holdou
         long_out["industry"] = long_out["code"]
         long_out["is_st"] = False
         long_out["in_universe"] = long_out["in_universe"].astype(bool)
+        long_out["is_proxy"] = long_out["is_proxy"].astype(bool)
         long_out = long_out[long_out["date"] <= window_end].reset_index(drop=True)
         start = pd.Timestamp(splits["dev"]["start"]) if tier == "dev" else pd.Timestamp(window["start"])
         meta = {"panel_version": PANEL_VERSION, "tier": tier, "universe": "etf_sector",
@@ -148,7 +220,9 @@ def build_etf_panel(settings: Settings, tiers: tuple[str, ...] = ("dev", "holdou
                 "codes": int(long_out["code"].nunique()), "horizons": list(HORIZONS),
                 "fields": sorted(long_out.columns), "etfs": ETF_UNIVERSE,
                 "warnings": ["westock ETF volumes/amounts are zero before mid-2018; the liquidity screen applies"
-                             " only when amounts exist", "prices are westock default-adjusted ETF bars"],
+                             " only when amounts exist", "prices are westock default-adjusted ETF bars",
+                             "before an ETF listed, its tracked index (rescaled) stands in; is_proxy marks those"
+                             " rows, which are not tradable"],
                 "built_at": utcnow_iso()}
         meta = _write_tier(settings, tier, long_out, pd.DataFrame(), meta, "etf_sector")
         per_year = long_out[long_out["in_universe"]].groupby(long_out["date"].dt.year)["code"].nunique()

@@ -61,11 +61,15 @@ def index_enhancement(panel: Panel, score: pd.DataFrame, members: np.ndarray, be
                             cfg.size_limit, universe_mask=members, beta=beta, beta_range=tuple(cfg.beta_range),
                             active_scale=cfg.active_scale)
     diag = weight_diagnostics(weights, panel, cfg.turnover_cap, universe_mask=members, beta=beta)
-    base = simulate(weights, panel, costs, benchmark, universe_mask=members)
-    runs = {f"{aum:.0e}": simulate(weights, panel, costs, benchmark, aum=aum, max_participation=cfg.max_participation,
+    # Portfolio returns use adjusted (total-return) prices while the index is a price index, so acceptance is
+    # judged against the total-return member proxy; the price-index comparison is reported alongside.
+    base = simulate(weights, panel, costs, None, universe_mask=members)
+    runs = {f"{aum:.0e}": simulate(weights, panel, costs, None, aum=aum, max_participation=cfg.max_participation,
                                    universe_mask=members) for aum in CAPACITY_AUMS}
-    main = simulate(weights, panel, costs, benchmark, aum=cfg.aum, max_participation=cfg.max_participation,
+    main = simulate(weights, panel, costs, None, aum=cfg.aum, max_participation=cfg.max_participation,
                     universe_mask=members)
+    vs_index = simulate(weights, panel, costs, benchmark, aum=cfg.aum, max_participation=cfg.max_participation,
+                        universe_mask=members)
     capacity = {k: {"annual_excess": v["annual_excess"], "information_ratio": v["information_ratio"],
                     "annual_impact_cost": v["annual_impact_cost"], "capped_trade_share": v["capped_trade_share"]}
                 for k, v in runs.items()}
@@ -85,20 +89,23 @@ def index_enhancement(panel: Panel, score: pd.DataFrame, members: np.ndarray, be
     }
     te = main["tracking_error"]
     diag["tracking_error_target"] = {"value": te, "range": TE_TARGET, "inside": TE_TARGET[0] <= te <= TE_TARGET[1]}
-    return {"weights": weights, "portfolio": diag, "execution": _clean(main), "execution_no_impact": _clean(base),
+    return {"weights": weights, "portfolio": diag, "benchmark_basis": "total-return member proxy (cap-weighted)",
+            "execution": _clean(main), "execution_vs_price_index": _clean(vs_index),
+            "execution_no_impact": _clean(base),
             "capacity": capacity, "benchmark_proxy": proxy_tracking(panel, members, index_returns),
             "acceptance": {"checks": checks, "passed": all(c[2] for c in checks.values())},
             "_daily": main["_daily"], "_excess_nav": main["_excess_nav"], "_nav": main["_nav"]}
 
 
 def futures_hedged(panel: Panel, long_result: dict, beta: np.ndarray, cfg, index_returns: np.ndarray) -> dict:
-    """Long the A portfolio, short ``beta_hat`` x index notional; capital also funds margin and a cash buffer."""
+    """Long the A portfolio, short ``beta_hat`` x the total-return member proxy; capital also funds margin and a
+    cash buffer. Shorting the price index would credit the long leg's dividends as return, so the proxy is used."""
     daily = long_result["_daily"]
     weights = long_result["weights"]
     b = pd.DataFrame(beta, index=panel.dates, columns=panel.codes).reindex(
         index=weights.index, columns=weights.columns).fillna(1.0)
     beta_hat = (weights * b).sum(axis=1).reindex(daily.index, method="ffill").shift(1).bfill()
-    idx = pd.Series(index_returns, index=panel.dates).reindex(daily.index).fillna(0.0)
+    idx = daily["bench"].fillna(0.0)
     long_share = 1.0 / (1.0 + cfg.margin + cfg.cash_buffer)
     ret = long_share * (daily["ret"] - beta_hat * idx)
     nav = (1 + ret).cumprod()
@@ -114,7 +121,7 @@ def futures_hedged(panel: Panel, long_result: dict, beta: np.ndarray, cfg, index
               "sharpe": [sharpe, rule["sharpe_min"], sharpe >= rule["sharpe_min"]]}
     by_year = ret.groupby(ret.index.year).apply(lambda s: float((1 + s).prod() - 1))
     return {"basis_included": False,
-            "note": "short leg is the index itself: futures basis, roll and margin calls are not modelled",
+            "note": "short leg is the total-return member proxy: futures basis, roll and margin calls are not modelled",
             "long_share_of_capital": long_share, "annual_return": annual, "annual_vol": vol, "max_drawdown": mdd,
             "sharpe": sharpe, "correlation_with_index": corr, "beta_hat_mean": float(beta_hat.mean()),
             "return_by_year": {str(k): v for k, v in by_year.items()},

@@ -118,7 +118,8 @@ def test_train_run_records_a_strategy_trial(panel_settings, tmp_path, capsys):
     assert main(["train", "run", "--task", path, "--processes", "1", "--threads", "1", "--json"]) == 0
     out = json.loads(capsys.readouterr().out)["data"]
     assert out["trial_id"].startswith("S-") and out["artifact_id"]
-    assert out["portfolio"]["execution"]["benchmark"] == "zz500"
+    assert out["portfolio"]["execution"]["benchmark"] == "cap_weighted_universe"
+    assert out["portfolio"]["execution_vs_price_index"]["benchmark"] == "zz500"
     assert set(out["portfolio"]["acceptance"]["checks"]) >= {"annual_excess", "information_ratio"}
     conn = connect(panel_settings.state_db)
     rows = conn.execute("SELECT record_kind, layer, scope, outcome FROM trials WHERE trial_id = ? ORDER BY seq",

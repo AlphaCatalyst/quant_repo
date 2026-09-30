@@ -1,8 +1,8 @@
 """Portfolio construction, backtests and dev acceptance per mandate (docs/18 §3–6, docs/19 §2.5, §5).
 
 Acceptance thresholds are the dev thresholds written in docs/18; results are reported against them, they never
-change a gate. The futures-hedged mandate has no index-futures data (docs/17): it is simulated by shorting the
-index itself, which omits the basis, so its result carries ``basis_included = False`` and cannot claim neutrality.
+change a gate. The futures-hedged mandate shorts index futures from Sina's contract bars (``data.futures``); there
+is no futures data before 2017, so those years use the index proxy and are reported but not judged.
 """
 
 import numpy as np
@@ -17,9 +17,10 @@ ACCEPTANCE = {
           "positive_years_share_min": 5 / 7, "capacity_drop_max": 0.015},
     "D": {"annual_return_min": 0.05, "annual_vol_max": 0.06, "max_drawdown_min": -0.05, "sharpe_min": 1.0},
     "C": {"car_spread_t_min": 3.0, "decile_monotonicity_min": 0.8, "annual_excess_min": 0.05},
-    "B": {"annual_excess_min": 0.05, "sharpe_min": 0.8},
+    "B": {"rank_ic_min": 0.03, "annual_excess_min": 0.05, "sharpe_min": 0.8},
 }
 CAPACITY_AUMS = (1e8, 5e8, 2e9)
+FUTURES_ROLL_COST = 0.0002   # open the next contract, slippage and the settlement fee, per unit of notional
 TE_TARGET = (0.04, 0.06)
 ANN = 252
 
@@ -119,35 +120,90 @@ def index_enhancement(panel: Panel, score: pd.DataFrame, members: np.ndarray, be
             "_daily": main["_daily"], "_excess_nav": main["_excess_nav"], "_nav": main["_nav"]}
 
 
-def futures_hedged(panel: Panel, long_result: dict, beta: np.ndarray, cfg, index_returns: np.ndarray) -> dict:
-    """Long the A portfolio, short ``beta_hat`` x the total-return member proxy; capital also funds margin and a
-    cash buffer. Shorting the price index would credit the long leg's dividends as return, so the proxy is used."""
+def _return_stats(ret: pd.Series) -> dict:
+    if len(ret) < 2:
+        return {"days": int(len(ret))}
+    nav = (1 + ret).cumprod()
+    vol = float(ret.std() * np.sqrt(ANN))
+    return {"days": int(len(ret)), "first": str(ret.index[0].date()), "last": str(ret.index[-1].date()),
+            "annual_return": float(nav.iloc[-1] ** (ANN / len(ret)) - 1), "annual_vol": vol,
+            "max_drawdown": float((nav / nav.cummax() - 1).min()),
+            "sharpe": float(ret.mean() * ANN / vol) if vol > 0 else float("nan")}
+
+
+def futures_hedged(panel: Panel, long_result: dict, beta: np.ndarray, cfg, index_returns: np.ndarray | None,
+                   leg: pd.DataFrame | None = None) -> dict:
+    """Long the A portfolio, short ``ratio x beta_hat`` index futures; capital also funds margin and a cash buffer.
+
+    ``leg`` is the futures hedge leg (``data.futures.hedge_leg``). On days without futures data the short leg is
+    the total-return member proxy, which omits the basis. Only the exact single-contract span is judged (docs/20
+    §5.4); the ratio 1.0 is the headline, the other ``cfg.hedge_ratios`` are pre-registered and reported.
+    """
     daily = long_result["_daily"]
     weights = long_result["weights"]
     b = pd.DataFrame(beta, index=panel.dates, columns=panel.codes).reindex(
         index=weights.index, columns=weights.columns).fillna(1.0)
     beta_hat = (weights * b).sum(axis=1).reindex(daily.index, method="ffill").shift(1).bfill()
-    idx = daily["bench"].fillna(0.0)
+    proxy = daily["bench"].fillna(0.0)
     long_share = 1.0 / (1.0 + cfg.margin + cfg.cash_buffer)
-    ret = long_share * (daily["ret"] - beta_hat * idx)
+    if leg is None:
+        leg = pd.DataFrame({"fut_ret": np.nan, "roll": False, "source": "none"}, index=daily.index)
+    leg = leg.reindex(daily.index)
+    covered = leg["fut_ret"].notna() & leg["source"].isin(["contract", "continuous"])
+    exact = covered & (leg["source"] == "contract")
+    short = leg["fut_ret"].where(covered, proxy)
+    rolls = (leg["roll"].fillna(False).astype(bool) & covered).astype(float)
+    price_ret = pd.Series(index_returns, index=panel.dates).reindex(daily.index) if index_returns is not None \
+        else pd.Series(np.nan, index=daily.index)
+    carry = -(leg["fut_ret"] - price_ret)
+
+    def hedged(ratio: float) -> pd.Series:
+        return long_share * (daily["ret"] - ratio * beta_hat * (short + FUTURES_ROLL_COST * rolls))
+
+    def segments(ret: pd.Series) -> dict:
+        return {"contract_exact": _return_stats(ret[exact]), "futures": _return_stats(ret[covered]),
+                "inferred_ic0": _return_stats(ret[covered & ~exact]), "no_futures_proxy": _return_stats(ret[~covered]),
+                "all": _return_stats(ret)}
+
+    ret = hedged(1.0)
     nav = (1 + ret).cumprod()
-    vol = float(ret.std() * np.sqrt(ANN))
-    annual = float((1 + ret).prod() ** (ANN / len(ret)) - 1)
-    mdd = float((nav / nav.cummax() - 1).min())
-    sharpe = float(ret.mean() * ANN / vol) if vol > 0 else float("nan")
-    corr = float(np.corrcoef(ret, idx)[0, 1]) if len(ret) > 2 else float("nan")
+    on = exact
+    attribution = {"long_leg": float(long_share * daily["ret"][on].mean() * ANN),
+                   "short_index_price": float(-long_share * (beta_hat * price_ret)[on].mean() * ANN),
+                   "basis_carry": float(long_share * (beta_hat * carry)[on].mean() * ANN),
+                   "roll_cost": float(-long_share * (beta_hat * FUTURES_ROLL_COST * rolls)[on].mean() * ANN),
+                   "note": "arithmetic annual means on the exact span at ratio 1.0; long_leg + short_index_price is"
+                           " the total-return excess over the price index, basis_carry is minus the futures return"
+                           " over the price index"}
+    judged = segments(ret)["contract_exact"]
     rule = ACCEPTANCE["D"]
-    checks = {"annual_return": [annual, rule["annual_return_min"], annual >= rule["annual_return_min"]],
-              "annual_vol": [vol, rule["annual_vol_max"], vol <= rule["annual_vol_max"]],
-              "max_drawdown": [mdd, rule["max_drawdown_min"], mdd >= rule["max_drawdown_min"]],
-              "sharpe": [sharpe, rule["sharpe_min"], sharpe >= rule["sharpe_min"]]}
+    checks = {}
+    if judged.get("days", 0) >= ANN:
+        checks = {"annual_return": [judged["annual_return"], rule["annual_return_min"],
+                                    judged["annual_return"] >= rule["annual_return_min"]],
+                  "annual_vol": [judged["annual_vol"], rule["annual_vol_max"],
+                                 judged["annual_vol"] <= rule["annual_vol_max"]],
+                  "max_drawdown": [judged["max_drawdown"], rule["max_drawdown_min"],
+                                   judged["max_drawdown"] >= rule["max_drawdown_min"]],
+                  "sharpe": [judged["sharpe"], rule["sharpe_min"], judged["sharpe"] >= rule["sharpe_min"]]}
     by_year = ret.groupby(ret.index.year).apply(lambda s: float((1 + s).prod() - 1))
-    return {"basis_included": False,
-            "note": "short leg is the total-return member proxy: futures basis, roll and margin calls are not modelled",
-            "long_share_of_capital": long_share, "annual_return": annual, "annual_vol": vol, "max_drawdown": mdd,
-            "sharpe": sharpe, "correlation_with_index": corr, "beta_hat_mean": float(beta_hat.mean()),
+    carry_by_year = carry[covered].groupby(carry[covered].index.year).sum()
+    passed = bool(checks) and all(c[2] for c in checks.values())
+    return {"basis_included": bool(covered.any()),
+            "note": "short leg: held front-month futures (exact from Sina single contracts, inferred rolls on the"
+                    " IC0 splice before them); days without futures use the total-return member proxy",
+            "futures_days_share": float(covered.mean()), "roll_cost_per_roll": FUTURES_ROLL_COST,
+            "long_share_of_capital": long_share, "segments": segments(ret),
+            "by_hedge_ratio": {str(r): segments(hedged(r))["contract_exact"] for r in cfg.hedge_ratios},
+            "attribution_exact": attribution,
+            "correlation_with_index": float(np.corrcoef(ret, proxy)[0, 1]) if len(ret) > 2 else float("nan"),
+            "beta_hat_mean": float(beta_hat.mean()),
+            "hedge_carry_vs_price_index_annual": float(carry[covered].mean() * ANN) if covered.any() else None,
+            "hedge_carry_vs_total_return_proxy_annual":
+                float(-(leg["fut_ret"] - proxy)[covered].mean() * ANN) if covered.any() else None,
+            "hedge_carry_by_year": {str(k): float(v) for k, v in carry_by_year.items()},
             "return_by_year": {str(k): v for k, v in by_year.items()},
-            "acceptance": {"checks": checks, "passed": False,
-                           "passed_without_basis": all(c[2] for c in checks.values()),
-                           "blocked": "index-futures data (docs/17) is needed before D can pass"},
+            "acceptance": {"judged_on": "exact single-contract span, hedge ratio 1.0", "checks": checks,
+                           "passed": passed,
+                           **({} if checks else {"blocked": "less than a year of exact futures days"})},
             "_nav": nav}

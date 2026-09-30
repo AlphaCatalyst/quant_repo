@@ -1,0 +1,76 @@
+task_id: d_ic_neutral_v2
+mandate: D
+description: Long the A v4 book (same training and LP construction), short beta-matched front-month IC from Sina contract bars; judged on the exact single-contract span; hedge ratios 0.75 and 0.5 pre-registered for reporting (docs/20 §5.4)
+universe_train: csi800
+universe_predict: csi500
+label:
+  kind: residual_plus_basis
+  horizons: [5, 20]
+  formula_version: open_t1_to_open_t1_plus_h_v1
+  neutralize: [industry, log_circ_mv, log_circ_mv_sq, beta_60d]
+  mask: [buyable_entry, not_st, not_suspended]
+  winsorize: [0.01, 0.99]
+  standardize: cross_sectional_zscore
+sample:
+  frequency: daily
+  membership_asof: month_start
+  min_history_years: 3
+  min_names_per_date: 100
+  min_train_rows: 50000
+  overlap: keep_with_purge
+  train_stride: 5
+  purge_days: 21
+  embargo_days: 21
+features:
+  factor_refs: library
+  panel_fields: [ws_roe_ttm, ws_roa_ttm, ws_gross_margin_ttm, ws_cfoa_ttm, ws_accruals_ttm, ws_debt_to_assets,
+                 ws_asset_growth_yoy, ws_rev_growth_yoy, ws_np_growth_q_yoy, ws_np_surprise_q, roe_avg, yoy_ni,
+                 fc_chg_mid, fc_positive, ex_eps_chg]
+  preprocess: industry_rank_then_zscore
+  missing_policy: median_plus_indicator
+  min_feature_coverage: 0.8
+split:
+  tier: dev
+  window: rolling
+  train_years: 5
+  warmup_years: 4
+  retrain: monthly
+  select_every: yearly
+  inner_folds: 3
+models:
+  - family: ridge
+    grid: {alpha: [1.0, 10.0, 100.0]}
+  - family: lgbm
+    grid: {num_leaves: [15, 63], min_child_samples: [300, 1500]}
+  - family: lambdarank
+    grid: {num_leaves: [31]}
+search:
+  max_configs: 12
+  selection_metric: rank_icir
+  seeds: [0, 1, 2]
+ensemble:
+  horizon_weights: {5: 0.5, 20: 0.5}
+output:
+  score_field: score_d
+  decay_lags: [1, 5, 20]
+portfolio:
+  kind: futures_hedged
+  benchmark: zz500
+  rebalance_every: 10
+  industry_dev: 0.02
+  name_cap: 0.01
+  size_limit: 0.2
+  beta_range: [0.95, 1.05]
+  turnover_cap: 0.15
+  aum: 500000000
+  max_participation: 0.10
+  neutralize_score: [industry, log_circ_mv]
+  construction: lp
+  hedge: IC
+  margin: 0.15
+  cash_buffer: 0.25
+  hedge_ratios: [1.0, 0.75, 0.5]
+  basis_head: disabled
+platform:
+  cluster: http://28.83.35.117:8081
+  processes: 48

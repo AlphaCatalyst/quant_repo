@@ -107,6 +107,37 @@ def sync_etf_indices(settings: Settings, end: str, start: str = INDEX_START) -> 
     return {"mapping": mapping, "indices": out, "errors": errors}
 
 
+def sync_etf_holdings(settings: Settings, end: str) -> dict:
+    """Top-20 holdings of every ETF as of ``end`` (westock only serves the latest list; ``--date`` is ignored), kept
+    as one dated snapshot so that later refreshes build a history instead of overwriting it."""
+    from alphasieve.data.providers.westock import WestockError, _call
+
+    path = etf_root(settings) / "holdings" / f"{end}.json"
+    snap = json.loads(path.read_text()) if path.exists() else {}
+    errors = []
+    for code in ETF_UNIVERSE:
+        if snap.get(code):
+            continue
+        for attempt in range(FETCH_RETRIES):
+            time.sleep(CALL_GAP_S)
+            try:
+                rows = _call(["etf", "holdings", code])
+            except WestockError:
+                rows = None
+            if isinstance(rows, list) and rows and all("ratio" in r for r in rows):
+                snap[code] = [{"code": r["code"], "name": r.get("name"), "weight": float(r["ratio"]) / 100}
+                              for r in rows]
+                break
+            time.sleep(THROTTLE_BACKOFF_S * (attempt + 1))
+        else:
+            errors.append(code)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(snap, ensure_ascii=False, indent=1))
+    return {"path": str(path), "etfs": len(snap), "errors": errors,
+            "top20_weight_median": float(np.median([sum(r["weight"] for r in v) for v in snap.values()]))
+            if snap else None}
+
+
 def sync_etf(settings: Settings, conn, end: str, start: str = "2013-01-01") -> dict:
     root = etf_root(settings)
     out, errors = {}, []

@@ -51,9 +51,25 @@ class Sample(_Model):
     embargo_days: int
 
 
+class EventSource(_Model):
+    task_id: str
+    trial_id: str = Field(pattern=r"^S-[0-9a-f]{12}$")
+
+
+class EtfMapping(_Model):
+    """Current ETF holdings mapped to industries or used as a basket (docs/20 §4.1); fixed at ``mapping_asof``."""
+    mode: Literal["industry_map", "basket_map"]
+    mapping_asof: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+
+
 class Features(_Model):
     factor_refs: list[str] | Literal["library"] = "library"
     panel_fields: list[str] = Field(default_factory=list)
+    derived_fields: list[str] = Field(default_factory=list)
+    event_source: EventSource | None = None
+    event_lag_days: int = 1
+    event_half_lives: list[int] = Field(default_factory=lambda: [5, 20, 60])
+    etf_mapping: EtfMapping | None = None
     preprocess: Literal["industry_rank_then_zscore", "rank_zscore", "event_type_zscore", "residual_zscore"] = \
         "industry_rank_then_zscore"
     missing_policy: Literal["median_plus_indicator", "semantic_neutral", "drop"] = "median_plus_indicator"
@@ -112,6 +128,7 @@ class PortfolioLink(_Model):
     hedge: str | None = None
     margin: float = 0.15
     cash_buffer: float = 0.25
+    hedge_ratios: list[float] = Field(default_factory=lambda: [1.0])
     basis_head: Literal["enabled", "disabled"] = "disabled"
 
 
@@ -165,7 +182,19 @@ class TrainingTask(_Model):
         if weights and (bad_cover or abs(sum(weights.values()) - 1) > 1e-9):
             errors.append("horizon_weights must cover every horizon and sum to 1")
         if self.mandate == "D" and self.portfolio.basis_head == "enabled":
-            errors.append("basis_head needs index-futures data, which is not available (docs/17)")
+            errors.append("basis_head is not implemented (docs/20 §5.3)")
+        if self.features.event_source is not None:
+            if self.mandate not in ("A", "D"):
+                errors.append("event-score features are for the cross-sectional mandates A and D")
+            if self.features.event_lag_days < 1:
+                errors.append("event_lag_days must be >= 1 (docs/20 §2.1)")
+            if not self.features.event_half_lives or any(h <= 0 for h in self.features.event_half_lives):
+                errors.append("event_half_lives must be positive")
+        if self.features.etf_mapping is not None and self.mandate != "B":
+            errors.append("etf_mapping is for the ETF-rotation mandate B")
+        ratios = self.portfolio.hedge_ratios
+        if not ratios or ratios[0] != 1.0 or any(not 0 < r <= 1 for r in ratios):
+            errors.append("hedge_ratios must start with the headline ratio 1.0 and lie in (0, 1]")
         if errors:
             raise ValueError("; ".join(errors))
         return self

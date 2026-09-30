@@ -64,7 +64,10 @@ def test_task_candidates_and_hash():
     assert task.config_hash != parse_task(task_dict()).config_hash
     d = task_dict(mandate="D", label={**BASE["label"], "kind": "residual_plus_basis"})
     d["portfolio"] = {**BASE["portfolio"], "kind": "futures_hedged", "basis_head": "enabled"}
-    with pytest.raises(AlphaSieveError, match="futures"):
+    with pytest.raises(AlphaSieveError, match="basis_head"):
+        parse_task(d)
+    d["portfolio"] = {**BASE["portfolio"], "kind": "futures_hedged", "hedge_ratios": [0.5, 1.0]}
+    with pytest.raises(AlphaSieveError, match="headline ratio"):
         parse_task(d)
 
 

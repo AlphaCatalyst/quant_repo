@@ -12,7 +12,7 @@ ALL = ("agent", "human", "system")
 HUMAN_SYSTEM = ("human", "system")
 MAX_SAMPLE_ROWS = 200
 SYNC_DATASETS = ("reference", "members", "daily", "financials", "events", "intraday", "mirror", "core",
-                 "ws_financials", "fund_flow", "margin", "margin_history", "etf")
+                 "ws_financials", "fund_flow", "margin", "margin_history", "etf", "futures")
 
 
 def _universe_arg(p):
@@ -79,13 +79,18 @@ def cmd_data_sync(args, ctx) -> CommandResult:
         from alphasieve.data.etf import sync_etf
 
         out["etf"] = sync_etf(settings, conn, end)
+    if "futures" in datasets:
+        from alphasieve.data.futures import sync_futures
+
+        out["futures"] = sync_futures(settings, conn, end)
     if "margin_history" in datasets:
         out["margin_history"] = sync.sync_margin_history(settings, conn, args.start, end, args.workers,
                                                          _progress("margin_history"), u)
     if "mirror" in datasets or ("financials" in datasets and u in (None, "csi800")):
         out["mirror"] = sync.mirror_to_store(settings, u)
     warnings = []
-    for key in ("daily", "financials", "events", "intraday", "ws_financials", "fund_flow", "margin", "margin_history"):
+    for key in ("daily", "financials", "events", "intraday", "ws_financials", "fund_flow", "margin", "margin_history",
+                "futures"):
         if out.get(key, {}).get("errors"):
             warnings.append(f"{key}: {len(out[key]['errors'])} items failed; rerun to resume")
     return CommandResult(data=out, warnings=warnings)
@@ -119,6 +124,35 @@ def cmd_build_etf_panel(args, ctx) -> CommandResult:
 
     tiers = tuple(t.strip() for t in args.tiers.split(",") if t.strip())
     return CommandResult(data=build_etf_panel(ctx.settings, tiers))
+
+
+def _configure_etf_industry_build(p):
+    p.add_argument("--asof", required=True, help="date of the ETF holdings snapshot that fixes the mapping")
+    p.add_argument("--tiers", default="dev", help="which tiers to build (holdout only on the local host)")
+
+
+@command("data build-etf-industry", HUMAN_SYSTEM, configure=_configure_etf_industry_build,
+         help="industry- and basket-mapped features of the sector ETFs from the all-A panel (docs/20 §4)")
+def cmd_build_etf_industry(args, ctx) -> CommandResult:
+    from alphasieve.training.etf_industry import build_etf_industry
+
+    tiers = tuple(t.strip() for t in args.tiers.split(",") if t.strip())
+    return CommandResult(data=build_etf_industry(ctx.settings, args.asof, tiers))
+
+
+def _configure_futures_build(p):
+    p.add_argument("--tiers", default="dev", help="which tiers to build (holdout only on the local host)")
+    p.add_argument("--product", default="IC", choices=("IC", "IF"))
+    _universe_arg(p)
+
+
+@command("data build-futures", HUMAN_SYSTEM, configure=_configure_futures_build,
+         help="write the index-futures hedge leg (Sina contracts) next to each tier's panel")
+def cmd_build_futures(args, ctx) -> CommandResult:
+    from alphasieve.data.futures import build_futures_tiers
+
+    tiers = tuple(t.strip() for t in args.tiers.split(",") if t.strip())
+    return CommandResult(data=build_futures_tiers(ctx.settings, args.product, args.universe, tiers))
 
 
 @command("data status", ALL, help="data boundaries, freshness and quality summary")

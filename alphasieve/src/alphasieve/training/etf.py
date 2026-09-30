@@ -1,9 +1,10 @@
-"""Mandate B: sector-ETF rotation (docs/19 §4).
+"""Mandate B: sector-ETF rotation (docs/19 §4, docs/20 §4).
 
-Features are each ETF's own price and volume history (westock's index-constituent service is unavailable, so the
-industry-aggregated fundamentals of docs/19 §4.2 are not built yet). Labels are the forward open-to-open return in
-excess of the equal-weighted ETF universe. The portfolio holds the ``top_k`` ETFs by score with equal weights,
-rebalanced every ``rebalance_every`` days, against the equal-weighted universe.
+Features are each ETF's own price and volume history plus, when the task sets ``etf_mapping``, the industry- or
+basket-mapped stock features built by ``etf_industry`` from the current holdings snapshot. Labels are the forward
+open-to-open return in excess of the equal-weighted ETF universe. The portfolio holds the ``top_k`` ETFs by score
+with equal weights, rebalanced every ``rebalance_every`` days, against the equal-weighted universe. The headline
+and acceptance use real ETF rows only; rows where the tracked index stands in before listing are an appendix.
 """
 
 import numpy as np
@@ -11,6 +12,7 @@ import pandas as pd
 
 from alphasieve.config import load_config
 from alphasieve.data.access import Panel
+from alphasieve.errors import validation_error
 from alphasieve.strategy.execution import simulate
 from alphasieve.training import mandates
 from alphasieve.training.engine import score_diagnostics, to_grid, walk_forward
@@ -46,11 +48,29 @@ def relative_labels(panel: Panel, mask: np.ndarray, horizons: list[int]) -> dict
     return out
 
 
-def build_etf_table(panel: Panel, task) -> SampleTable:
+def mapped_features(panel: Panel, frames: dict[str, pd.DataFrame], mask: np.ndarray,
+                    min_coverage: float) -> tuple[dict[str, np.ndarray], dict]:
+    """Align the mapped features to the panel; drop those covering < ``min_coverage`` of the masked rows."""
+    kept, dropped = {}, {}
+    for name, frame in frames.items():
+        grid = frame.reindex(index=panel.dates, columns=panel.codes).to_numpy(dtype=float)
+        cover = float(np.isfinite(grid[mask]).mean()) if mask.any() else 0.0
+        if cover >= min_coverage:
+            kept[name] = grid
+        else:
+            dropped[name] = round(cover, 3)
+    return kept, {"kept": sorted(kept), "dropped_low_coverage": dropped}
+
+
+def build_etf_table(panel: Panel, task, mapped: dict[str, pd.DataFrame] | None = None) -> SampleTable:
     mask = universe_mask(panel, task.universe_train)
     thin = mask.sum(axis=1) < task.sample.min_names_per_date
     mask = mask & ~thin[:, None]
     feats = etf_features(panel)
+    report = None
+    if mapped:
+        extra, report = mapped_features(panel, mapped, mask, task.features.min_feature_coverage)
+        feats.update(extra)
     names, grids = [], []
     for name, v in feats.items():
         z = _rank_z(v, mask)
@@ -71,6 +91,7 @@ def build_etf_table(panel: Panel, task) -> SampleTable:
     table.predict = np.ones(len(t), dtype=bool)
     table.extra["mask"] = mask
     table.extra["names_per_date"] = mask.sum(axis=1)
+    table.extra["mapped_report"] = report
     return table
 
 
@@ -89,8 +110,48 @@ def top_k_weights(panel: Panel, score: np.ndarray, mask: np.ndarray, k: int, eve
     return pd.DataFrame.from_dict(rows, orient="index", columns=panel.codes)
 
 
+def _rotation(panel: Panel, score: np.ndarray, mask: np.ndarray, task, costs: dict) -> dict:
+    weights = top_k_weights(panel, score, mask, task.portfolio.top_k, task.portfolio.rebalance_every)
+    sim = simulate(weights, panel, costs, None, universe_mask=mask)
+    daily = sim.pop("_daily")
+    nav, excess = sim.pop("_nav"), sim.pop("_excess_nav")
+    bench_nav = (1 + daily["bench"]).cumprod()
+    ret = daily["ret"]
+    vol = float(ret.std() * np.sqrt(252))
+    return {"execution": sim, "sharpe": float(ret.mean() * 252 / vol) if vol > 0 else float("nan"),
+            "max_drawdown": float((nav / nav.cummax() - 1).min()),
+            "equal_weight_max_drawdown": float((bench_nav / bench_nav.cummax() - 1).min()),
+            "_weights": weights, "_nav": nav, "_excess_nav": excess}
+
+
+def _acceptance(pf: dict, diag: dict) -> dict:
+    rule = mandates.ACCEPTANCE["B"]
+    ics = [h["rank_ic"] for h in diag["horizons"].values() if h["rank_ic"] is not None]
+    ic = float(np.mean(ics)) if ics else float("nan")
+    excess, sharpe = pf["execution"]["annual_excess"], pf["sharpe"]
+    checks = {"rank_ic": [ic, rule["rank_ic_min"], ic >= rule["rank_ic_min"]],
+              "annual_excess": [excess, rule["annual_excess_min"], excess >= rule["annual_excess_min"]],
+              "sharpe": [sharpe, rule["sharpe_min"], sharpe >= rule["sharpe_min"]],
+              "max_drawdown_vs_equal_weight": [pf["max_drawdown"], pf["equal_weight_max_drawdown"],
+                                               pf["max_drawdown"] >= pf["equal_weight_max_drawdown"]]}
+    return {"checks": checks, "passed": all(c[2] for c in checks.values())}
+
+
+def load_mapped(settings, panel: Panel, frozen: dict) -> tuple[dict[str, pd.DataFrame], dict]:
+    from alphasieve.training.etf_industry import read_etf_industry
+
+    frames, info = read_etf_industry(settings, panel.tier, "system", frozen["mode"])
+    for key in ("mapping_asof", "holdings_sha256"):
+        if info[key] != frozen[key]:
+            raise validation_error(f"ETF industry features were built from {key}={info[key]}, the bundle froze"
+                                   f" {frozen[key]}; rebuild with 'alphasieve data build-etf-industry'")
+    return frames, info
+
+
 def run_etf_task(settings, task, bundle, panel: Panel, processes=None, threads=None, progress=None):
-    table = build_etf_table(panel, task)
+    frozen = bundle["features"].get("etf_mapping")
+    mapped, mapping_info = load_mapped(settings, panel, frozen) if frozen else (None, None)
+    table = build_etf_table(panel, task, mapped)
     window = panel.window_mask().to_numpy()
     wf = walk_forward(table, panel.dates, window, task, processes, threads, progress)
     shape = (len(panel.dates), len(panel.codes))
@@ -99,37 +160,35 @@ def run_etf_task(settings, task, bundle, panel: Panel, processes=None, threads=N
     rel = relative_labels(panel, mask, task.label.horizons)
     diag = score_diagnostics(score, rel, mask, task.output.decay_lags)
     real = mask & ~panel.mask("is_proxy").to_numpy() if panel.has("is_proxy") else mask
-    diag_real = score_diagnostics(score, rel, real, task.output.decay_lags)
+    real = real & (real.sum(axis=1) >= task.sample.min_names_per_date)[:, None]
+    real_rel = relative_labels(panel, real, task.label.horizons)
+    diag_real = score_diagnostics(score, real_rel, real, task.output.decay_lags)
     proxy_share = float(1 - real[mask].mean()) if mask.any() else 0.0
-    weights = top_k_weights(panel, score, mask, task.portfolio.top_k, task.portfolio.rebalance_every)
     costs = {**load_config(settings, "costs").get("b3", {}), **ETF_COSTS}
-    sim = simulate(weights, panel, costs, None, universe_mask=mask)
-    daily = sim.pop("_daily")
-    nav, excess = sim.pop("_nav"), sim.pop("_excess_nav")
-    bench_nav = (1 + daily["bench"]).cumprod()
-    ret = daily["ret"]
-    vol = float(ret.std() * np.sqrt(252))
-    sharpe = float(ret.mean() * 252 / vol) if vol > 0 else float("nan")
-    mdd = float((nav / nav.cummax() - 1).min())
-    bench_mdd = float((bench_nav / bench_nav.cummax() - 1).min())
-    rule = mandates.ACCEPTANCE["B"]
-    checks = {"annual_excess": [sim["annual_excess"], rule["annual_excess_min"],
-                                sim["annual_excess"] >= rule["annual_excess_min"]],
-              "sharpe": [sharpe, rule["sharpe_min"], sharpe >= rule["sharpe_min"]],
-              "max_drawdown_vs_equal_weight": [mdd, bench_mdd, mdd >= bench_mdd]}
-    acceptance = {"checks": checks, "passed": all(c[2] for c in checks.values())}
+    pf_real = _rotation(panel, score, real, task, costs)
+    pf_all = _rotation(panel, score, mask, task, costs)
+    acceptance = _acceptance(pf_real, diag_real)
     names = table.extra["names_per_date"]
     scored_days = np.isfinite(score).any(axis=1)
-    result = {"model": {k: v for k, v in wf.items() if k not in ("score", "per_horizon")}, "scores": diag,
-              "scores_real_etf_rows": diag_real, "proxy_row_share": proxy_share,
-              "features": {"names": table.feature_names},
+    real_days = scored_days & real.any(axis=1)
+    features = {"names": table.feature_names}
+    if frozen:
+        features["etf_mapping"] = {**mapping_info, **table.extra["mapped_report"]}
+    public = {k: v for k, v in pf_real.items() if not k.startswith("_")}
+    result = {"model": {k: v for k, v in wf.items() if k not in ("score", "per_horizon")}, "scores": diag_real,
+              "scores_with_proxy_rows": diag, "proxy_row_share": proxy_share, "features": features,
               "universe": {"names_per_scored_day_mean": float(names[scored_days].mean()) if scored_days.any() else 0,
                            "first_scored_day": str(panel.dates[np.flatnonzero(scored_days)[0]].date())
-                           if scored_days.any() else None},
-              "portfolio": {"execution": sim, "sharpe": sharpe, "max_drawdown": mdd,
-                            "equal_weight_max_drawdown": bench_mdd, "acceptance": acceptance},
-              "acceptance": acceptance, "headline": {"annual_excess": sim["annual_excess"], "sharpe": sharpe}}
+                           if scored_days.any() else None,
+                           "first_real_etf_day": str(panel.dates[np.flatnonzero(real_days)[0]].date())
+                           if real_days.any() else None},
+              "portfolio": {**public, "acceptance": acceptance,
+                            "with_proxy_rows": {k: v for k, v in pf_all.items() if not k.startswith("_")}},
+              "acceptance": acceptance,
+              "headline": {"segment": "real_etf", "annual_excess": pf_real["execution"]["annual_excess"],
+                           "sharpe": pf_real["sharpe"]}}
     from alphasieve.training.run import _series
 
-    result["series"] = _series(nav, excess)
-    return result, {"scores": pd.DataFrame(score, index=panel.dates, columns=panel.codes), "weights": weights}
+    result["series"] = _series(pf_real["_nav"], pf_real["_excess_nav"])
+    return result, {"scores": pd.DataFrame(score, index=panel.dates, columns=panel.codes),
+                    "weights": pf_real["_weights"]}

@@ -42,6 +42,36 @@ def cmd_train_validate(args, ctx) -> CommandResult:
                                "candidates": task.candidates(), "task": task.model_dump(mode="json")})
 
 
+@command("train screen-derived", HUMAN_SYSTEM, configure=_configure_task, needs_store=True,
+         help="outcome-free screen of the derived factor candidates against a task's existing features")
+def cmd_train_screen_derived(args, ctx) -> CommandResult:
+    from alphasieve.data.access import load_panel
+    from alphasieve.training import run as tr
+    from alphasieve.training.derived import screen
+    from alphasieve.training.samples import benchmark_returns, labels, rolling_beta, universe_mask
+    from alphasieve.training.task import load_task
+    from alphasieve.util import pretty_json
+
+    task = load_task(ctx.settings, args.task)
+    panel = load_panel(ctx.settings, "dev", role="system", universe=tr.panel_universe(task))
+    base = {"factors": tr.resolve_features(ctx.conn, task), "panel_fields": task.features.panel_fields}
+    existing = tr._frames(ctx.settings, panel, {"features": base})
+    train = universe_mask(panel, task.universe_train)
+    predict = universe_mask(panel, task.universe_predict)
+    lab = task.label
+    index_ret = benchmark_returns(panel, task.portfolio.benchmark or "zz500")
+    beta = rolling_beta(panel, index_ret) if index_ret is not None else None
+    ys, _ = labels(panel, lab.horizons, train, lab.kind, lab.neutralize, lab.winsorize, lab.standardize, beta,
+                   task.sample.min_names_per_date)
+    report = {"task_id": task.task_id, "panel_signature": panel.signature, "existing": sorted(existing),
+              **screen(panel, existing, train | predict, predict, ys)}
+    out = ctx.settings.store_root / "models" / "_screens" / f"derived_{task.task_id}.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(pretty_json(report), encoding="utf-8")
+    return CommandResult(data={"path": str(out), "kept": report["kept"],
+                               "decisions": {k: v["decision"] for k, v in report["candidates"].items()}})
+
+
 def _configure_run(p):
     p.add_argument("--task", default=None, help="task id or YAML path (local run: records a strategy trial)")
     p.add_argument("--bundle", default=None, help="frozen bundle from 'train submit' (platform run, no ledger)")
@@ -66,7 +96,7 @@ def cmd_train_run(args, ctx) -> CommandResult:
         return CommandResult(data=result)
     task = load_task(ctx.settings, args.task)
     trial_id = tr.new_trial_id()
-    bundle = tr.make_bundle(task, tr.resolve_features(ctx.conn, task), trial_id)
+    bundle = tr.make_bundle(task, tr.resolve_features(ctx.conn, task), trial_id, ctx.settings)
     tr.start_trial(ctx.conn, ctx.settings, task, trial_id)
     try:
         result, outputs = tr.execute(ctx.settings, bundle, args.processes, args.threads, _progress)
@@ -95,7 +125,7 @@ def cmd_train_submit(args, ctx) -> CommandResult:
 
     task = load_task(ctx.settings, args.task)
     trial_id = tr.new_trial_id()
-    bundle = tr.make_bundle(task, tr.resolve_features(ctx.conn, task), trial_id)
+    bundle = tr.make_bundle(task, tr.resolve_features(ctx.conn, task), trial_id, ctx.settings)
     bundle_dir = Path(REMOTE_ROOT) / "runs" / "bundles"
     bundle_dir.mkdir(parents=True, exist_ok=True)
     bundle_path = bundle_dir / f"{trial_id}.json"

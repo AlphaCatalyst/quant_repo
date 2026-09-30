@@ -48,8 +48,25 @@ def resolve_features(conn: sqlite3.Connection, task: TrainingTask) -> list[dict]
              "candidate_hash": r["candidate_hash"], "direction": r["direction"]} for r in rows]
 
 
-def make_bundle(task: TrainingTask, members: list[dict], trial_id: str) -> dict:
+def make_bundle(task: TrainingTask, members: list[dict], trial_id: str, settings: Settings | None = None) -> dict:
     features = {"factors": members, "panel_fields": task.features.panel_fields}
+    if task.features.derived_fields:
+        features["derived_fields"] = task.features.derived_fields
+    src = task.features.event_source
+    if src is not None:
+        from alphasieve.training.event_features import freeze_source
+
+        if settings is None:
+            raise validation_error("freezing an event-score source needs the settings")
+        features["event_source"] = freeze_source(settings, src.task_id, src.trial_id)
+    mapping = task.features.etf_mapping
+    if mapping is not None:
+        from alphasieve.training.etf_industry import load_holdings
+
+        if settings is None:
+            raise validation_error("freezing an ETF mapping needs the settings")
+        features["etf_mapping"] = {"mode": mapping.mode, "mapping_asof": mapping.mapping_asof,
+                                   "holdings_sha256": load_holdings(settings, mapping.mapping_asof)[1]}
     return {"task": task.model_dump(mode="json"), "features": features, "trial_id": trial_id,
             "feature_version": sha256_hex(canonical_json(features))[:12], "config_hash": task.config_hash,
             "code_version": code_version()}
@@ -65,6 +82,10 @@ def _frames(settings: Settings, panel: Panel, bundle: dict) -> dict[str, pd.Data
         if not panel.has(f):
             raise validation_error(f"panel field {f} not in the {panel.meta.get('universe')} panel")
         frames[f] = panel.wide(f)
+    if bundle["features"].get("derived_fields"):
+        from alphasieve.training.derived import derived_frames
+
+        frames.update(derived_frames(panel, bundle["features"]["derived_fields"]))
     return frames
 
 
@@ -83,6 +104,13 @@ def run_cross_sectional(settings: Settings, task: TrainingTask, bundle: dict, pa
     index_ret = benchmark_returns(panel, bench_name)
     beta = rolling_beta(panel, index_ret) if index_ret is not None else None
     frames = _frames(settings, panel, bundle)
+    event_report = None
+    if bundle["features"].get("event_source"):
+        from alphasieve.training.event_features import event_frames
+
+        extra, event_report = event_frames(settings, panel, bundle["features"]["event_source"],
+                                           task.features.event_lag_days, task.features.event_half_lives)
+        frames.update(extra)
     holdout = panel.tier != "dev"
     table = build_cross_sectional(panel, frames, task, beta, stride=task.sample.train_stride,
                                   train_before_window=holdout)
@@ -98,7 +126,8 @@ def run_cross_sectional(settings: Settings, task: TrainingTask, bundle: dict, pa
     score_df = pd.DataFrame(score, index=panel.dates, columns=panel.codes)
     costs = load_config(settings, "costs").get("b3", {})
     result = {"model": {k: v for k, v in wf.items() if k not in ("score", "per_horizon")},
-              "scores": diag, "features": {"names": table.feature_names, **table.extra["feature_report"]},
+              "scores": diag, "features": {"names": table.feature_names, **table.extra["feature_report"],
+                                           **({"event_source": event_report} if event_report else {})},
               "samples": {"rows": int(len(table.date_pos)), "train_rows": int(np.isfinite(
                   table.Y[task.label.horizons[0]]).sum()), "predict_rows": int(table.predict.sum())}}
     outputs = {"scores": score_df}
@@ -111,8 +140,11 @@ def run_cross_sectional(settings: Settings, task: TrainingTask, bundle: dict, pa
         result["portfolio"] = pf
         result["series"] = _series(nav, excess)
         if task.portfolio.kind == "futures_hedged":
+            from alphasieve.data.futures import read_hedge_leg
+
+            leg = read_hedge_leg(settings, panel.tier, "system", task.portfolio.hedge or "IC", panel_universe(task))
             hedged = mandates.futures_hedged(panel, {"_daily": daily, "weights": outputs["weights"]}, beta,
-                                             task.portfolio, index_ret)
+                                             task.portfolio, index_ret, leg)
             result["hedged"] = {k: v for k, v in hedged.items() if not k.startswith("_")}
             result["series"]["hedged_nav"] = _series(hedged["_nav"], None)["nav"]
             result["acceptance"] = hedged["acceptance"]

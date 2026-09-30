@@ -27,6 +27,7 @@
 | [19-training-tasks.md](19-training-tasks.md) | 四个 mandate 的模型训练任务：标签、样本、特征、滚动验证、模型、配置和平台执行 |
 | [20-training-round2.md](20-training-round2.md) | 第二轮训练任务：C 事件分数接入 A、因子库扩充、ETF 行业映射轮动、真实期货与基差对冲 |
 | [21-a-portfolio.md](21-a-portfolio.md) | A 的组合构建：冻结 v4 分数、成本与容量诊断、四个预注册配置、N≤13 预算和停止规则 |
+| [22-a-cost-aware.md](22-a-cost-aware.md) | A 的成本感知续研：因果收益尺度与 20 亿冲击定价、两个固定配置、N≤15 预算和停止规则 |
 | [acceptance-training.md](acceptance-training.md) | 训练任务与四个 mandate 的 dev 验收记录：结果、作废的 trial、平台实测、阻塞项 |
 | [acceptance-m0-m2.md](acceptance-m0-m2.md) | M0–M2 验收记录：真实数据同步结果、测试、端到端评估、gate 校准 |
 | [acceptance-scaling.md](acceptance-scaling.md) | 扩容 S-1 至 S-7 验收记录：评估性能、常驻服务、程序化搜索、策略回测、全 A 与事件、日内数据 |

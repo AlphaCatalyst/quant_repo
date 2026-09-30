@@ -56,6 +56,12 @@ class EventSource(_Model):
     trial_id: str = Field(pattern=r"^S-[0-9a-f]{12}$")
 
 
+class ScoreSource(_Model):
+    """Walk-forward scores of a completed dev run reused as-is, so a portfolio trial changes construction only."""
+    task_id: str
+    trial_id: str = Field(pattern=r"^S-[0-9a-f]{12}$")
+
+
 class EtfMapping(_Model):
     """Current ETF holdings mapped to industries or used as a basket (docs/20 §4.1); fixed at ``mapping_asof``."""
     mode: Literal["industry_map", "basket_map"]
@@ -130,6 +136,12 @@ class PortfolioLink(_Model):
     cash_buffer: float = 0.25
     hedge_ratios: list[float] = Field(default_factory=lambda: [1.0])
     basis_head: Literal["enabled", "disabled"] = "disabled"
+    objective: Literal["score", "net_alpha_pwl"] = "score"
+    alpha_return_scale: float = 0.005
+    impact_segments: int = 4
+    score_ema_half_life: float | None = None
+    active_liquidity_adv_fraction: float | None = None
+    liquidity_design_aum: float = 2e9
 
 
 class Platform(_Model):
@@ -154,6 +166,7 @@ class TrainingTask(_Model):
     output: Output
     portfolio: PortfolioLink
     platform: Platform = Field(default_factory=Platform)
+    score_source: ScoreSource | None = None
 
     @model_validator(mode="after")
     def _rules(self) -> "TrainingTask":
@@ -195,9 +208,31 @@ class TrainingTask(_Model):
         ratios = self.portfolio.hedge_ratios
         if not ratios or ratios[0] != 1.0 or any(not 0 < r <= 1 for r in ratios):
             errors.append("hedge_ratios must start with the headline ratio 1.0 and lie in (0, 1]")
+        errors += self._portfolio_rules()
         if errors:
             raise ValueError("; ".join(errors))
         return self
+
+    def _portfolio_rules(self) -> list[str]:
+        """docs/21 §5: the construction mechanisms exist only in the LP and the frozen-score mode only for A."""
+        pf, errors = self.portfolio, []
+        uses_new = (pf.objective != "score" or pf.score_ema_half_life is not None
+                    or pf.active_liquidity_adv_fraction is not None)
+        if uses_new and (pf.kind != "index_enhancement" or pf.construction != "lp"):
+            errors.append("objective, score_ema_half_life and active_liquidity_adv_fraction need the LP"
+                          " index-enhancement construction")
+        if pf.alpha_return_scale <= 0 or pf.liquidity_design_aum <= 0:
+            errors.append("alpha_return_scale and liquidity_design_aum must be positive")
+        if pf.impact_segments != 4:
+            errors.append("impact_segments is fixed at 4 (docs/21 §2.1)")
+        if pf.score_ema_half_life is not None and pf.score_ema_half_life <= 0:
+            errors.append("score_ema_half_life must be positive")
+        frac = pf.active_liquidity_adv_fraction
+        if frac is not None and not 0 < frac <= 1:
+            errors.append("active_liquidity_adv_fraction must lie in (0, 1]")
+        if self.score_source is not None and (self.mandate != "A" or pf.kind != "index_enhancement"):
+            errors.append("score_source reuses A scores for an index-enhancement portfolio only")
+        return errors
 
     def candidate_count(self) -> int:
         total = 0
@@ -219,7 +254,21 @@ class TrainingTask(_Model):
 
     @property
     def config_hash(self) -> str:
-        return sha256_hex(canonical_json(self.model_dump(mode="json")))[:16]
+        data = self.model_dump(mode="json")
+        for section, name in LATER_FIELDS:
+            part = data if section is None else data[section]
+            model = type(self) if section is None else type(getattr(self, section))
+            if part.get(name) == model.model_fields[name].get_default(call_default_factory=True):
+                part.pop(name)
+        return sha256_hex(canonical_json(data))[:16]
+
+
+# fields added after the first training tasks were recorded; at their defaults they leave the hash unchanged
+LATER_FIELDS = (("features", "derived_fields"), ("features", "event_source"), ("features", "event_lag_days"),
+                ("features", "event_half_lives"), ("features", "etf_mapping"), ("portfolio", "hedge_ratios"),
+                ("portfolio", "objective"), ("portfolio", "alpha_return_scale"), ("portfolio", "impact_segments"),
+                ("portfolio", "score_ema_half_life"), ("portfolio", "active_liquidity_adv_fraction"),
+                ("portfolio", "liquidity_design_aum"), (None, "score_source"))
 
 
 def tasks_dir(settings: Settings) -> Path:

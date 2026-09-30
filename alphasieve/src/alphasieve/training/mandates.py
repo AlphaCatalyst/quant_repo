@@ -19,6 +19,8 @@ ACCEPTANCE = {
     "C": {"car_spread_t_min": 3.0, "decile_monotonicity_min": 0.8, "annual_excess_min": 0.05},
     "B": {"rank_ic_min": 0.03, "annual_excess_min": 0.05, "sharpe_min": 0.8},
 }
+# approved dev strategy-trial budgets: docs/20 §1 (B, C, D) and docs/21 §3 (A)
+STRATEGY_TRIAL_BUDGET = {"A": 13, "B": 5, "C": 4, "D": 4}
 CAPACITY_AUMS = (1e8, 5e8, 2e9)
 FUTURES_ROLL_COST = 0.0002   # open the next contract, slippage and the settlement fee, per unit of notional
 TE_TARGET = (0.04, 0.06)
@@ -70,14 +72,65 @@ def neutral_score(panel: Panel, score: pd.DataFrame, members: np.ndarray, factor
     return pd.DataFrame(res, index=panel.dates, columns=panel.codes)
 
 
+def ema_scores(score: pd.DataFrame, half_life: float) -> pd.DataFrame:
+    """Per-name exponential smoothing; a missing day (or leaving the pool) clears the state, nothing is filled."""
+    alpha = 1 - 2 ** (-1 / half_life)
+    x = score.to_numpy(dtype=float)
+    out = np.full(x.shape, np.nan)
+    state = np.full(x.shape[1], np.nan)
+    for t in range(len(x)):
+        ok = np.isfinite(x[t])
+        state = np.where(ok, np.where(np.isfinite(state), alpha * x[t] + (1 - alpha) * state, x[t]), np.nan)
+        out[t] = state
+    return pd.DataFrame(out, index=score.index, columns=score.columns)
+
+
+PERIODS = {"all": ("2016", "2022"), "ex_2016": ("2017", "2022"), "2016-2018": ("2016", "2018"),
+           "2019-2020": ("2019", "2020"), "2021-2022": ("2021", "2022")}
+
+
+def _excess_stats(excess: pd.Series) -> dict:
+    if excess.empty:
+        return {"days": 0}
+    te = float(excess.std() * np.sqrt(ANN))
+    curve = (1 + excess).cumprod()
+    return {"days": int(len(excess)), "annual_excess": float(excess.mean() * ANN), "tracking_error": te,
+            "information_ratio": float(excess.mean() * ANN / te) if te > 0 else float("nan"),
+            "max_drawdown_excess": float((curve / curve.cummax() - 1).min())}
+
+
+def robustness(main: dict, large: dict, base: dict) -> dict:
+    """Slices of one continuous simulation (docs/21 §4.2) and the extra screens of the docs/21 §4.3 winner rule."""
+    excess = main["_daily"]["ret"] - main["_daily"]["bench"]
+    periods = {k: _excess_stats(excess.loc[lo:hi]) for k, (lo, hi) in PERIODS.items()}
+    large_excess = large["_daily"]["ret"] - large["_daily"]["bench"]
+    at_2e9 = _excess_stats(large_excess)
+    subs = [periods[k].get("annual_excess", float("nan")) for k in ("2016-2018", "2019-2020", "2021-2022")]
+    ex = periods["ex_2016"]
+    screens = {
+        "ex_2016_excess": [ex["annual_excess"], 0.03, ex["annual_excess"] >= 0.03],
+        "ex_2016_ir": [ex["information_ratio"], 0.5, ex["information_ratio"] >= 0.5],
+        "sub_periods_positive": [f"{sum(v > 0 for v in subs)}/3", 2, sum(v > 0 for v in subs) >= 2],
+        "excess_2021_2022": [subs[2], 0.0, subs[2] > 0],
+        "excess_at_2e9": [at_2e9["annual_excess"], 0.0, at_2e9["annual_excess"] > 0],
+        "ir_at_2e9": [at_2e9["information_ratio"], 0.8, at_2e9["information_ratio"] >= 0.8],
+        "no_impact_minus_2e9": [base["annual_excess"] - at_2e9["annual_excess"], 0.015,
+                                base["annual_excess"] - at_2e9["annual_excess"] <= 0.015]}
+    return {"periods": periods, "at_2e9": at_2e9, "screens": screens,
+            "screens_passed": all(s[2] for s in screens.values())}
+
+
 def index_enhancement(panel: Panel, score: pd.DataFrame, members: np.ndarray, beta: np.ndarray, cfg, costs: dict,
                       benchmark: str, index_returns: np.ndarray | None) -> dict:
     score = neutral_score(panel, score, members, list(cfg.neutralize_score))
+    if cfg.score_ema_half_life is not None:
+        score = ema_scores(score, cfg.score_ema_half_life)
     if cfg.construction == "lp":
         from alphasieve.strategy.portfolio_lp import build_weights_lp
 
         weights, lp_info = build_weights_lp(score, panel, members, cfg.rebalance_every, cfg.industry_dev, cfg.name_cap,
-                                            cfg.turnover_cap, cfg.size_limit, beta, tuple(cfg.beta_range))
+                                            cfg.turnover_cap, cfg.size_limit, beta, tuple(cfg.beta_range), cfg=cfg,
+                                            costs=costs)
     else:
         weights = build_weights(score, panel, cfg.rebalance_every, cfg.industry_dev, cfg.name_cap, cfg.turnover_cap,
                                 cfg.size_limit, universe_mask=members, beta=beta, beta_range=tuple(cfg.beta_range),
@@ -94,7 +147,10 @@ def index_enhancement(panel: Panel, score: pd.DataFrame, members: np.ndarray, be
     vs_index = simulate(weights, panel, costs, benchmark, aum=cfg.aum, max_participation=cfg.max_participation,
                         universe_mask=members)
     capacity = {k: {"annual_excess": v["annual_excess"], "information_ratio": v["information_ratio"],
-                    "annual_impact_cost": v["annual_impact_cost"], "capped_trade_share": v["capped_trade_share"]}
+                    "tracking_error": v["tracking_error"], "max_drawdown_excess": v["max_drawdown_excess"],
+                    "annual_cost": v["annual_cost"], "annual_impact_cost": v["annual_impact_cost"],
+                    "annual_turnover": v["annual_turnover"], "capped_trade_share": v["capped_trade_share"],
+                    "invested_mean": v["invested_mean"]}
                 for k, v in runs.items()}
     pos, n_years = _years_positive(main)
     rule = ACCEPTANCE["A"]
@@ -116,6 +172,7 @@ def index_enhancement(panel: Panel, score: pd.DataFrame, members: np.ndarray, be
             "execution": _clean(main), "execution_vs_price_index": _clean(vs_index),
             "execution_no_impact": _clean(base),
             "capacity": capacity, "benchmark_proxy": proxy_tracking(panel, members, index_returns),
+            "robustness": robustness(main, runs[f"{CAPACITY_AUMS[-1]:.0e}"], base),
             "acceptance": {"checks": checks, "passed": all(c[2] for c in checks.values())},
             "_daily": main["_daily"], "_excess_nav": main["_excess_nav"], "_nav": main["_nav"]}
 

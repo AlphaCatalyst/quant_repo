@@ -84,7 +84,7 @@ def approve_read(conn: sqlite3.Connection, settings: Settings, request_id: str, 
     from alphasieve.training.run import start_trial
 
     holdout_trial = f"{req['trial_id']}-H"
-    start_trial(conn, system, task, holdout_trial)
+    start_trial(conn, system, task, holdout_trial, check_budget=False)
     result, _ = execute(system, {**bundle, "trial_id": holdout_trial}, processes, tier="holdout")
     artifact_id = complete_trial(conn, system, task, holdout_trial, result, tier="holdout")
     conn.execute("UPDATE strategy_holdout_requests SET result_json = ? WHERE request_id = ?",

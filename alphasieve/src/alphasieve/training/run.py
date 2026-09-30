@@ -49,6 +49,15 @@ def resolve_features(conn: sqlite3.Connection, task: TrainingTask) -> list[dict]
 
 
 def make_bundle(task: TrainingTask, members: list[dict], trial_id: str, settings: Settings | None = None) -> dict:
+    if task.score_source is not None:
+        from alphasieve.training.score_source import freeze_source as freeze_scores
+
+        if settings is None:
+            raise validation_error("freezing a score source needs the settings")
+        features = {"score_source": freeze_scores(settings, task.score_source.task_id, task.score_source.trial_id)}
+        return {"task": task.model_dump(mode="json"), "features": features, "trial_id": trial_id,
+                "feature_version": sha256_hex(canonical_json(features))[:12], "config_hash": task.config_hash,
+                "code_version": code_version()}
     features = {"factors": members, "panel_fields": task.features.panel_fields}
     if task.features.derived_fields:
         features["derived_fields"] = task.features.derived_fields
@@ -98,11 +107,8 @@ def _series(nav: pd.Series, excess: pd.Series | None) -> dict:
     return out
 
 
-def run_cross_sectional(settings: Settings, task: TrainingTask, bundle: dict, panel: Panel, processes=None,
-                        threads=None, progress=None) -> tuple[dict, dict]:
-    bench_name = task.portfolio.benchmark or BENCHMARK_OF.get(task.universe_predict, "csi800")
-    index_ret = benchmark_returns(panel, bench_name)
-    beta = rolling_beta(panel, index_ret) if index_ret is not None else None
+def _walk_forward_scores(settings: Settings, task: TrainingTask, bundle: dict, panel: Panel, beta, processes,
+                         threads, progress) -> tuple[pd.DataFrame, dict]:
     frames = _frames(settings, panel, bundle)
     event_report = None
     if bundle["features"].get("event_source"):
@@ -118,18 +124,32 @@ def run_cross_sectional(settings: Settings, task: TrainingTask, bundle: dict, pa
     run_task = task.model_copy(update={"split": task.split.model_copy(update={"warmup_years": 0.0})}) if holdout \
         else task
     wf = walk_forward(table, panel.dates, window, run_task, processes, threads, progress)
-    shape = (len(panel.dates), len(panel.codes))
-    score = to_grid(wf["score"], table, shape)
-    predict_mask = universe_mask(panel, task.universe_predict)
-    raw = {h: panel.wide(f"label_{h}d").to_numpy(dtype=float) for h in task.label.horizons}
-    diag = score_diagnostics(score, raw, predict_mask, task.output.decay_lags)
-    score_df = pd.DataFrame(score, index=panel.dates, columns=panel.codes)
-    costs = load_config(settings, "costs").get("b3", {})
+    score = to_grid(wf["score"], table, (len(panel.dates), len(panel.codes)))
     result = {"model": {k: v for k, v in wf.items() if k not in ("score", "per_horizon")},
-              "scores": diag, "features": {"names": table.feature_names, **table.extra["feature_report"],
-                                           **({"event_source": event_report} if event_report else {})},
+              "features": {"names": table.feature_names, **table.extra["feature_report"],
+                           **({"event_source": event_report} if event_report else {})},
               "samples": {"rows": int(len(table.date_pos)), "train_rows": int(np.isfinite(
                   table.Y[task.label.horizons[0]]).sum()), "predict_rows": int(table.predict.sum())}}
+    return pd.DataFrame(score, index=panel.dates, columns=panel.codes), result
+
+
+def run_cross_sectional(settings: Settings, task: TrainingTask, bundle: dict, panel: Panel, processes=None,
+                        threads=None, progress=None) -> tuple[dict, dict]:
+    bench_name = task.portfolio.benchmark or BENCHMARK_OF.get(task.universe_predict, "csi800")
+    index_ret = benchmark_returns(panel, bench_name)
+    beta = rolling_beta(panel, index_ret) if index_ret is not None else None
+    predict_mask = universe_mask(panel, task.universe_predict)
+    raw = {h: panel.wide(f"label_{h}d").to_numpy(dtype=float) for h in task.label.horizons}
+    if bundle["features"].get("score_source"):
+        from alphasieve.training.score_source import load_scores
+
+        score_df, source = load_scores(settings, panel, bundle["features"]["score_source"])
+        result = {"model": {"reused_scores": True, "fits": 0}, "features": {"score_source": source}}
+    else:
+        score_df, result = _walk_forward_scores(settings, task, bundle, panel, beta, processes, threads, progress)
+    score = score_df.to_numpy(dtype=float)
+    result["scores"] = score_diagnostics(score, raw, predict_mask, task.output.decay_lags)
+    costs = load_config(settings, "costs").get("b3", {})
     outputs = {"scores": score_df}
     if task.portfolio.kind in ("index_enhancement", "futures_hedged"):
         pf = mandates.index_enhancement(panel, score_df, predict_mask, beta, task.portfolio, costs, bench_name,
@@ -234,7 +254,12 @@ def _headline_ratio(result: dict) -> tuple[float | None, int]:
     return (result.get("portfolio") or {}).get("sharpe"), ex.get("days", 0)
 
 
-def start_trial(conn: sqlite3.Connection, settings: Settings, task: TrainingTask, trial_id: str) -> None:
+def start_trial(conn: sqlite3.Connection, settings: Settings, task: TrainingTask, trial_id: str,
+                check_budget: bool = True) -> None:
+    budget = mandates.STRATEGY_TRIAL_BUDGET[task.mandate]
+    if check_budget and strategy_trial_count(conn, task.mandate, "dev") >= budget:
+        raise AlphaSieveError("BUDGET_EXHAUSTED", f"mandate {task.mandate} has used its {budget} approved"
+                              " strategy trials; a larger budget needs a recorded decision")
     append_trial(conn, TrialLedgerEntry(
         trial_id=trial_id, record_kind="started", candidate_hash=task.config_hash, evidence_tier="dev",
         search_space_version=f"training_task:{task.task_id}", created_by=settings.role, layer="strategy",

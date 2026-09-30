@@ -16,6 +16,14 @@ from alphasieve.data.access import Panel
 DEFAULT_COSTS = {"commission": 0.00025, "stamp_duty_sell": 0.0005, "slippage": 0.0005}
 
 
+def trailing_liquidity(panel: Panel) -> tuple[np.ndarray, np.ndarray]:
+    """20-day mean traded amount and daily-return volatility through each day's close. A trade decided at the close
+    of day t and executed at t+1 sees exactly this window, in the simulation and in the optimiser."""
+    amount = pd.DataFrame(panel.wide("amount").to_numpy(dtype=float))
+    rets = pd.DataFrame(panel.wide("ret_1d").to_numpy(dtype=float))
+    return amount.rolling(20, min_periods=5).mean().to_numpy(), rets.rolling(20, min_periods=5).std().to_numpy()
+
+
 def simulate(weights: pd.DataFrame, panel: Panel, costs: dict | None = None, benchmark: str | None = None,
              aum: float | None = None, max_participation: float = 0.10,
              universe_mask: np.ndarray | None = None, hold_unchanged: bool = False) -> dict:
@@ -32,11 +40,8 @@ def simulate(weights: pd.DataFrame, panel: Panel, costs: dict | None = None, ben
     cap = panel.wide("circ_mv").to_numpy(dtype=float)
     universe = panel.mask("in_universe").to_numpy() if universe_mask is None else universe_mask
     if aum:
-        amount = pd.DataFrame(panel.wide("amount").to_numpy(dtype=float), index=dates)
-        adv = amount.rolling(20, min_periods=5).mean().shift(1).to_numpy()
-        rets = pd.DataFrame(panel.wide("ret_1d").to_numpy(dtype=float), index=dates)
-        vol = rets.rolling(20, min_periods=5).std().shift(1).to_numpy()
-    impact_total, capped_trades, trades_total = 0.0, 0, 0
+        adv, vol = (np.vstack([np.full((1, x.shape[1]), np.nan), x[:-1]]) for x in trailing_liquidity(panel))
+    impact_total, capped_trades, trades_total, traded_total = 0.0, 0, 0, 0.0
     targets = {dates.get_loc(d): row.to_numpy() for d, row in w_target.iterrows()}
     if not targets:
         return {"days": 0}
@@ -87,6 +92,7 @@ def simulate(weights: pd.DataFrame, panel: Panel, costs: dict | None = None, ben
             cost = buys * (c["commission"] + c["slippage"]) + sells * (c["commission"] + c["slippage"]
                                                                         + c["stamp_duty_sell"]) + impact
             impact_total += impact
+            traded_total += 0.5 * (buys + sells)
             holdings = new * value
             cash = value - holdings.sum() - cost * value
         holdings = holdings * (1 + intraday)
@@ -125,6 +131,7 @@ def simulate(weights: pd.DataFrame, panel: Panel, costs: dict | None = None, ben
         "benchmark": benchmark if bench_close is not None else ("equal_weight_universe" if equal_weight
                                                                 else "cap_weighted_universe"),
         "aum": aum, "annual_impact_cost": float(impact_total * ann / len(df)),
+        "annual_turnover": float(traded_total * ann / len(df)),
         "capped_trade_share": float(capped_trades / trades_total) if trades_total else 0.0,
         "_daily": df,
         "_nav": df["ret"].add(1).cumprod(), "_excess_nav": curve,

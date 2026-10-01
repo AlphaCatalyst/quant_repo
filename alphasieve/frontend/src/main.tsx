@@ -5,6 +5,7 @@ import Overview from "./pages/Overview";
 import Campaign from "./pages/Campaign";
 import { Factor, Factors } from "./pages/Factors";
 import { Data, Ledger } from "./pages/Ledger";
+import { Mandates, Strategy } from "./pages/Mandates";
 
 function useHashPath(): string {
   const [path, setPath] = useState(() => window.location.hash.slice(1) || "/");
@@ -21,6 +22,7 @@ function useHashPath(): string {
 
 const NAV: [string, string][] = [
   ["/", "总览"],
+  ["/mandates", "Mandate"],
   ["/factors", "因子"],
   ["/ledger", "Ledger"],
   ["/data", "数据"],
@@ -32,11 +34,14 @@ function App() {
   let page;
   if (parts[0] === "campaign" && parts[1]) page = <Campaign id={parts[1]} key={parts[1]} />;
   else if (parts[0] === "factor" && parts[1]) page = <Factor id={parts[1]} key={parts[1]} />;
+  else if (parts[0] === "strategy" && parts[1]) page = <Strategy id={parts[1]} key={parts[1]} />;
+  else if (parts[0] === "mandates") page = <Mandates />;
   else if (parts[0] === "factors") page = <Factors />;
   else if (parts[0] === "ledger") page = <Ledger />;
   else if (parts[0] === "data") page = <Data />;
   else page = <Overview />;
-  const active = "/" + (parts[0] === "campaign" ? "" : parts[0] === "factor" ? "factors" : parts[0] ?? "");
+  const active = "/" + (parts[0] === "campaign" ? "" : parts[0] === "factor" ? "factors"
+    : parts[0] === "strategy" ? "mandates" : parts[0] ?? "");
   return (
     <>
       <nav className="nav">

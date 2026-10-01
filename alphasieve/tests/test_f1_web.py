@@ -40,3 +40,28 @@ def test_web_can_run_without_login(panel_settings):
     connect(panel_settings.state_db).close()
     client = TestClient(create_app(panel_settings, require_auth=False))
     assert client.get("/api/overview").status_code == 200
+
+
+def test_web_mandate_and_strategy_views(panel_settings, tmp_path, capsys):
+    import json
+
+    from test_training import task_dict, write_task
+
+    from alphasieve.cli.main import main
+
+    path = write_task(tmp_path, task_dict())
+    assert main(["train", "run", "--task", path, "--processes", "1", "--threads", "1", "--json"]) == 0
+    trial_id = json.loads(capsys.readouterr().out)["data"]["trial_id"]
+    client = TestClient(create_app(panel_settings))
+    auth = _load_credentials(panel_settings)
+    assert client.get("/api/mandates").status_code == 401
+    mandates = {m["mandate"]: m for m in client.get("/api/mandates", auth=auth).json()["mandates"]}
+    a = mandates["A"]
+    assert a["dev_trials"] == 1 and a["holdout_reads"] == {"used": 0, "budget": 1}
+    assert a["trials"][0]["trial_id"] == trial_id and a["trials"][0]["outcome"].startswith("dev_")
+    detail = client.get(f"/api/strategy/{trial_id}", auth=auth).json()
+    assert [r["record_kind"] for r in detail["records"]] == ["started", "completed"]
+    assert "checks" in detail["detail"]["acceptance"] and "bundle" not in detail["detail"]
+    assert detail["detail"]["task"]["task_id"] == "t_small"
+    assert client.get("/api/strategy/S-000000000000", auth=auth).status_code == 404
+    assert client.get("/api/strategy/..%2Fetc", auth=auth).status_code in (400, 404)

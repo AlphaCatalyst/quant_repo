@@ -30,12 +30,15 @@ export const OUTCOME_LABEL: Record<string, string> = {
   holdout_failed: "holdout 未通过",
   holdout_contaminated: "holdout 污染",
   error: "错误",
+  dev_passed: "dev 验收通过",
+  dev_failed: "dev 验收未通过",
+  run_failed: "运行失败",
 };
 
 const TONE: Record<string, string> = {
   running: "green", completed: "green", robust_passed: "green", holdout_passed: "green", approved: "green",
   paused: "amber", awaiting_holdout_approval: "amber", pending: "amber", open: "amber", concluding: "amber",
-  timeout: "amber", robust_failed: "amber",
+  timeout: "amber", robust_failed: "amber", dev_failed: "amber", dev_passed: "green", run_failed: "red",
   failed: "red", integrity_violation: "red", error: "red", holdout_failed: "red", rejected: "red",
   validation_failed: "grey", evaluation_failed: "grey", concluded: "blue", holdout_evaluated: "blue",
 };

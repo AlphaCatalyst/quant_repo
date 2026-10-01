@@ -264,6 +264,62 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
             r["gates"] = _loads(r.pop("gate_results_json"), {})
         return {"trials": rows, "stats": ledger_stats(conn, campaign), "verify": verify_ledger(conn)}
 
+    @app.get("/api/mandates")
+    def mandates_view(user: str = Depends(auth), conn=Depends(db)):
+        from alphasieve.training.holdout import READS_PER_MANDATE
+        from alphasieve.training.mandates import STRATEGY_TRIAL_BUDGET
+
+        trials: dict[str, dict] = {}
+        for r in conn.execute("SELECT * FROM trials WHERE layer = 'strategy' AND record_kind != 'void' ORDER BY seq"):
+            metrics = _loads(r["metrics_json"], {})
+            t = trials.setdefault(r["trial_id"], {"trial_id": r["trial_id"], "mandate": r["scope"],
+                                                  "config_hash": r["candidate_hash"], "status": "open"})
+            if r["record_kind"] == "started":
+                t.update(task_id=metrics.get("task_id"), started_at=r["created_at"])
+            else:
+                t.update(status=r["record_kind"], tier=r["evidence_tier"], outcome=r["outcome"],
+                         artifact_id=r["artifact_id"], finished_at=r["created_at"], metrics=metrics)
+        requests = [dict(r) for r in conn.execute("SELECT * FROM strategy_holdout_requests ORDER BY created_at")]
+        for q in requests:
+            q["result"] = _loads(q.pop("result_json"))
+        out = []
+        for mandate, budget in STRATEGY_TRIAL_BUDGET.items():
+            rows = [t for t in trials.values() if t["mandate"] == mandate]
+            dev_started = sum(1 for t in rows if not t["trial_id"].endswith("-H"))
+            mine = [q for q in requests if q["mandate"] == mandate]
+            out.append({"mandate": mandate, "budget": budget, "dev_trials": dev_started,
+                        "holdout_reads": {"used": sum(q["status"] == "approved" for q in mine),
+                                          "budget": READS_PER_MANDATE},
+                        "trials": rows[::-1], "holdout_requests": mine})
+        return {"mandates": out}
+
+    @app.get("/api/strategy/{trial_id}")
+    def strategy_trial(trial_id: str, user: str = Depends(auth), conn=Depends(db)):
+        if not re.match(r"^S-[0-9a-f]{12}(-H)?$", trial_id):
+            raise HTTPException(400, "bad trial id")
+        rows = [dict(r) for r in conn.execute("SELECT * FROM trials WHERE trial_id = ? AND layer = 'strategy'"
+                                              " ORDER BY seq", (trial_id,))]
+        if not rows:
+            raise HTTPException(404, "trial not found")
+        for r in rows:
+            r["metrics"] = _loads(r.pop("metrics_json"), {})
+            r["gates"] = _loads(r.pop("gate_results_json"), {})
+        result = next((r for r in rows if r["record_kind"] in ("completed", "failed")), None)
+        detail = None
+        if result and result.get("artifact_id"):
+            path = settings.artifacts_dir / result["artifact_id"] / "metrics.json"
+            if path.exists():
+                detail = json.loads(path.read_text(encoding="utf-8"))
+                bundle = detail.pop("bundle", None) or {}
+                detail["task"] = bundle.get("task")
+                detail["feature_summary"] = {k: (len(v) if isinstance(v, list) else v)
+                                             for k, v in (bundle.get("features") or {}).items()}
+        requests = [dict(r) for r in conn.execute("SELECT * FROM strategy_holdout_requests WHERE trial_id = ?",
+                                                  (trial_id.removesuffix("-H"),))]
+        for q in requests:
+            q["result"] = _loads(q.pop("result_json"))
+        return {"trial_id": trial_id, "records": rows, "detail": detail, "holdout_requests": requests}
+
     @app.get("/api/artifacts/{artifact_id}/report", response_class=PlainTextResponse)
     def artifact_report(artifact_id: str, user: str = Depends(auth)):
         if not ARTIFACT_ID.match(artifact_id):

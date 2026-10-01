@@ -140,11 +140,22 @@ def run_cross_sectional(settings: Settings, task: TrainingTask, bundle: dict, pa
     beta = rolling_beta(panel, index_ret) if index_ret is not None else None
     predict_mask = universe_mask(panel, task.universe_predict)
     raw = {h: panel.wide(f"label_{h}d").to_numpy(dtype=float) for h in task.label.horizons}
-    if bundle["features"].get("score_source"):
+    frozen = bundle["features"].get("score_source")
+    if frozen and panel.tier == "dev":
         from alphasieve.training.score_source import load_scores
 
-        score_df, source = load_scores(settings, panel, bundle["features"]["score_source"])
+        score_df, source = load_scores(settings, panel, frozen)
         result = {"model": {"reused_scores": True, "fits": 0}, "features": {"score_source": source}}
+    elif frozen:
+        from alphasieve.training.score_source import source_bundle
+
+        src_bundle = source_bundle(settings, frozen)
+        src_task = parse_task(src_bundle["task"])
+        if (src_task.universe_train, src_task.universe_predict) != (task.universe_train, task.universe_predict):
+            raise validation_error("the score source trains or predicts on a different universe")
+        score_df, result = _walk_forward_scores(settings, src_task, src_bundle, panel, beta, processes, threads,
+                                                progress)
+        result["features"]["score_source"] = {**frozen, "rescored_on_tier": panel.tier}
     else:
         score_df, result = _walk_forward_scores(settings, task, bundle, panel, beta, processes, threads, progress)
     score = score_df.to_numpy(dtype=float)

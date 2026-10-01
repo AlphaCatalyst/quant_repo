@@ -124,3 +124,41 @@ def test_later_fields_at_their_defaults_keep_the_config_hash():
     assert parse_task(task_dict(portfolio={**LP, "score_ema_half_life": 5})).config_hash != plain.config_hash
     with pytest.raises(AlphaSieveError, match="need the LP"):
         parse_task(task_dict(portfolio={**BASE["portfolio"], "score_ema_half_life": 5}))
+
+
+def test_frozen_score_trial_rescores_holdout_with_the_source_training(panel_settings, tmp_path, capsys):
+    from dataclasses import replace
+
+    from alphasieve.training import holdout
+
+    src = write_task(tmp_path, task_dict())
+    assert main(["train", "run", "--task", src, "--processes", "1", "--threads", "1", "--json"]) == 0
+    source = json.loads(capsys.readouterr().out)["data"]["trial_id"]
+    frozen = write_task(tmp_path, task_dict(task_id="t_frozen", score_source={"task_id": "t_small",
+                                                                               "trial_id": source}))
+    assert main(["train", "run", "--task", frozen, "--processes", "1", "--threads", "1", "--json"]) == 0
+    trial = json.loads(capsys.readouterr().out)["data"]["trial_id"]
+
+    conn = connect(panel_settings.state_db)
+    human = replace(panel_settings, role="human")
+    _, bundle = holdout._trial_bundle(conn, panel_settings, trial)
+    result, outputs = tr.execute(panel_settings, bundle, 1, 1, tier="holdout")
+    assert result["model"].get("reused_scores") is None and result["model"]["fits"] > 0
+    assert result["features"]["score_source"]["rescored_on_tier"] == "holdout"
+    assert result["manifest"]["config_hash"] == bundle["config_hash"]
+    from alphasieve.training.score_source import source_bundle
+
+    direct, direct_out = tr.execute(panel_settings, source_bundle(panel_settings, bundle["features"]["score_source"]),
+                                    1, 1, tier="holdout")
+    pd.testing.assert_frame_equal(outputs["scores"], direct_out["scores"])
+
+    req = holdout.request_read(conn, human, trial)
+    approved = holdout.approve_read(conn, human, req["request_id"], "test read", processes=1)
+    assert approved["status"] == "approved"
+
+    run_dir = next((panel_settings.store_root / "models" / "t_small").glob(f"*{source}*"))
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+    manifest["bundle"]["task"]["portfolio"]["top_k"] = 7
+    (run_dir / "manifest.json").write_text(json.dumps(manifest))
+    with pytest.raises(AlphaSieveError, match="changed"):
+        tr.execute(panel_settings, bundle, 1, 1, tier="holdout")

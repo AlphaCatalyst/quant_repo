@@ -101,7 +101,7 @@
 
 - **S-4**：完成。全 A 日线已同步，dev panel 在平台构建，holdout 只在本机，全 A campaign 经平台 worker 评估跑通（见 [acceptance-scaling.md](acceptance-scaling.md)）。全 A 财报改用 westock 三大报表，另加资金流向（D-30）。
 - **S-5**：并行 lane 与模板展开已完成，并做过真实验证（D-27）。
-- **S-6**：`strategy backtest` 可以作为平台任务运行，结果写入 RunLab（D-28）。组合层补上了市值与行业约束，需要重跑。
+- **S-6**：`strategy backtest` 可以作为平台任务运行，结果写入 RunLab（D-28）。组合层补上了市值与行业约束，需要重跑。后来模型层与组合层由训练任务取代（D-31，[19-training-tasks.md](19-training-tasks.md)），训练同样在平台 Ray 集群上运行。
 - **S-7**：完成。事件数据已纳入中证 800 panel；`hs300_2020` 日内 panel 已构建（15 分钟线）；程序化搜索在独立的 `program` campaign 中运行，400 个 trial 已完整结题（D-28）。稀疏的事件字段用 `fill_na` 把没有事件的日子填为中性值。
 
 常用命令：

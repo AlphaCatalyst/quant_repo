@@ -61,6 +61,7 @@ AlphaSieve 有两个入口：JSON CLI（agent 与人共用）和 HTTP API（前�
 | `library list` / `library corr <factor_id>` | A H | 因子库成员与相关性 |
 | `library seed` | H S | 把 `configs/seeds.yaml` 中的经典因子载入基线因子库（不写 trial） |
 | `ledger verify` | A H S | 校验 ledger 哈希链与 started / 结果记录的配对 |
+| `state backup [--no-prune]` | H S | 在线备份状态库到 `<STORE_ROOT>/backups/state/`，副本通过完整性检查与 ledger 校验后才落盘，然后按保留策略清理旧备份 |
 | `gate calibrate --random N` | H S | 零假设模拟、植入信号检出率、种子分布阈值建议，结果写 artifact |
 | `ledger stats [--campaign ...]` | A H | trial 数、失败原因分布、当前 DSR 门槛 |
 | `memory show [--scope ...]` | A H | 经验记忆 |

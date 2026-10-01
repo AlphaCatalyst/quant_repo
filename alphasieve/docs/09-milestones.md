@@ -28,6 +28,8 @@ M0 基础 ──▶ M1 数据 ──▶ M2 因子评估 ──┬──▶ M3 Ag
 
 实现状态（2026-09-26）：已完成。Ceph 挂载保护以“挂载点必须是 mountpoint”检查实现；SQLite 定时备份随 M3 orchestrator 实现。
 
+更新（2026-10-01）：SQLite 定时备份已实现：`alphasieve state backup` 用在线备份 API 复制数据库，在副本上做完整性检查与 ledger 哈希链校验后才落盘；systemd timer 每小时运行，保留最近 48 份和 30 天内每天最新一份，存于 `<STORE_ROOT>/backups/state/`。
+
 验收：
 - `alphasieve ledger verify --json` 能检测被篡改的记录（测试中构造篡改）。
 - 以 agent 角色调用 human 专属命令返回退出码 4。
@@ -165,6 +167,8 @@ M0 基础 ──▶ M1 数据 ──▶ M2 因子评估 ──┬──▶ M3 Ag
 - 用假任务结果的集成测试：日志缺失或哈希链断裂的任务，其候选全部作废。
 - 一个 20 任务的真实 batch 跑通，所有 trial 可追溯到任务、模型、镜像 digest；canonical 重验与云端结论不一致的候选被标记。
 
+状态（2026-10-01）：未按本计划实施，Nexus 执行器没有写。广度改由两条路满足：评估在平台 Ray 集群的 worker 上运行（D-23、D-25），agent 仍在本机；程序化搜索（遗传编程与枚举）在独立 campaign 中运行（D-28）。Q-9 因此不再阻塞。
+
 ## F2 · 前端交互（L）
 
 依赖：M3、M4。
@@ -182,6 +186,8 @@ M0 基础 ──▶ M1 数据 ──▶ M2 因子评估 ──┬──▶ M3 Ag
 - 场景 S1–S5、S7（见 [01-product.md](01-product.md) §4）全部可在前端完成，且与 CLI 结果一致。
 - 关键流程的 Playwright 测试通过。
 
+状态（2026-10-01）：未开始。web 仍是只读的，审批、指令、campaign 控制都通过本机 CLI 完成。只读页面已经扩到 mandate 与策略 trial（预算、验收项、净值、容量、稳健性、holdout 申请）。
+
 ## M6 · 策略与模型（M）
 
 目标：因子库转化为指数增强策略，模型随因子库滚动重训。
@@ -194,6 +200,8 @@ M0 基础 ──▶ M1 数据 ──▶ M2 因子评估 ──┬──▶ M3 Ag
 
 验收：
 - 以 3–5 个手写因子构建的策略回测，与独立实现的结果一致；执行约束的单元测试覆盖涨停、停牌、T+1。
+
+状态（2026-10-01）：以不同形式实现。StrategySpec 没有实现，策略由 TrainingTask 配置定义（[19-training-tasks.md](19-training-tasks.md)），面向四个 mandate（[18-mandates.md](18-mandates.md)）：模型按月滚动重训，组合构建有启发式与 LP 两种，执行模拟覆盖 T+1、涨跌停与停牌、参与率与冲击。每次完整运行是一个策略层 trial，按 mandate 计预算与搜索折扣，策略层 holdout 每个 mandate 一次人工批准的读取（D-31）。四个 mandate 的 dev 预算已用完，结论见 [acceptance-training.md](acceptance-training.md)、[20-training-round2.md](20-training-round2.md)、[21-a-portfolio.md](21-a-portfolio.md)（D-32、D-33）。风格因子与协方差风险模型尚未实现，设计见 [25-risk-model.md](25-risk-model.md)。
 
 ## M7 · 前瞻与 paper（M）
 
@@ -210,11 +218,15 @@ M0 基础 ──▶ M1 数据 ──▶ M2 因子评估 ──┬──▶ M3 Ag
 - 连续运行 20 个交易日无人工干预；fresh 数据无回填（不变量测试）。
 - `fresh_supported` 进入 paper 需要审批，且审批记录完整。
 
+状态（2026-10-01）：未实现。设计见 [23-forward-paper.md](23-forward-paper.md)，其中列出了需要人工决定的问题（包括 Q-8 资金规模与基准，以及模拟盘是否按运营方式定期重训）。
+
 ## F3 · 前端完整（M）
 
 依赖：M6、M7。
 
 任务：策略页、前瞻页（cohort 曲线、分池对比、regime 状态）、记忆页、设置页。
+
+状态（2026-10-01）：只读的策略页已提前完成（mandate 列表、策略 trial 详情）；前瞻页依赖 M7。
 
 ## M8 · 扩展（按需）
 
@@ -225,6 +237,8 @@ M0 基础 ──▶ M1 数据 ──▶ M2 因子评估 ──┬──▶ M3 Ag
 - 行业 / ETF 轮动配置层。
 - Reviewer agent。
 - 是否引入 QuantDesk 式平台外壳（见 [10-decisions.md](10-decisions.md)）。
+
+状态（2026-10-01）：事件驱动（业绩超预期漂移）与行业 ETF 轮动已作为 mandate C、B 实现（D-31、D-32）；事件按 westock 财报的公告日从 panel 中规则检测（D-30），不是 LLM 抽取。模型设计的自主循环与 Reviewer agent 未做；因子 campaign 与 mandate 的挂接设计见 [24-mandate-campaigns.md](24-mandate-campaigns.md)。
 
 M0–M2 的验收记录见 [acceptance-m0-m2.md](acceptance-m0-m2.md)。
 

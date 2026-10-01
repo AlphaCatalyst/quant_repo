@@ -31,38 +31,42 @@
 
 ## 2. 组件
 
+下表是 2026-10-01 的实际目录（`src/alphasieve/` 下）。最初规划的 `models/`、`review/`、`memory/`、`api/`、`orchestrator/` 没有单独建目录，职责并入了表中对应模块；`backtest/` 只剩空的占位包。
+
 | 组件 | 目录 | 职责 |
 |---|---|---|
-| contracts | `src/alphasieve/contracts/` | pydantic 模型：ResearchQuestion、DataContract、FactorSpec、StrategySpec、TrialLedgerEntry、Campaign 等；schema 版本化 |
-| data | `src/alphasieve/data/` | 数据拉取、panel 构建、PIT 规则、可交易性标记、数据区间划分与访问控制 |
-| factors | `src/alphasieve/factors/` | 因子 DSL 解析、算子库、表达式树、规范化与哈希、复杂度度量 |
-| evaluation | `src/alphasieve/evaluation/` | 因子指标、多窗口检验、中性化、参考模型组边际贡献、评估不变量 |
-| ledger | `src/alphasieve/ledger/` | trial ledger（append-only + 哈希链）、holdout 读取预算、试验计数 |
-| gates | `src/alphasieve/gates/` | L0–L4 gate 实现、gate policy 版本、因子状态机 |
-| backtest | `src/alphasieve/backtest/` | A 股日频截面执行模拟、指数增强组合构建 |
-| models | `src/alphasieve/models/`（M6 新增） | 固定配置模型、滚动重训、参考模型组 |
-| campaigns | `src/alphasieve/campaigns/`（M3 新增） | Campaign、Turn、Directive、预算与停止条件 |
-| agent | `src/alphasieve/agent/`（M3 新增） | agent 执行器抽象（本机 Claude Code / Codex，M5 起 Nexus Cloud）、prompt 组装、transcript 解析，见 [14-agent-execution.md](14-agent-execution.md) |
-| search_space | `src/alphasieve/search_space/`（M2 新增） | SearchSpace 配置、派生变量库、覆盖坐标与落格，见 [11-factor-search-space.md](11-factor-search-space.md) |
-| memory | `src/alphasieve/memory/`（M3 新增） | 经验记忆：成功模板、禁区、洞察；冻结与解冻 |
-| review | `src/alphasieve/review/`（M4 新增） | Review Packet 生成、审批记录、PromotionRecord |
-| fresh | `src/alphasieve/fresh/`（M7 新增） | fresh cohort、前瞻分池、regime 信任门 |
-| api | `src/alphasieve/api/`（F1 新增） | FastAPI 应用、read model、SSE 事件流 |
-| cli | `src/alphasieve/cli/` | JSON CLI |
-| orchestrator | `src/alphasieve/orchestrator/`（M3 新增） | 常驻调度进程、任务表、定时任务 |
-| web | `web/`（F1 新增） | 前端工程 |
+| contracts | `contracts/` | pydantic 模型：FactorSpec、TrialLedgerEntry、Campaign 等；JSON Schema 导出 |
+| data | `data/` | 数据同步（BaoStock、westock、新浪期货）、panel 构建、PIT 规则、可交易性、区间划分与按角色访问、ETF 与期货数据 |
+| factors | `factors/` | 因子 DSL、算子库、派生变量、规范化与哈希、因子注册与因子库 |
+| evaluation | `evaluation/` | 因子指标、中性化、ridge 边际贡献、模板展开、numba 内核、常驻评估服务（本机 worker 与平台桥接） |
+| ledger | `ledger/` | trial ledger（append-only + 哈希链），按层（factor / strategy）与 mandate 计数 |
+| gates | `gates/` | L0–L3 gate、gate policy 版本、因子状态机 |
+| search_space / search | `search_space/`、`search/` | SearchSpace 与落格；程序化搜索（遗传编程、枚举） |
+| campaigns | `campaigns/` | Campaign、Turn、Directive、预算与停止条件；经验记忆；结题、shortlist、因子层 holdout、Review Packet |
+| agents | `agents/` | 执行器（本机 Claude Code / Codex）、无人值守 orchestrator 循环、workspace 模板、turn 后完整性检查 |
+| strategy | `strategy/` | 执行模拟（T+1、涨跌停、参与率、平方根冲击）、启发式与 LP 组合构建、早期 `strategy backtest` |
+| training | `training/` | TrainingTask 配置、样本与残差标签、滚动训练、四个 mandate 的组合与验收、冻结分数来源、策略层 holdout |
+| state | `state/` | SQLite 迁移与连接；数据库定时备份 |
+| web | `web/` | 只读 FastAPI 与构建好的前端静态文件 |
+| cli | `cli/` | JSON CLI（唯一写入入口） |
+| 前端工程 | 仓库根目录 `frontend/` | React + Vite + ECharts；构建产物输出到 `web/dist` |
+| fresh（规划） | — | 前瞻验证与 paper 追踪，设计见 [23-forward-paper.md](23-forward-paper.md) |
 
 ## 3. 进程模型
 
+常驻进程都由 systemd 管理（`deploy/systemd/`，`deploy/install.sh` 安装）。
+
 | 进程 | 启动方式 | 说明 |
 |---|---|---|
-| API Server | `alphasieve serve` | FastAPI + uvicorn，服务前端与 SSE；只处理轻量请求，重计算投递到任务表 |
-| Orchestrator | `alphasieve orchestrator` | 单实例常驻；轮询任务表，调度 agent turn、批次 gate、holdout 评估、定时任务 |
-| Worker | 由 orchestrator 以子进程启动 | 执行评估、回测、重训等重计算；超时与内存上限可配 |
+| Web | `alphasieve-web.service` → `alphasieve serve` | 只读 FastAPI + 前端静态文件，HTTP Basic 认证；不提供任何写操作 |
+| Orchestrator | `alphasieve-orchestrator@<campaign>.service` → `alphasieve orchestrator run` | 每个 campaign 一个实例，文件锁保证单实例；一次一个 agent turn，直到停止条件，然后结题（L3 与 holdout 申请） |
+| 评估 worker | `alphasieve-evalworker.service` → `alphasieve evalsvc worker` | 常驻评估服务（D-25），面板常驻内存，从目录队列取请求 |
+| 平台桥接 | `alphasieve-evalbridge.service` → `alphasieve evalsvc bridge` | 把评估请求转发给 taijifs 上的平台 Ray worker（D-23） |
 | Agent 会话 | 由 orchestrator 以子进程启动 | `claude -p` / `codex exec`，cwd 为 campaign workspace |
-| CLI | 人或 agent 直接调用 | 短命令直接执行；长任务投递到任务表并返回 job id |
+| 定时任务 | `alphasieve-daily-update.timer`、`alphasieve-state-backup.timer` | 每日数据更新；每小时数据库备份 |
+| CLI | 人或 agent 直接调用 | 唯一写入入口；训练等长任务在前台或 Ray 集群上运行 |
 
-任务表放在 SQLite 中（`jobs` 表：类型、参数、状态、租约、重试次数）。第一阶段单机运行，不引入消息队列。
+没有 SQLite 任务表，也不引入消息队列：agent turn 由 orchestrator 串行调度，评估请求走评估服务的目录队列。
 
 ## 4. 存储
 
@@ -70,7 +74,7 @@
 
 ```text
 <HOT_ROOT>/
-  state/alphasieve.db        SQLite：元数据、ledger、任务表、事件、审批（WAL 模式；每小时备份到 Ceph）
+  state/alphasieve.db        SQLite：元数据、ledger、事件、审批（WAL 模式；每小时备份到 Ceph 的 <STORE_ROOT>/backups/state/）
   data/
     raw/tushare/<api>/        原始拉取的本地工作副本（权威副本在 Ceph）
     panel/dev/                开发窗口 panel（agent 可经 CLI 访问）
@@ -87,8 +91,8 @@
   reports/                    日报与批次报告
 ```
 
-- **SQLite 表**（主要）：`research_questions`、`data_contracts`、`factor_specs`、`trials`（ledger）、`campaigns`、`turns`、`directives`、`shortlists`、`holdout_requests`、`review_packets`、`decisions`、`promotion_records`、`strategy_specs`、`fresh_cohorts`、`memory_items`、`events`、`jobs`、`users`。
-- **ledger 完整性**：`trials` 只允许 INSERT；每行包含前一行哈希，形成哈希链；启动时与定时任务校验链完整。
+- **SQLite 表**（2026-10-01 实际）：`trials`（ledger，factor 与 strategy 两层）、`factor_specs`、`library`、`data_snapshots`、`campaigns`、`turns`、`directives`、`agent_requests`、`memory_items`、`shortlists`、`holdout_requests`（因子层）、`strategy_holdout_requests`（策略层）、`review_packets`、`decisions`、`events`、`schema_version`。原规划的 `research_questions`、`data_contracts`、`promotion_records`、`strategy_specs`、`fresh_cohorts`、`jobs`、`users` 没有建：策略配置以 TrainingTask YAML 加 artifact manifest 冻结，fresh 见 [23-forward-paper.md](23-forward-paper.md)，web 用单个 Basic 认证凭据。
+- **ledger 完整性**：`trials` 只允许 INSERT；每行包含前一行哈希，形成哈希链；`alphasieve ledger verify` 校验，每次备份也会在副本上校验一遍。
 - **artifact**：目录名为 manifest 内容哈希；manifest 记录代码版本（git commit）、数据快照签名、配置、gate policy 版本、随机种子。
 - **为什么不用 Postgres**：第一阶段单机、写入量小，SQLite 足够且零运维；service 层通过仓储接口访问，后续可迁移。
 
@@ -111,7 +115,7 @@
 
 | 边界 | 实现 |
 |---|---|
-| 角色 | `ALPHASIEVE_ROLE` ∈ {`agent`, `human`, `system`}；人类通过 API 登录后以 `human` 角色调用；orchestrator 与 worker 为 `system` |
+| 角色 | `ALPHASIEVE_ROLE` ∈ {`agent`, `human`, `system`}；人类在本机 CLI 以 `human` 角色执行审批（web 只读）；orchestrator 与 worker 为 `system` |
 | holdout / fresh 数据 | 独立目录，文件权限只允许 system 运行用户读取；data 层按角色拒绝访问；agent 会话以不同操作系统用户运行（M3 起） |
 | 评估与回测代码 | agent 的 cwd 是 campaign workspace，不包含 `src/`；agent 的文件写权限限制在 workspace 内 |
 | agent 工具 | Bash 只允许 `alphasieve ...` 与 workspace 内的基础文件命令；禁止网络访问（除 LLM 服务本身） |
@@ -126,6 +130,7 @@
 | Data Contract Service | `data/` |
 | Factor Registry | `factors/` + `factor_specs` 表 |
 | Validation / Evaluation / Robustness Service | `gates/`（L0）、`evaluation/`（L1、L2） |
-| Review Gate / Promotion Service | `review/` |
-| Memory Service | `memory/` |
-| Model / Portfolio Service | `models/` + `backtest/` |
+| Review Gate / Promotion Service | `campaigns/`（结题、Review Packet、因子层 holdout）、`training/holdout.py`（策略层 holdout）；审批是 human 角色的 CLI 命令 |
+| Memory Service | `campaigns/memory.py` |
+| Model / Portfolio Service | `training/`（模型、mandate 组合与验收）+ `strategy/`（执行与 LP） |
+| Forward / Paper Service | 未实现，设计见 [23-forward-paper.md](23-forward-paper.md) |

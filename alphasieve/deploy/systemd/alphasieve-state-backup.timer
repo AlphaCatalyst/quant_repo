@@ -1,0 +1,10 @@
+[Unit]
+Description=Back up the AlphaSieve state database every hour
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+Unit=alphasieve-state-backup.service
+
+[Install]
+WantedBy=timers.target

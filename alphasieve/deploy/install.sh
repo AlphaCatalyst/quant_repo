@@ -4,7 +4,8 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 units=("$@")
 if [ ${#units[@]} -eq 0 ]; then
-  units=(alphasieve-daily-update.service alphasieve-daily-update.timer)
+  units=(alphasieve-daily-update.service alphasieve-daily-update.timer
+         alphasieve-state-backup.service alphasieve-state-backup.timer)
 fi
 for unit in "${units[@]}"; do
   install -m 0644 "$here/systemd/$unit" "/etc/systemd/system/$unit"

@@ -8,7 +8,7 @@ import math
 import os
 
 UNTRACKED_PREFIXES = ("holdout", "review", "campaign", "directive", "request", "orchestrator", "serve", "version",
-                      "evalsvc")
+                      "evalsvc", "state")
 MAX_KEYS = 300
 
 

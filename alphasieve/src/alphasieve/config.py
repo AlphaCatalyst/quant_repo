@@ -72,6 +72,10 @@ class Settings:
     def transcripts_dir(self) -> Path:
         return self.store_root / "transcripts"
 
+    @property
+    def backups_dir(self) -> Path:
+        return self.store_root / "backups" / "state"
+
 
 def get_settings(role: str | None = None) -> Settings:
     role = role or os.environ.get("ALPHASIEVE_ROLE", "human")

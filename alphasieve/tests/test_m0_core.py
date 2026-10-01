@@ -169,3 +169,48 @@ def test_concurrent_migrations_are_serialised(tmp_path):
     for t in threads:
         t.join()
     assert not errors
+
+
+def test_state_backup_verified_copy(settings, capsys):
+    conn = connect(settings.state_db)
+    append_trial(conn, entry("t1", "started"))
+    append_trial(conn, entry("t1", "completed", metrics={"ic": 0.01}))
+    code, out = run_cli(capsys, "state", "backup")
+    assert code == 0
+    copy = settings.backups_dir / out["data"]["path"].split("/")[-1]
+    assert copy.exists() and copy.with_suffix(".json").exists()
+    assert out["data"]["ledger_rows"] == 2
+    restored = connect(copy)
+    assert verify_ledger(restored)["ok"]
+    assert restored.execute("SELECT hash FROM trials ORDER BY seq DESC LIMIT 1").fetchone()[0] \
+        == out["data"]["ledger_head"]
+
+
+def test_state_backup_rejects_tampered_ledger(settings):
+    from alphasieve.state.backup import list_backups, take_backup
+
+    conn = connect(settings.state_db)
+    append_trial(conn, entry("t1", "started"))
+    conn.execute("DROP TRIGGER trials_no_update")
+    conn.execute("UPDATE trials SET created_by = 'x' WHERE seq = 1")
+    with pytest.raises(AlphaSieveError):
+        take_backup(conn, settings.backups_dir)
+    assert list_backups(settings.backups_dir) == []
+    assert not list(settings.backups_dir.glob("*.partial"))
+
+
+def test_state_backup_retention(tmp_path):
+    from alphasieve.state.backup import list_backups, prune_backups
+
+    days = [f"202609{d:02d}" for d in range(1, 6)]
+    for day in days:
+        for hour in (1, 13):
+            (tmp_path / f"alphasieve-{day}T{hour:02d}0000Z.db").write_bytes(b"x")
+    removed = prune_backups(tmp_path, keep_recent=3, keep_daily=2)
+    kept = [p.name for p in list_backups(tmp_path)]
+    assert kept == ["alphasieve-20260904T130000Z.db", "alphasieve-20260905T010000Z.db",
+                    "alphasieve-20260905T130000Z.db"]
+    assert len(removed) == 7
+    prune_backups(tmp_path, keep_recent=1, keep_daily=3)
+    assert [p.name for p in list_backups(tmp_path)] == ["alphasieve-20260904T130000Z.db",
+                                                       "alphasieve-20260905T130000Z.db"]

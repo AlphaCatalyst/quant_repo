@@ -71,6 +71,20 @@ def cmd_ledger_stats(args, ctx) -> CommandResult:
     return CommandResult(data=ledger_stats(ctx.conn, args.campaign, args.tier))
 
 
+def _configure_backup(p):
+    p.add_argument("--no-prune", action="store_true", help="keep all existing backups")
+
+
+@command("state backup", HUMAN_SYSTEM, configure=_configure_backup, needs_store=True,
+         help="copy the state database to the store, verify the copy, prune old copies")
+def cmd_state_backup(args, ctx) -> CommandResult:
+    from alphasieve.state.backup import prune_backups, take_backup
+
+    info = take_backup(ctx.conn, ctx.settings.backups_dir)
+    info["pruned"] = [] if args.no_prune else prune_backups(ctx.settings.backups_dir)
+    return CommandResult(data=info)
+
+
 def _configure_schema(p):
     p.add_argument("--out", default="schemas")
 

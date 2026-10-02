@@ -1,6 +1,6 @@
 # 23 · 前瞻验证与 paper 追踪
 
-状态（2026-10-02）：合成环境下已实现 cohort 登记与人工批准入口、只追加 fresh 日分区、固定参数前向重拟合、观察账簿与三态统计，以及只读前瞻页和未安装的 systemd 单元；相关聚焦测试已通过。本文对应 [09-milestones.md](09-milestones.md) 的 M7，仍是完整目标契约，不能将部分实现视为真实启用授权。现有 raw→fresh 路径缺完整 PIT 封存，模型到每日目标的编排、连续 25 个交易日端到端合成验收和真实隔离尚未完成；M7 未完成。§6 五项政策仍待 human 决定，推荐值见 `src/alphasieve/configs/forward/policy_v1.yaml`；未批准 cohort 的 system 日任务不得运行该组。未读取真实 holdout/fresh 数据，未运行真实 trial、Ray 或 `train run`。
+状态（2026-10-02）：§6 五项政策已由 human 决定（D-36），但逐 cohort 真实启用仍须签名审批。25 个交易日合成链路验收已通过；同机 root 风险未解决，M7 及连续真实交易日运维验收均未完成。未读取真实 holdout/fresh 数据，未运行真实 trial 或 Ray。
 
 ## 1. 目标与非目标
 
@@ -68,7 +68,7 @@ daily-update 后由 system 调 `fresh daily --asof T`；human 手动 daily-updat
 
 重训点 p 使用截至 T 的可得历史，但样本仍严格 `date_pos < p-purge_days`、`label_end<=T`，embargo 不缩短；rolling/expanding 和 stride 按锁定配置。只更新模型系数，不更改参数、feature set、seed 或 early-stop 规则；若原规则需要监测集，只能取过去已成熟训练内数据。模型 snapshot 记最大训练日期/标签端点、cutoff、行数、模型 digest 和环境，之后 T 日分数引用唯一 model id。失败暂停新目标，不静默改种子、旧模型或阈值。
 
-这里的历史可能含 2023 年后的已成熟样本。它是封闭的部署重拟合，不是 dev 调参或新的 holdout 评估；须由 human 在登记时单独授权 `operational_refit` 的时间范围和用途。它不签发 holdout approval，不生成 holdout verdict，不增加读取机会；正式 validation 仍须先走原一次人工 holdout 流程。该用途与 docs/19 §1.2 的“holdout/fresh 永不参与训练”有文字冲突，实施前需人工记录明确的部署重拟合例外；未决定时仅做合成工程验证，不暗中改成纯 dev 训练。
+这里的历史可能含 2023 年后的已成熟样本。D-36 已批准仅 system、本机、固定参数的 `operational_refit` 部署例外；每个 cohort 仍须单独签名批准并锁定时间范围和用途。它不签发 holdout approval，不生成 holdout verdict，不增加读取机会；正式 validation 仍须先走原一次人工 holdout 流程。此例外见 docs/19 §1.2，不改变 dev 调参规则。
 
 任何 `score_source` bundle 先于 panel/source 文件读取被 forward 入口拒绝。若跟踪 docs/21/22 的组合配置，须用其源训练 bundle 的 dev 选定参数加锁定组合构造一个明确的 `forward_config_hash`，保留源 hash，登记 `scoring_mode=operational_refit`；不是删除 `score_source` 后冒充原 hash。资格须人工审查该映射，缺少一致训练 provenance 时不得入组。C-to-A 等依赖也需同样因果 scorer，禁止读冻结 dev 分数补未来、外推或向前填充。
 
@@ -152,8 +152,8 @@ forward 结果不自动反馈 dev 搜索、记忆或调参。人工据此另起�
 
 ## 6. 人工待决问题（每项含推荐默认）
 
-1. **Q-8：paper 资金与基准。** 推荐 A 为 **5 亿元人民币**、初始 NAV=1，全现金、零申赎；headline 为 CSI 500 PIT 成员按前日流通市值加权的后复权全收益代理，延续 D-31。sh.000905 价格指数和代理对价格指数的差异单列参考，不能将代理称为官方全收益指数。可得官方全收益指数时另开 cohort，不能换旧基准。该规模同时用于成交参与率与冲击；不另开 1 亿/20 亿前向扫描。
-2. **首批对象与 shadow 是否启动。** 推荐先完成策略链路，再由 human 决定是否登记 A v4 单一 diagnostic shadow；允许未过 dev/holdout，但无晋升含义、不消耗/代替 holdout approval。正式因子 cohort 仅取已有 review 批准成员，策略与因子分开计数。
-3. **部署重拟合的历史用途。** 推荐批准仅 system、本机、固定参数、成熟标签的 operational_refit 例外；按原 rolling 5 年/月度重训，不做年选参，记录与 docs/19 的用途区分。未决定不开始真实 forward，不能由 agent/system 自行批准。
-4. **统计期与 policy。** 推荐因子 60 个成熟有效日、A 策略 120 个有效收益日、覆盖 ≥95%、HAC p≤0.05、BH q=0.10，采用 §3.6 的三态结论；第一期不设证据不足后的自动延长。注册前批准 policy，开组后不改。
-5. **隐私与运行额度。** 推荐 fresh/模型/日志使用独立 system 用户或容器，forward Web 强制认证；采用 §4 的 2 worker/8 线程/32 GiB、2 小时重训、4 小时日任务上限。缺口连续 2 日暂停；超时不追补目标。优先保证只追加和可复现，再扩大对象数。
+1. **Q-8：paper 资金与基准，已决定（D-36）。** A 的观察与 paper 账簿固定 **100 万元人民币**、初始 NAV=1，全现金、零申赎；headline 为 CSI 500 PIT 成员按前日流通市值加权的全收益代理。sh.000905 价格指数及代理差异单列参考，不能将代理称为官方全收益指数。可得官方全收益指数时另开 cohort。100 万元下参与率截断与平方根冲击接近零，与 dev 的 5 亿/20 亿容量检查不同；前向结果不能证明大资金容量。
+2. **首批对象与 shadow，已决定（D-36）。** 先完成策略链路；是否登记 A v4 单一 diagnostic shadow 仍由 human 届时签名决定，本轮不登记。shadow 无晋升含义，不消耗或代替 holdout approval。
+3. **部署重拟合的历史用途，已决定（D-36）。** 批准仅 system、本机、固定参数、成熟标签的 operational_refit 例外；rolling 5 年、月度重训，不年度选参。真实 cohort 仍须签名审批。
+4. **统计期与 policy，已决定（D-36）。** 因子 60 个成熟有效日、A 策略 120 个有效收益日、覆盖 ≥95%、HAC p≤0.05、BH q=0.10，采用 §3.6 的三态结论；证据不足不自动延长。开组后不改 policy。
+5. **隐私与运行额度，已决定（D-36）。** forward Web 强制 human 认证；2 worker、每个 8 线程/32 GiB、重训 2 小时、日任务 4 小时。关键缺口连续 2 日暂停，超时不追补。forward systemd 单元以独立 system 用户运行，fresh/模型目录 0700，并保留 agent 路径约束与审计。本机 agent 以 root 运行，可绕过独立用户与 0700；真正隔离需 agent 进不去的另一台机器或容器。是否接受同机 root 风险（同 D-21/D-22 的 holdout 现状）或换机器，仍待 human 决定；当前未完成真实隔离。

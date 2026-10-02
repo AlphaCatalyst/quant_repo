@@ -71,7 +71,7 @@ def forward_fixture(conn) -> None:
     approved = cohorts[0][0]
     conn.execute("INSERT INTO paper_books (book_id, cohort_id, book_mode, capital, benchmark, start_date, created_at)"
                  " VALUES (?,?,?,?,?,?,?)",
-                 (f"B-{approved}", approved, "observation", 500_000_000, "synthetic-CSI500-TR",
+                 (f"B-{approved}", approved, "observation", 1_000_000, "synthetic-CSI500-TR",
                   "2026-10-01", "2026-10-01T00:00:00Z"))
     date = datetime(2026, 10, 1, tzinfo=UTC)
     valid_count = 0

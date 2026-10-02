@@ -1,7 +1,7 @@
 decisions:
   - id: forward-q8
     title: paper 资金与基准
-    question: 是否为 A 的 paper 追踪固定 5 亿元人民币、初始 NAV=1，并采用 CSI 500 PIT 成员的前日流通市值加权后复权全收益代理？
+    question: A 的 paper 资金与基准已如何固定？
     evidence: docs/23-forward-paper.md#6-人工待决问题每项含推荐默认
     options:
       - name: 按推荐方案冻结
@@ -9,9 +9,9 @@ decisions:
       - name: 暂缓
         consequence: 不登记依赖资金与基准的正式 paper cohort。
     recommendation: 按推荐方案冻结；不扫描 1 亿或 20 亿元规模。
-    status: open
-    decision: null
-    decided_at: null
+    status: decided
+    decision: D-36：100 万元人民币，初始 NAV=1，全现金、零申赎；CSI 500 PIT 前日流通市值加权全收益代理，sh.000905 价格指数单列参考。不能据此证明 5 亿/20 亿容量。
+    decided_at: 2026-10-02
   - id: forward-shadow
     title: 首批对象与诊断 shadow
     question: 策略链路完成后，是否登记 A v4 的单一 diagnostic shadow？
@@ -22,9 +22,9 @@ decisions:
       - name: 暂缓
         consequence: 不启动首批 shadow。
     recommendation: 先完成策略链路，再由 human 决定是否登记。
-    status: open
-    decision: null
-    decided_at: null
+    status: decided
+    decision: D-36：先完成策略链路；是否登记 A v4 单一 diagnostic shadow，届时由 human 签名决定。本轮不登记。
+    decided_at: 2026-10-02
   - id: forward-refit
     title: 部署重拟合历史用途
     question: 是否批准 system 在本机按固定参数和成熟标签作 operational_refit 例外？
@@ -35,9 +35,9 @@ decisions:
       - name: 暂缓
         consequence: 未决定前不开始真实 forward。
     recommendation: 批准仅 system、本机、固定参数、成熟标签的限定例外。
-    status: open
-    decision: null
-    decided_at: null
+    status: decided
+    decision: D-36：批准仅 system、本机、固定参数和成熟标签的 operational_refit；rolling 5 年、月度重训、不年度选参。逐 cohort 仍须签名批准。
+    decided_at: 2026-10-02
   - id: forward-policy
     title: 前向统计期与 policy
     question: 是否在注册前冻结因子 60 个成熟有效日、A 策略 120 个有效收益日及统计门槛？
@@ -48,9 +48,9 @@ decisions:
       - name: 暂缓
         consequence: 不注册依赖该 policy 的正式 cohort。
     recommendation: 注册前批准并冻结推荐 policy，开组后不改。
-    status: open
-    decision: null
-    decided_at: null
+    status: decided
+    decision: D-36：因子 60 日、策略 120 日、覆盖率 ≥95%、HAC p≤0.05、BH q=0.10、三态裁决，不自动延长。
+    decided_at: 2026-10-02
   - id: forward-privacy
     title: 前向隐私与运行额度
     question: 是否按隔离用户或容器、Web 认证和固定资源上限部署 fresh 追踪？
@@ -61,6 +61,19 @@ decisions:
       - name: 暂缓
         consequence: 不开始真实 forward 部署。
     recommendation: 独立 system 用户或容器，Web 强制认证；先保证只追加和可复现。
+    status: decided
+    decision: D-36：forward Web 强制 human 认证；2 worker、每个 8 线程/32 GiB、重训 2h、日任务 4h；缺口连续 2 日暂停，超时不追补。同机 root 隔离风险另列待决。
+    decided_at: 2026-10-02
+  - id: forward-isolation
+    title: 前瞻隔离
+    question: 接受同机 root 风险，还是将前瞻运行迁至 agent 无法进入的机器或容器？
+    evidence: docs/23-forward-paper.md#6-人工待决问题每项含推荐默认
+    options:
+      - name: 接受同机 root 风险
+        consequence: 与 D-21/D-22 的 holdout 现状相同；独立用户和 0700 对 root 无效，需明确接受残余风险。
+      - name: 换机器或隔离容器
+        consequence: agent 无法读取 fresh、模型和日志后才可验证真正隔离；需部署与红队验收。
+    recommendation: 换机器或隔离容器，并在真实启用前验证 agent 无法进入。
     status: open
     decision: null
     decided_at: null

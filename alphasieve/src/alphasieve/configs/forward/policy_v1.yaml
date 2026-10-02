@@ -1,14 +1,14 @@
 # 推荐默认值；真实 cohort 须由 human 显式批准并冻结此文件的 digest。
 version: forward_policy_v1
 approval_required: true
-real_activation: pending_human_decision
+real_activation: cohort_signature_required
 initial_cohorts:
-  first_strategy_shadow: pending_human_decision
+  first_strategy_shadow: strategy_pipeline_first_then_human_signature
   strategy_diagnostic_shadow: 1
   factor_validation: 1
   factor_members_max: 10
 strategy_a:
-  capital_cny: 500000000
+  capital_cny: 1000000
   initial_nav: 1.0
   benchmark: csi500_pit_float_cap_total_return_proxy
   valid_return_days_min: 120
@@ -26,7 +26,7 @@ statistics:
   auto_extend_inconclusive: false
 operational_refit:
   approval_required: true
-  decision: pending_human_decision
+  decision: approved_system_local_fixed_mature_labels_only
   window: rolling_5y
   schedule: first_trading_day_of_month
   fixed_parameters: true

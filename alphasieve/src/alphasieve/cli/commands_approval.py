@@ -5,7 +5,8 @@ from alphasieve.cli.registry import CommandResult, command
 
 
 def _configure(p):
-    p.add_argument("kind", choices=["strategy_holdout", "factor_holdout", "review", "request"])
+    p.add_argument("kind", choices=["strategy_holdout", "factor_holdout", "review", "request",
+                                    "fresh_cohort", "paper_book", "fresh_state"])
     p.add_argument("target_id")
     p.add_argument("--decision", required=True)
     p.add_argument("--output", type=Path)

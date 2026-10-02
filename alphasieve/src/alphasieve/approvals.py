@@ -14,7 +14,7 @@ from alphasieve.errors import AlphaSieveError, validation_error
 from alphasieve.util import canonical_json, sha256_hex
 
 NAMESPACE = "alphasieve-approval"
-KINDS = {"strategy_holdout", "factor_holdout", "review", "request"}
+KINDS = {"strategy_holdout", "factor_holdout", "review", "request", "fresh_cohort", "paper_book", "fresh_state"}
 
 
 def _policy(settings: Settings) -> bool:
@@ -111,6 +111,33 @@ def evidence_snapshot(conn: sqlite3.Connection, settings: Settings, kind: str, t
         if row["status"] != "open":
             raise AlphaSieveError("CONFLICT", "request is no longer open")
         data = dict(row)
+    elif kind == "fresh_cohort":
+        row = conn.execute("SELECT * FROM forward_approval_requests WHERE request_id=?", (target_id,)).fetchone()
+        if row is None:
+            raise validation_error(f"unknown forward approval request {target_id}")
+        if conn.execute("SELECT 1 FROM fresh_cohorts WHERE approval_id IN"
+                        " (SELECT decision_id FROM decisions WHERE object_type='forward_request' AND object_id=?)",
+                        (target_id,)).fetchone():
+            raise AlphaSieveError("CONFLICT", "forward request already approved")
+        from alphasieve.fresh.service import policy
+        _, current_policy_hash = policy(settings)
+        if row["policy_hash"] != current_policy_hash:
+            raise AlphaSieveError("CONFLICT", "forward policy changed")
+        data = dict(row)
+    elif kind in {"paper_book", "fresh_state"}:
+        row = conn.execute("SELECT * FROM fresh_cohorts WHERE cohort_id=?", (target_id,)).fetchone()
+        if row is None:
+            raise validation_error(f"unknown forward cohort {target_id}")
+        verdict = conn.execute("SELECT * FROM fresh_verdicts WHERE cohort_id=?", (target_id,)).fetchone()
+        latest = conn.execute("SELECT row_hash,record_kind FROM forward_ledger WHERE cohort_id=?"
+                              " ORDER BY seq DESC LIMIT 1", (target_id,)).fetchone()
+        data = {"cohort": dict(row), "verdict": dict(verdict) if verdict else None,
+                "ledger_head": dict(latest) if latest else None}
+        if kind == "paper_book":
+            books = conn.execute("SELECT book_id FROM paper_books WHERE cohort_id=? AND book_mode='approved_paper'",
+                                 (target_id,)).fetchall()
+            if books:
+                raise AlphaSieveError("CONFLICT", "paper book already approved")
     else:
         raise validation_error(f"unknown approval kind {kind}")
     return canonical_json(data)
@@ -126,6 +153,9 @@ def _decision(kind: str, decision: str) -> str:
         "factor_holdout": {"approve", "reject"},
         "review": {"rejected", "needs_repair", "approved_for_shadow"},
         "request": {"approved", "rejected", "answered"},
+        "fresh_cohort": {"approve"},
+        "paper_book": {"approve"},
+        "fresh_state": {"pause", "close", "resume"},
     }
     if decision not in choices.get(kind, set()):
         raise validation_error(f"invalid decision {decision!r} for {kind}")
@@ -340,9 +370,13 @@ def verify_records(conn: sqlite3.Connection, settings: Settings) -> list[dict]:
                     "strategy_holdout": "strategy_holdout_request",
                     "factor_holdout": "holdout_request",
                     "review": "review_packet",
+                    "fresh_cohort": "forward_request",
+                    "paper_book": "paper_book",
+                    "fresh_state": "fresh_state",
                 }.get(data["kind"])
                 expected_decision = (
-                    {"approve": "approved", "reject": "rejected"}.get(data["decision"], data["decision"])
+                    {"approve": "approved", "reject": "rejected", "pause": "paused", "close": "closed",
+                     "resume": "resumed"}.get(data["decision"], data["decision"])
                     if data["kind"] != "review"
                     else data["decision"]
                 )

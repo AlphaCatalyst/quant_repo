@@ -138,7 +138,8 @@ def fit_asof(table, dates: pd.DatetimeIndex, asof, task, selection: dict[int, di
             "weights": task.ensemble.horizon_weights or {h: 1.0 / len(models) for h in models}}
 
 
-def score_asof(snapshot: dict, table, asof, *, bundle: dict | None = None, task=None) -> np.ndarray:
+def score_asof(snapshot: dict, table, asof, *, bundle: dict | None = None, task=None,
+               dates: pd.DatetimeIndex | None = None) -> np.ndarray:
     """Score only rows at ``asof`` using the last sealed model snapshot."""
     if task is not None:
         _reject_score_source(bundle, task)
@@ -152,7 +153,7 @@ def score_asof(snapshot: dict, table, asof, *, bundle: dict | None = None, task=
     if (stamp.year, stamp.month) != (snapshot["asof"].year, snapshot["asof"].month):
         raise validation_error("monthly forward model refit is due before scoring")
     # The sample's date positions use the same sealed date index as fit_asof.
-    dates = snapshot.get("dates")
+    dates = dates if dates is not None else snapshot.get("dates")
     if dates is None:
         raise validation_error("snapshot needs sealed date index for scoring")
     loc = dates.get_indexer([stamp])

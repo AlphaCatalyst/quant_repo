@@ -6,6 +6,18 @@ RequiresMountsFor=/mnt/private_felixjjiang
 
 [Service]
 Type=oneshot
+User=alphasieve-forward
+Group=alphasieve-forward
+UMask=0077
+ProtectHome=true
+ProtectSystem=strict
+NoNewPrivileges=true
+ReadWritePaths=/data/alphasieve
+Environment=OMP_NUM_THREADS=8
+Environment=OPENBLAS_NUM_THREADS=8
+Environment=MKL_NUM_THREADS=8
+CPUQuota=800%
+MemoryMax=32G
 WorkingDirectory=/data/codebase/quant_repo/alphasieve
 Environment=ALPHASIEVE_ROLE=system
 Environment=ALPHASIEVE_USER=systemd

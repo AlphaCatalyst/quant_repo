@@ -12,9 +12,12 @@ SUSPICIOUS = [
     (re.compile(r"ALPHASIEVE_(ROLE|CAMPAIGN|TURN|TURN_ALLOWANCE|HOT_ROOT|STORE_ROOT|CONFIG_DIR|EVAL_QUEUE)\s*="),
      "environment override"),
     (re.compile(r"panel/(holdout|fresh)"), "holdout or fresh panel path"),
+    (re.compile(r"fresh_raw_snapshots|fresh_models|/api/forward|forward_ledger|paper_days"),
+     "forward restricted path or result"),
     (re.compile(r"alphasieve\.db|sqlite3?\b"), "direct database access"),
     (re.compile(r"secrets\.env|auth\.json|AIHUB_API_KEY"), "credential access"),
     (re.compile(r"alphasieve\s+(holdout|review)\s+(approve|reject|decide)"), "human-only command"),
+    (re.compile(r"alphasieve\s+(fresh|paper|approval)\s+"), "forward or approval command"),
     (re.compile(r"\bconfigs?/(gate_policy|splits|costs|search_space)\.yaml"), "policy file access"),
     (re.compile(r"evalq/|/taijifs_[^ ]*/alphasieve"), "evaluation queue or platform data access"),
 ]
@@ -34,6 +37,9 @@ def snapshot(conn: sqlite3.Connection, settings: Settings) -> dict:
         "review_packets": one("SELECT COUNT(*) FROM review_packets"),
         "non_dev_trials": one("SELECT COUNT(*) FROM trials WHERE evidence_tier != 'dev'"),
         "shortlists": one("SELECT COUNT(*) FROM shortlists"),
+        "forward_ledger": one("SELECT COUNT(*) FROM forward_ledger"),
+        "fresh_days": one("SELECT COUNT(*) FROM fresh_days"),
+        "paper_days": one("SELECT COUNT(*) FROM paper_days"),
         "config": _config_hash(settings),
     }
 

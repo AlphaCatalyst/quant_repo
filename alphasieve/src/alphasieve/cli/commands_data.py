@@ -12,7 +12,9 @@ ALL = ("agent", "human", "system")
 HUMAN_SYSTEM = ("human", "system")
 MAX_SAMPLE_ROWS = 200
 SYNC_DATASETS = ("reference", "members", "daily", "financials", "events", "intraday", "mirror", "core",
-                 "ws_financials", "fund_flow", "margin", "margin_history", "etf", "futures")
+                 "ws_financials", "fund_flow", "margin", "margin_history", "etf", "futures",
+                 "ws_reports", "ws_consensus", "ws_index_members", "ws_sw_industry",
+                 "ws_sector_index_daily", "ws_return_index_daily")
 
 
 def _universe_arg(p):
@@ -75,6 +77,21 @@ def cmd_data_sync(args, ctx) -> CommandResult:
         out["fund_flow"] = sync.sync_fund_flow(settings, conn, end, args.workers, _progress("fund_flow"), u)
     if "margin" in datasets:
         out["margin"] = sync.sync_margin_snapshot(settings, conn, end, args.workers, _progress("margin"), u)
+    if "ws_reports" in datasets:
+        out["ws_reports"] = sync.sync_westock_reports(settings, conn, args.workers, _progress("ws_reports"), u)
+    if "ws_consensus" in datasets:
+        out["ws_consensus"] = sync.sync_westock_consensus(settings, conn, date.today().isoformat(), args.workers,
+                                                          _progress("ws_consensus"), u)
+    if "ws_index_members" in datasets:
+        out["ws_index_members"] = sync.sync_westock_index_members(settings, conn, date.today().isoformat())
+    if "ws_sw_industry" in datasets:
+        out["ws_sw_industry"] = sync.sync_westock_sw_industry(settings, conn, date.today().isoformat())
+    if "ws_sector_index_daily" in datasets:
+        out["ws_sector_index_daily"] = sync.sync_westock_index_kline(settings, conn, end, "sector_index_daily",
+                                                                      args.workers, _progress("ws_sector_index_daily"))
+    if "ws_return_index_daily" in datasets:
+        out["ws_return_index_daily"] = sync.sync_westock_index_kline(settings, conn, end, "return_index_daily",
+                                                                      args.workers, _progress("ws_return_index_daily"))
     if "etf" in datasets:
         from alphasieve.data.etf import sync_etf
 
@@ -90,7 +107,7 @@ def cmd_data_sync(args, ctx) -> CommandResult:
         out["mirror"] = sync.mirror_to_store(settings, u)
     warnings = []
     for key in ("daily", "financials", "events", "intraday", "ws_financials", "fund_flow", "margin", "margin_history",
-                "futures"):
+                "futures", "ws_reports", "ws_sector_index_daily", "ws_return_index_daily"):
         if out.get(key, {}).get("errors"):
             warnings.append(f"{key}: {len(out[key]['errors'])} items failed; rerun to resume")
     return CommandResult(data=out, warnings=warnings)
@@ -252,11 +269,19 @@ def cmd_data_daily_update(args, ctx) -> CommandResult:
     out["daily"] = sync.sync_daily(settings, conn, end, 6)
     out["fund_flow"] = sync.sync_fund_flow(settings, conn, end, 4, universe="ashare_all")
     out["margin"] = sync.sync_margin_snapshot(settings, conn, end, 8, universe="ashare_all")
+    out["ws_reports"] = sync.sync_westock_reports(settings, conn, 4, universe="ashare_all")
+    out["ws_consensus"] = sync.sync_westock_consensus(settings, conn, today.isoformat(), 4,
+                                                      universe="ashare_all")
+    out["ws_index_members"] = sync.sync_westock_index_members(settings, conn, today.isoformat())
+    out["ws_sw_industry"] = sync.sync_westock_sw_industry(settings, conn, today.isoformat())
+    out["ws_sector_index_daily"] = sync.sync_westock_index_kline(settings, conn, end, "sector_index_daily")
+    out["ws_return_index_daily"] = sync.sync_westock_index_kline(settings, conn, end, "return_index_daily")
     if today.weekday() == 5:
         out["financials"] = sync.sync_financials(settings, conn, end, 4)
         out["ws_financials"] = sync.sync_westock_financials(settings, conn, end, 4, universe="ashare_all")
     out["mirror"] = sync.mirror_to_store(settings)
-    keys = ("daily", "financials", "fund_flow", "margin", "ws_financials")
+    keys = ("daily", "financials", "fund_flow", "margin", "ws_financials", "ws_reports",
+            "ws_sector_index_daily", "ws_return_index_daily")
     warnings = [f"{k}: {len(out[k]['errors'])} items failed; rerun to resume"
                 for k in keys if out.get(k, {}).get("errors")]
     return CommandResult(data=out, warnings=warnings)

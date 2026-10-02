@@ -305,6 +305,168 @@ def westock_root(settings: Settings) -> Path:
     return settings.raw_dir / "westock"
 
 
+WESTOCK_INDICES = ("sh.000300", "sh.000905", "sh.000906", "sh.000852")
+WESTOCK_NET_INDICES = ("csN00905", "csN00300")
+SECTOR_INDEX_START = "2012-01-01"
+NET_INDEX_START = "2024-05-08"
+
+
+def sync_westock_reports(settings: Settings, conn: sqlite3.Connection, workers: int = 4, progress=None,
+                         universe: str | None = None) -> dict:
+    """Append newly listed reports, stopping each stock at its first stored report id."""
+    from alphasieve.data.providers import westock
+
+    root = westock_root(settings) / "reports"
+    root.mkdir(parents=True, exist_ok=True)
+    db = sqlite3.connect(root / "reports.sqlite", timeout=60)
+    db.execute("PRAGMA busy_timeout=60000")
+    db.executescript("""CREATE TABLE IF NOT EXISTS lists
+        (code TEXT PRIMARY KEY, rows_json TEXT NOT NULL, n INTEGER NOT NULL, fetched_at TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS details
+        (id TEXT PRIMARY KEY, code TEXT NOT NULL, list_time TEXT, detail_json TEXT, fetched_at TEXT NOT NULL);""")
+    codes = universe_codes(settings, universe)
+    listed = detailed = 0
+    errors = []
+    try:
+        for i, code in enumerate(codes, 1):
+            raw_code = westock.to_westock(code)
+            old = db.execute("SELECT rows_json FROM lists WHERE code=?", (raw_code,)).fetchone()
+            previous = json.loads(old[0]) if old else []
+            known = {str(r.get("id")) for r in previous}
+            new = []
+            try:
+                for offset in range(0, 10000, 20):
+                    page = westock.report_page(code, offset)
+                    for row in page:
+                        if str(row.get("id")) in known:
+                            break
+                        if row.get("id"):
+                            new.append(row)
+                    if len(new) < offset + len(page) or len(page) < 20:
+                        break
+                merged = new + [r for r in previous if str(r.get("id")) not in {str(n["id"]) for n in new}]
+                db.execute("INSERT OR REPLACE INTO lists VALUES (?,?,?,?)",
+                           (raw_code, json.dumps(merged, ensure_ascii=False), len(merged), utcnow_iso()))
+                db.commit()
+                listed += len(new)
+                for row in merged:
+                    rid = str(row.get("id", ""))
+                    if not rid or not westock.is_broker_report(row.get("title", "")):
+                        continue
+                    if db.execute("SELECT 1 FROM details WHERE id=?", (rid,)).fetchone():
+                        continue
+                    try:
+                        detail = westock.report_detail(rid)
+                        db.execute("INSERT OR IGNORE INTO details VALUES (?,?,?,?,?)",
+                                   (rid, raw_code, row.get("time"),
+                                    json.dumps(detail, ensure_ascii=False) if detail else None, utcnow_iso()))
+                        detailed += 1
+                    except Exception as exc:  # noqa: BLE001
+                        errors.append({"item": rid, "error": str(exc)[:300]})
+                db.commit()
+            except Exception as exc:  # noqa: BLE001
+                errors.append({"item": code, "error": str(exc)[:300]})
+            if progress and (i % 50 == 0 or i == len(codes)):
+                progress(i, len(codes))
+    finally:
+        db.close()
+    parsed_rows = 0
+    if detailed:
+        from alphasieve.data.reports import write_parsed
+
+        try:
+            parsed_rows = len(write_parsed(root / "reports.sqlite", root / "parsed.parquet"))
+        except Exception as exc:  # noqa: BLE001
+            errors.append({"item": "parsed.parquet", "error": str(exc)[:300]})
+    return {"codes": len(codes), "new_reports": listed, "new_details": detailed, "parsed_rows": parsed_rows,
+            "errors": errors}
+
+
+def _snapshot_day(settings: Settings, conn: sqlite3.Connection, dataset: str, day: str,
+                  fetch) -> dict:
+    path = westock_root(settings) / dataset / f"{day}.parquet"
+    if path.exists():
+        return {"date": day, "rows": len(pd.read_parquet(path)), "existing": True}
+    df = fetch()
+    if df.empty:
+        return {"date": day, "rows": 0, "existing": False}
+    df.insert(0, "snapshot_date", day)
+    _write_parquet(df, path)
+    snap = record_snapshot(conn, f"westock:{dataset}", {"date": day}, [path], len(df), "westock")
+    return {"date": day, "rows": len(df), "existing": False, "snapshot": snap}
+
+
+def sync_westock_consensus(settings: Settings, conn: sqlite3.Connection, day: str, workers: int = 4,
+                           progress=None, universe: str | None = None) -> dict:
+    from alphasieve.data.providers import westock
+
+    codes = universe_codes(settings, universe)
+
+    def fetch():
+        parts, errors = _run_threads(westock.consensus, _batches(codes), workers, progress)
+        if errors:
+            raise RuntimeError(f"consensus batches failed: {errors[:3]}")
+        return pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
+
+    return _snapshot_day(settings, conn, "consensus", day, fetch)
+
+
+def sync_westock_index_members(settings: Settings, conn: sqlite3.Connection, day: str) -> dict:
+    from alphasieve.data.providers import westock
+
+    return _snapshot_day(settings, conn, "index_members", day,
+                         lambda: westock.index_constituents(list(WESTOCK_INDICES)))
+
+
+def sync_westock_sw_industry(settings: Settings, conn: sqlite3.Connection, day: str) -> dict:
+    from alphasieve.data.providers import westock
+
+    def fetch():
+        lists = pd.concat([westock.sector_list(level) for level in (1, 2, 3)], ignore_index=True)
+        parts = westock.sector_constituents(lists["sector_code"].tolist())
+        return parts.merge(lists, on="sector_code", how="left").drop_duplicates(["code", "level", "sector_code"])
+
+    return _snapshot_day(settings, conn, "sw_industry", day, fetch)
+
+
+def sync_westock_index_kline(settings: Settings, conn: sqlite3.Connection, end: str, kind: str,
+                             workers: int = 4, progress=None) -> dict:
+    from alphasieve.data.providers import westock
+
+    if kind not in ("sector_index_daily", "return_index_daily"):
+        raise ValueError(kind)
+    root = westock_root(settings) / kind
+    if kind == "sector_index_daily":
+        lists = pd.concat([westock.sector_list(level) for level in (1, 2)], ignore_index=True)
+        codes = sorted(lists["sector_code"].unique())
+        start = SECTOR_INDEX_START
+    else:
+        codes, start = list(WESTOCK_NET_INDICES), NET_INDEX_START
+
+    def job(batch: list[str]) -> int:
+        code = batch[0]
+        path = root / f"{code}.parquet"
+        existing = pd.read_parquet(path) if path.exists() else pd.DataFrame()
+        lo = _next_day(str(existing["date"].max())) if not existing.empty else start
+        if lo > end:
+            return 0
+        frames = []
+        for year in range(int(lo[:4]), int(end[:4]) + 1):
+            a, b = max(lo, f"{year}-01-01"), min(end, f"{year}-12-31")
+            if a <= b:
+                frames.append(westock.kline([code], a, b))
+        fresh = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+        if not fresh.empty:
+            merged = pd.concat([existing, fresh], ignore_index=True).drop_duplicates("date", keep="first")
+            _write_parquet(merged.sort_values("date").reset_index(drop=True), path)
+        return len(fresh)
+
+    results, errors = _run_threads(job, [[c] for c in codes], workers, progress)
+    paths = sorted(root.glob("*.parquet"))
+    snap = record_snapshot(conn, f"westock:{kind}", {"end": end}, paths, sum(results), "westock")
+    return {"codes": len(codes), "new_rows": sum(results), "files": len(paths), "errors": errors, "snapshot": snap}
+
+
 def _batches(items: list, size: int = WESTOCK_BATCH) -> list[list]:
     return [items[i:i + size] for i in range(0, len(items), size)]
 

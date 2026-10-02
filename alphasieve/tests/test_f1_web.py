@@ -1,4 +1,5 @@
 from dataclasses import replace
+import json
 
 from fastapi.testclient import TestClient
 from fixtures.campaign import campaign_spec, start_campaign
@@ -42,9 +43,34 @@ def test_web_can_run_without_login(panel_settings):
     assert client.get("/api/overview").status_code == 200
 
 
-def test_web_mandate_and_strategy_views(panel_settings, tmp_path, capsys):
-    import json
+def test_web_status_reports_read_only_counts_and_backup_metadata(panel_settings):
+    conn = connect(panel_settings.state_db)
+    conn.execute("INSERT INTO strategy_holdout_requests (request_id, mandate, task_id, trial_id, config_hash,"
+                 " status, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                 ("req-test", "A", "task-test", "S-000000000001", "hash", "pending", "human", "2026-01-01"))
+    conn.commit()
+    conn.close()
+    log = panel_settings.hot_root / "logs" / "daily-update.jsonl"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    log.write_text(json.dumps({"status": "ok", "data": {"end": "2026-01-02", "daily": {"new_rows": 3}}}) + "\n")
+    backups = panel_settings.backups_dir
+    backups.mkdir(parents=True, exist_ok=True)
+    backup = backups / "alphasieve-20260102T030405Z.db"
+    backup.write_bytes(b"synthetic backup")
+    backup.with_suffix(".json").write_text(json.dumps({"ledger_rows": 7, "path": "/private/path"}))
+    client = TestClient(create_app(panel_settings, require_auth=False))
+    status = client.get("/api/status").json()
+    assert status["running_campaigns"] == 0
+    assert status["latest_trade_date"] == "2026-01-02"
+    assert status["latest_backup"] == {"created_at": "2026-01-02T03:04:05+00:00",
+                                       "size_bytes": len(b"synthetic backup"), "ledger_rows": 7}
+    assert status["inbox"] == {"open_requests": 0, "request_campaigns": [],
+                                "pending_factor_holdout": 0, "factor_holdout_campaigns": [],
+                                "pending_strategy_holdout": 1, "open_reviews": 0, "review_campaigns": []}
+    assert "/private/path" not in json.dumps(status)
 
+
+def test_web_mandate_and_strategy_views(panel_settings, tmp_path, capsys):
     from test_training import task_dict, write_task
 
     from alphasieve.cli.main import main
@@ -59,6 +85,7 @@ def test_web_mandate_and_strategy_views(panel_settings, tmp_path, capsys):
     a = mandates["A"]
     assert a["dev_trials"] == 1 and a["holdout_reads"] == {"used": 0, "budget": 1}
     assert a["trials"][0]["trial_id"] == trial_id and a["trials"][0]["outcome"].startswith("dev_")
+    assert a["trials"][0]["acceptance"]["checks"]
     detail = client.get(f"/api/strategy/{trial_id}", auth=auth).json()
     assert [r["record_kind"] for r in detail["records"]] == ["started", "completed"]
     assert "checks" in detail["detail"]["acceptance"] and "bundle" not in detail["detail"]

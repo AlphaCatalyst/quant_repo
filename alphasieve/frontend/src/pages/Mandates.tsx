@@ -1,5 +1,7 @@
+import { useEffect, useState } from "react";
 import { useApi, type Json } from "../api";
-import { Badge, Card, Chart, Empty, fmtNum, fmtPct, fmtTime, link, Loading, Progress } from "../components";
+import { Badge, Card, Chart, Empty, exportCSV, fmtNum, fmtPct, fmtTime, link, Loading, Progress } from "../components";
+import { sortRows } from "./Overview";
 
 const TITLES: Record<string, string> = {
   A: "中证 500 指数增强",
@@ -47,20 +49,52 @@ function headline(m: Json): { excess?: number; ratio?: number; ratioLabel: strin
 
 export function Mandates() {
   const { data, error } = useApi<Json>("/api/mandates", 30000);
+  const [trialSort, setTrialSort] = useState("-finished_at");
+  const [filters, setFilters] = useState(() => new URLSearchParams(window.location.hash.split("?")[1] ?? ""));
+  useEffect(() => {
+    const update = () => setFilters(new URLSearchParams(window.location.hash.split("?")[1] ?? ""));
+    window.addEventListener("hashchange", update);
+    return () => window.removeEventListener("hashchange", update);
+  }, []);
+  const setFilter = (key: string, value: string) => {
+    const next = new URLSearchParams(filters);
+    if (value) next.set(key, value); else next.delete(key);
+    window.location.hash = `/mandates${next.size ? `?${next}` : ""}`;
+    setFilters(next);
+  };
   if (!data) return <Loading error={error} />;
+  const selectedMandate = filters.get("mandate") ?? "";
+  const selectedResult = filters.get("result") ?? "";
+  const visible = data.mandates.filter((m: Json) => !selectedMandate || m.mandate === selectedMandate);
   return (
     <div className="page">
-      {data.mandates.map((m: Json) => (
-        <Card key={m.mandate} title={`${m.mandate} · ${TITLES[m.mandate] ?? ""}`}>
+      <div className="filters">
+        <label>范围 <select value={selectedMandate} onChange={(e) => setFilter("mandate", e.target.value)}>
+          <option value="">全部（{data.mandates.length}）</option>
+          {data.mandates.map((m: Json) => <option key={m.mandate} value={m.mandate}>{m.mandate} · {TITLES[m.mandate]}</option>)}
+        </select></label>
+        <label>结果 <select value={selectedResult} onChange={(e) => setFilter("result", e.target.value)}>
+          <option value="">全部</option><option value="passed">验收通过</option><option value="failed">验收未通过</option><option value="open">未有验收</option>
+        </select></label>
+      </div>
+      {visible.map((m: Json) => (
+        <Card key={m.mandate} title={`${m.mandate} · ${TITLES[m.mandate] ?? ""}`} extra={<button className="btn small" onClick={() => exportCSV(`mandate-${m.mandate}-trials.csv`, ["trial", "配置", "证据", "结果", "净超额", "IR 或夏普", "TE", "超额回撤", "折扣后", "N", "完成时间"], m.trials.filter((t: Json) => matchesResult(t, selectedResult)).map((t: Json) => [t.trial_id, t.task_id, t.tier, t.outcome ?? t.status, t.metrics?.annual_excess ?? t.metrics?.annual_return, t.metrics?.information_ratio ?? t.metrics?.sharpe, t.metrics?.tracking_error, t.metrics?.max_drawdown_excess, t.metrics?.search_discount?.deflated_ratio, t.metrics?.search_discount?.trials, t.finished_at]))}>导出 CSV</button>}>
           <div className="two-col">
             <Progress label="dev 策略 trial 预算" used={m.dev_trials} budget={m.budget} />
             <Progress label="holdout 读取（人工批准）" used={m.holdout_reads.used} budget={m.holdout_reads.budget} />
           </div>
+          <TrialMatrix trials={m.trials.filter((t: Json) => t.tier !== "holdout" && !t.trial_id.endsWith("-H"))} result={selectedResult} />
           {m.trials.length === 0 ? <Empty /> : (
             <table className="table">
-              <thead><tr><th>trial</th><th>配置</th><th>tier</th><th>结果</th><th>净超额</th><th>IR / 夏普</th><th>TE</th><th>超额回撤</th><th>折扣后</th><th>N</th><th>完成时间</th></tr></thead>
+              <thead><tr>{[["trial_id", "trial"], ["task_id", "配置"], ["tier", "证据"], ["outcome", "结果"], ["excess", "净超额"], ["ratio", "IR / 夏普"], ["te", "TE"], ["mdd", "超额回撤"], ["deflated", "折扣后"], ["n", "N"], ["finished_at", "完成时间"]].map(([key, label]) => <th key={key}><button className="table-sort" onClick={() => setTrialSort(trialSort === key ? `-${key}` : key)}>{label}{trialSort.replace("-", "") === key ? trialSort.startsWith("-") ? " ↓" : " ↑" : ""}</button></th>)}</tr></thead>
               <tbody>
-                {m.trials.map((t: Json) => {
+                {sortRows(m.trials.filter((t: Json) => matchesResult(t, selectedResult)), trialSort, {
+                  trial_id: (t) => t.trial_id, task_id: (t) => t.task_id, tier: (t) => t.tier, outcome: (t) => t.outcome ?? t.status,
+                  excess: (t) => t.metrics?.annual_excess ?? t.metrics?.annual_return,
+                  ratio: (t) => t.metrics?.information_ratio ?? t.metrics?.sharpe, te: (t) => t.metrics?.tracking_error,
+                  mdd: (t) => t.metrics?.max_drawdown_excess, deflated: (t) => t.metrics?.search_discount?.deflated_ratio,
+                  n: (t) => t.metrics?.search_discount?.trials, finished_at: (t) => t.finished_at,
+                }).map((t: Json) => {
                   const h = headline(t.metrics);
                   const sd = t.metrics?.search_discount ?? {};
                   return (
@@ -82,12 +116,44 @@ export function Mandates() {
               </tbody>
             </table>
           )}
-          <p className="muted small">折扣后 = 观测 IR / 夏普减去 N 次零假设试验的期望最大值；N 为该 trial 完成时 mandate 的累计 trial 数。</p>
+          <p className="muted small">矩阵颜色来自各 trial 原始验收判定。折扣后 = 观测 IR / 夏普减去 N 次零假设试验的期望最大值；N 为该 trial 完成时 mandate 的累计 trial 数。</p>
           <HoldoutRequests rows={m.holdout_requests} />
         </Card>
       ))}
     </div>
   );
+}
+
+function matchesResult(t: Json, result: string) {
+  if (!result) return true;
+  if (result === "open") return t.acceptance?.passed == null;
+  return t.acceptance?.passed === (result === "passed");
+}
+
+function TrialMatrix({ trials, result }: { trials: Json[]; result: string }) {
+  const rows = trials.filter((t: Json) => matchesResult(t, result));
+  const metrics = Array.from(new Set(rows.flatMap((t: Json) => Object.keys(t.acceptance?.checks ?? {})))) as string[];
+  if (!rows.length) return <Empty text="没有符合筛选条件的 dev trial" />;
+  if (!metrics.length) return <p className="muted small">尚无逐项验收数据。</p>;
+  return <div style={{ overflowX: "auto" }}>
+    <h4>trial × 验收指标</h4>
+    <table className="table compact">
+      <thead><tr><th>trial</th><th>总验收</th>{metrics.map((k) => <th key={k} title={k}>{CHECK_LABEL[k] ?? k}</th>)}</tr></thead>
+      <tbody>{rows.map((t: Json) => <tr key={t.trial_id}>
+        <td className="small"><a href={link(`/strategy/${t.trial_id}`)}>{t.trial_id}</a></td>
+        <td><span className={`badge ${t.acceptance?.passed == null ? "grey" : t.acceptance.passed ? "green" : "red"}`}>{t.acceptance?.passed == null ? "—" : t.acceptance.passed ? "通过" : "未通过"}</span></td>
+        {metrics.map((k) => {
+          const check = t.acceptance?.checks?.[k];
+          const value = check?.[0];
+          const threshold = check?.[1];
+          const passed = check?.[2];
+          return <td key={k} title={check ? `门槛 ${fmtCheck(k, threshold)}` : "无数据"}>
+            <span className={`badge ${passed == null ? "grey" : passed ? "green" : "red"}`}>{check ? fmtCheck(k, value) : "—"}</span>
+          </td>;
+        })}
+      </tr>)}</tbody>
+    </table>
+  </div>;
 }
 
 function HoldoutRequests({ rows }: { rows: Json[] }) {

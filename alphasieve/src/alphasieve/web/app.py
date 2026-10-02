@@ -7,6 +7,7 @@ import re
 import secrets
 import sqlite3
 from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Query
@@ -21,6 +22,7 @@ from alphasieve.data.access import read_meta
 from alphasieve.errors import AlphaSieveError
 from alphasieve.factors import library as lib
 from alphasieve.ledger import ledger_stats, verify_ledger
+from alphasieve.state.backup import list_backups
 
 DIST = Path(__file__).resolve().parent / "dist"
 ARTIFACT_ID = re.compile(r"^[0-9a-f]{24}$")
@@ -141,6 +143,62 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
             "data": _data_status(),
         }
 
+    @app.get("/api/status")
+    def status(user: str = Depends(auth), conn=Depends(db)):
+        latest_backup = None
+        backups = list_backups(settings.backups_dir)
+        for path in reversed(backups):
+            try:
+                taken_at = datetime.strptime(path.stem.removeprefix("alphasieve-"), "%Y%m%dT%H%M%SZ")
+            except ValueError:
+                continue
+            ledger_rows = None
+            try:
+                info = json.loads(path.with_suffix(".json").read_text(encoding="utf-8"))
+                if isinstance(info.get("ledger_rows"), int):
+                    ledger_rows = info["ledger_rows"]
+            except (OSError, ValueError, TypeError):
+                pass
+            latest_backup = {"created_at": taken_at.replace(tzinfo=UTC).isoformat(),
+                             "size_bytes": path.stat().st_size, "ledger_rows": ledger_rows}
+            break
+        last_update = _last_daily_update()
+        return {
+            "running_campaigns": conn.execute("SELECT COUNT(*) FROM campaigns WHERE status = 'running'").fetchone()[0],
+            "latest_trade_date": last_update.get("end") if last_update else None,
+            "latest_backup": latest_backup,
+            "inbox": {
+                "open_requests": conn.execute("SELECT COUNT(*) FROM agent_requests WHERE status = 'open'").fetchone()[0],
+                "request_campaigns": [r[0] for r in conn.execute(
+                    "SELECT DISTINCT campaign_id FROM agent_requests WHERE status = 'open' ORDER BY campaign_id")],
+                "pending_factor_holdout": conn.execute(
+                    "SELECT COUNT(*) FROM holdout_requests WHERE status = 'pending'").fetchone()[0],
+                "factor_holdout_campaigns": [r[0] for r in conn.execute(
+                    "SELECT DISTINCT campaign_id FROM holdout_requests WHERE status = 'pending' ORDER BY campaign_id")],
+                "pending_strategy_holdout": conn.execute(
+                    "SELECT COUNT(*) FROM strategy_holdout_requests WHERE status = 'pending'").fetchone()[0],
+                "open_reviews": conn.execute("SELECT COUNT(*) FROM review_packets WHERE status = 'open'").fetchone()[0],
+                "review_campaigns": [r[0] for r in conn.execute(
+                    "SELECT DISTINCT campaign_id FROM review_packets WHERE status = 'open' ORDER BY campaign_id")],
+            },
+            "data_last_daily_update": last_update,
+        }
+
+    def _last_daily_update() -> dict | None:
+        log = settings.hot_root / "logs" / "daily-update.jsonl"
+        if not log.exists():
+            return None
+        lines = [ln for ln in log.read_text(encoding="utf-8", errors="replace").splitlines() if ln.strip()]
+        if not lines:
+            return None
+        try:
+            last = json.loads(lines[-1])
+        except json.JSONDecodeError:
+            return None
+        return {"status": last.get("status"), "end": (last.get("data") or {}).get("end"),
+                "new_rows": ((last.get("data") or {}).get("daily") or {}).get("new_rows"),
+                "logged_at": log.stat().st_mtime}
+
     def _data_status() -> dict:
         splits = load_config(settings, "splits")
         tiers = {}
@@ -148,20 +206,8 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
             meta = read_meta(settings, tier)
             tiers[tier] = None if meta is None else {k: meta.get(k) for k in ("window", "rows", "codes", "built_at",
                                                                                "signature")}
-        log = settings.hot_root / "logs" / "daily-update.jsonl"
-        last_update = None
-        if log.exists():
-            lines = [ln for ln in log.read_text(encoding="utf-8", errors="replace").splitlines() if ln.strip()]
-            if lines:
-                try:
-                    last = json.loads(lines[-1])
-                    last_update = {"status": last.get("status"), "end": (last.get("data") or {}).get("end"),
-                                   "new_rows": ((last.get("data") or {}).get("daily") or {}).get("new_rows"),
-                                   "logged_at": log.stat().st_mtime}
-                except json.JSONDecodeError:
-                    pass
         return {"splits": {k: splits.get(k) for k in ("dev", "holdout", "fresh")}, "panels": tiers,
-                "last_daily_update": last_update}
+                "last_daily_update": _last_daily_update()}
 
     @app.get("/api/data")
     def data(user: str = Depends(auth)):
@@ -279,6 +325,12 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
             else:
                 t.update(status=r["record_kind"], tier=r["evidence_tier"], outcome=r["outcome"],
                          artifact_id=r["artifact_id"], finished_at=r["created_at"], metrics=metrics)
+                if (r["evidence_tier"] == "dev" and not r["trial_id"].endswith("-H")
+                        and r["artifact_id"] and r["record_kind"] == "completed"):
+                    artifact = settings.artifacts_dir / r["artifact_id"] / "metrics.json"
+                    if artifact.is_file():
+                        detail = json.loads(artifact.read_text(encoding="utf-8"))
+                        t["acceptance"] = detail.get("acceptance")
         requests = [dict(r) for r in conn.execute("SELECT * FROM strategy_holdout_requests ORDER BY created_at")]
         for q in requests:
             q["result"] = _loads(q.pop("result_json"))

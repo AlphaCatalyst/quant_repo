@@ -1,5 +1,23 @@
 import { useCallback, useEffect, useState } from "react";
 
+const REFRESH_EVENT = "alphasieve-refresh";
+let paused = localStorage.getItem("alphasieve-refresh-paused") === "1";
+export function refreshPaused() { return paused; }
+export function setRefreshPaused(value: boolean) {
+  paused = value;
+  localStorage.setItem("alphasieve-refresh-paused", value ? "1" : "0");
+  window.dispatchEvent(new Event(REFRESH_EVENT));
+}
+export function useRefreshPaused() {
+  const [value, setValue] = useState(paused);
+  useEffect(() => {
+    const update = () => setValue(paused);
+    window.addEventListener(REFRESH_EVENT, update);
+    return () => window.removeEventListener(REFRESH_EVENT, update);
+  }, []);
+  return value;
+}
+
 export async function getJSON<T>(path: string): Promise<T> {
   const res = await fetch(path, { credentials: "same-origin" });
   if (!res.ok) {
@@ -19,6 +37,8 @@ export function useApi<T>(path: string | null, refreshMs = 0) {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null);
+  const isPaused = useRefreshPaused();
   const load = useCallback(() => {
     if (!path) return;
     setLoading(true);
@@ -26,6 +46,7 @@ export function useApi<T>(path: string | null, refreshMs = 0) {
       .then((d) => {
         setData(d);
         setError(null);
+        setUpdatedAt(Date.now());
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
@@ -33,11 +54,13 @@ export function useApi<T>(path: string | null, refreshMs = 0) {
   useEffect(() => {
     setData(null);
     load();
-    if (!refreshMs) return;
+  }, [load]);
+  useEffect(() => {
+    if (!refreshMs || isPaused) return;
     const id = window.setInterval(load, refreshMs);
     return () => window.clearInterval(id);
-  }, [load, refreshMs]);
-  return { data, error, loading, reload: load };
+  }, [load, refreshMs, isPaused]);
+  return { data, error, loading, updatedAt, reload: load };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

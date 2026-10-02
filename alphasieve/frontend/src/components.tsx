@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import * as echarts from "echarts";
 
 export const STATUS_LABEL: Record<string, string> = {
@@ -134,4 +134,39 @@ export function Empty({ text = "暂无数据" }: { text?: string }) {
 
 export function link(path: string) {
   return `#${path}`;
+}
+
+export function exportCSV(filename: string, headers: string[], rows: unknown[][]) {
+  const cell = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+  const csv = "\ufeff" + [headers, ...rows].map((row) => row.map(cell).join(",")).join("\r\n");
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+const TERMS: [string, string][] = [
+  ["IC / RankIC", "每天计算因子值与未来标签的截面 Spearman 相关；展示的 IC 是日度 RankIC 均值。"],
+  ["ICIR", "日度 RankIC 均值除以其标准差。"],
+  ["L1", "开发窗口检查覆盖率、方向调整后的 RankIC、ICIR 和与因子库的相关性。"],
+  ["L2", "样本内稳健性检查，包括子窗口同号与中性化后 RankIC。"],
+  ["L3", "整批搜索折扣关卡；按 campaign ledger 的试验数与方差计算 DSR。"],
+  ["N / 折扣后", "N 是 mandate 已完成的累计策略 trial 数；策略层折扣后 IR 或夏普为观测值减去 N 次零假设试验的期望最大值，并非显著性概率。"],
+  ["TE", "跟踪误差：组合相对基准的主动收益波动。具体目标按 mandate 验收定义。"],
+  ["IR", "信息比率：年化净超额除以跟踪误差。"],
+  ["MDD", "最大回撤；策略页的超额最大回撤相对基准计算。"],
+];
+
+export function Glossary() {
+  const [open, setOpen] = useState(false);
+  return <>
+    <button className="glossary-trigger" onClick={() => setOpen(true)}>指标口径</button>
+    {open && <div className="drawer" onClick={() => setOpen(false)}><div className="drawer-body glossary" onClick={(e) => e.stopPropagation()}>
+      <button className="btn close" onClick={() => setOpen(false)}>关闭</button>
+      <h2>指标口径</h2><p className="muted">摘要依据 docs/04-research-core.md、docs/18-mandates.md 与 docs/21-a-portfolio.md；各策略的具体阈值以其验收检查为准。</p>
+      <dl>{TERMS.map(([term, definition]) => <div key={term}><dt>{term}</dt><dd>{definition}</dd></div>)}</dl>
+    </div></div>}
+  </>;
 }

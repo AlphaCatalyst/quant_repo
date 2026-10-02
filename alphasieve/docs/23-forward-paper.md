@@ -1,6 +1,6 @@
 # 23 · 前瞻验证与 paper 追踪
 
-状态：设计，未实现、未运行。日期 2026-10-01。本文对应 [09-milestones.md](09-milestones.md) 的 M7。只交付本文；不改代码、配置、测试或索引，不读取 holdout/fresh 数据，不运行 trial、Ray 或 `train run`。下面的命令、表与函数均为拟新增契约，不表示已有功能或人工授权。
+状态（2026-10-02）：合成环境下已实现 cohort 登记与人工批准入口、只追加 fresh 日分区、固定参数前向重拟合、观察账簿与三态统计，以及只读前瞻页和未安装的 systemd 单元；相关聚焦测试已通过。本文对应 [09-milestones.md](09-milestones.md) 的 M7，仍是完整目标契约，不能将部分实现视为真实启用授权。现有 raw→fresh 路径缺完整 PIT 封存，模型到每日目标的编排、连续 25 个交易日端到端合成验收和真实隔离尚未完成；M7 未完成。§6 五项政策仍待 human 决定，推荐值见 `src/alphasieve/configs/forward/policy_v1.yaml`；未批准 cohort 的 system 日任务不得运行该组。未读取真实 holdout/fresh 数据，未运行真实 trial、Ray 或 `train run`。
 
 ## 1. 目标与非目标
 

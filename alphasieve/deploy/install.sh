@@ -5,6 +5,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 units=("$@")
 if [ ${#units[@]} -eq 0 ]; then
   units=(alphasieve-daily-update.service alphasieve-daily-update.timer
+         alphasieve-forward.service alphasieve-forward.timer
          alphasieve-state-backup.service alphasieve-state-backup.timer)
 fi
 for unit in "${units[@]}"; do

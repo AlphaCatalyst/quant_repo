@@ -1,12 +1,12 @@
-from dataclasses import replace
 import json
+from dataclasses import replace
 
 from fastapi.testclient import TestClient
 from fixtures.campaign import campaign_spec, start_campaign
 
 from alphasieve.contracts import FactorSpec
-from alphasieve.evaluation.evaluate import evaluate_spec
 from alphasieve.contracts.models import TrialLedgerEntry
+from alphasieve.evaluation.evaluate import evaluate_spec
 from alphasieve.ledger import append_trial
 from alphasieve.state import connect
 from alphasieve.web.app import _load_credentials, _trade_days_lag, create_app
@@ -106,10 +106,12 @@ def test_inbox_and_progress_are_read_only_and_hide_restricted_trials(panel_setti
     assert client.get("/api/docs/invalid.md").status_code == 404
 
 
-def test_trade_lag_uses_exchange_calendar_when_available(panel_settings):
+def test_trade_lag_uses_exchange_calendar_when_available(panel_settings, tmp_path, monkeypatch):
     from datetime import date
+
     import pandas as pd
 
+    monkeypatch.setenv("ALPHASIEVE_RAW_DIR", str(tmp_path / "raw"))
     path = panel_settings.raw_dir / "baostock" / "trade_dates.parquet"
     path.parent.mkdir(parents=True, exist_ok=True)
     pd.DataFrame({"calendar_date": ["2026-09-30", "2026-10-01", "2026-10-02"],

@@ -16,6 +16,132 @@ from alphasieve.data.access import Panel
 DEFAULT_COSTS = {"commission": 0.00025, "stamp_duty_sell": 0.0005, "slippage": 0.0005}
 
 
+def initial_state(codes: list[str], capital: float = 1.0) -> dict:
+    """A cash book whose holdings are values in the same unit as capital."""
+    if capital <= 0:
+        raise ValueError("capital must be positive")
+    return {"codes": list(codes), "holdings": [0.0] * len(codes), "cash": float(capital),
+            "nav": float(capital), "previous_goal": [0.0] * len(codes)}
+
+
+def step_day(state: dict, *, prev_close: np.ndarray, open_px: np.ndarray, close_px: np.ndarray,
+             buy_ok: np.ndarray, sell_ok: np.ndarray, goal: np.ndarray | None = None,
+             costs: dict | None = None, adv: np.ndarray | None = None, vol: np.ndarray | None = None,
+             aum: float | None = None, max_participation: float = 0.10,
+             hold_unchanged: bool = False, strict_prices: bool = True) -> tuple[dict, dict]:
+    """Settle one trading day. Liquidity inputs must be frozen at the preceding close.
+
+    Missing prices of a held name are errors; explicit suspensions supply an unchanged
+    valuation price and false trade flags. Callers must not turn an unknown price into a halt.
+    """
+    h = np.asarray(state["holdings"], dtype=float).copy()
+    cash = float(state["cash"])
+    previous = np.asarray(prev_close, dtype=float)
+    opening = np.asarray(open_px, dtype=float)
+    closing = np.asarray(close_px, dtype=float)
+    if not strict_prices:
+        previous = np.where(np.isfinite(previous) & (previous > 0), previous,
+                            np.where(np.isfinite(opening) & (opening > 0), opening, 1.0))
+        opening = np.where(np.isfinite(opening) & (opening > 0), opening, previous)
+        closing = np.where(np.isfinite(closing) & (closing > 0), closing, opening)
+    if any(x.shape != h.shape for x in (previous, opening, closing)):
+        raise ValueError("price shape does not match book")
+    held = h > 1e-12
+    halted = held & ~np.asarray(buy_ok, dtype=bool) & ~np.asarray(sell_ok, dtype=bool)
+    if strict_prices:
+        opening = np.where(halted & ~np.isfinite(opening), previous, opening)
+        closing = np.where(halted & ~np.isfinite(closing), opening, closing)
+    if not (np.isfinite(previous[held]).all() and np.isfinite(opening[held]).all()
+            and np.isfinite(closing[held]).all() and (previous[held] > 0).all()
+            and (opening[held] > 0).all()):
+        raise ValueError("missing held-name valuation price")
+    overnight = np.ones_like(h)
+    overnight[held] = opening[held] / previous[held]
+    h *= overnight
+    value = float(h.sum() + cash)
+    fills = []
+    costs_used = {**DEFAULT_COSTS, **(costs or {})}
+    totals = {"commission": 0.0, "stamp_duty": 0.0, "slippage": 0.0, "impact": 0.0}
+    requested_turnover = actual_turnover = 0.0
+    trades = capped = rejected = 0
+    prior_goal = np.asarray(state.get("previous_goal", np.zeros(len(h))), dtype=float)
+    if goal is not None:
+        target = np.asarray(goal, dtype=float)
+        if target.shape != h.shape or not np.isfinite(target).all() or (target < 0).any() or target.sum() > 1 + 1e-9:
+            raise ValueError("invalid target weights")
+        current = h / value
+        wanted = target.copy()
+        if hold_unchanged:
+            same = np.isclose(wanted, prior_goal) & (wanted > 0)
+            wanted = np.where(same, current, wanted)
+        requested_turnover = float(np.abs(wanted - current).sum() / 2)
+        blocked = ((wanted > current) & ~np.asarray(buy_ok, dtype=bool)) | \
+            ((wanted < current) & ~np.asarray(sell_ok, dtype=bool))
+        new = np.where(blocked, current, wanted)
+        rejected = int((blocked & (np.abs(wanted - current) > 1e-12)).sum())
+        participation = np.zeros(len(h))
+        impact_by_name = np.zeros(len(h))
+        if aum:
+            if adv is None or vol is None:
+                raise ValueError("frozen ADV and volatility required with AUM")
+            adv_arr = np.asarray(adv, dtype=float)
+            vol_arr = np.asarray(vol, dtype=float)
+            limit = max_participation * np.nan_to_num(adv_arr, nan=0.0) / max(value * aum, 1.0)
+            delta = new - current
+            over = np.abs(delta) > limit + 1e-12
+            trades = int((np.abs(delta) > 1e-9).sum())
+            capped = int((over & (np.abs(delta) > 1e-9)).sum())
+            new = np.where(over, current + np.sign(delta) * limit, new)
+            # Impact is charged on the capped trade before the budget rescale below; strategy trials
+            # within a mandate budget were all run with this order.
+            traded = np.abs(new - current)
+            with np.errstate(invalid="ignore", divide="ignore"):
+                participation = np.where(np.nan_to_num(adv_arr) > 0, traded * value * aum / adv_arr, 0.0)
+            impact_by_name = (costs_used.get("impact_k", 0.5) * np.nan_to_num(vol_arr, nan=0.02)
+                              * np.sqrt(participation) * traded)
+        if new.sum() > 1:
+            free = ~blocked
+            new = np.where(free, new * max(0.0, 1 - (new.sum() - 1) / max(new[free].sum(), 1e-12)), new)
+        delta = new - current
+        buys = np.clip(delta, 0, None)
+        sells = np.clip(-delta, 0, None)
+        actual_turnover = float((buys.sum() + sells.sum()) / 2)
+        totals["commission"] = float((buys.sum() + sells.sum()) * costs_used["commission"] * value)
+        totals["stamp_duty"] = float(sells.sum() * costs_used["stamp_duty_sell"] * value)
+        totals["slippage"] = float((buys.sum() + sells.sum()) * costs_used["slippage"] * value)
+        totals["impact"] = float(impact_by_name.sum() * value)
+        for i, change in enumerate(delta):
+            if abs(change) > 1e-12 or (blocked[i] and abs(wanted[i] - current[i]) > 1e-12):
+                reason = "blocked" if blocked[i] else (
+                    "participation_cap" if aum and abs(new[i] - wanted[i]) > 1e-12 else "filled")
+                fills.append({"code": state["codes"][i], "side": "buy" if wanted[i] > current[i] else "sell",
+                              "open": float(opening[i]), "value": float(change * value), "reason": reason,
+                              "commission": float(abs(change) * value * costs_used["commission"]),
+                              "stamp_duty": float(sells[i] * value * costs_used["stamp_duty_sell"]),
+                              "slippage": float(abs(change) * value * costs_used["slippage"]),
+                              "impact": float(impact_by_name[i] * value), "participation": float(participation[i])})
+        h = new * value
+        cash = value - float(h.sum()) - sum(totals.values())
+        prior_goal = target
+    active = h > 1e-12
+    if not (np.isfinite(opening[active]).all() and np.isfinite(closing[active]).all()
+            and (opening[active] > 0).all() and (closing[active] > 0).all()):
+        raise ValueError("missing active-name valuation price")
+    intraday = np.ones_like(h)
+    intraday[active] = closing[active] / opening[active]
+    h *= intraday
+    nav = float(h.sum() + cash)
+    next_state = {"codes": list(state["codes"]), "holdings": h.tolist(), "cash": cash,
+                  "nav": nav, "previous_goal": prior_goal.tolist()}
+    detail = {"nav": nav, "ret": nav / float(state["nav"]) - 1, "open_nav": value,
+              "costs": totals, "cost_ratio": sum(totals.values()) / value,
+              "requested_turnover": requested_turnover, "actual_turnover": actual_turnover,
+              "trades": trades, "capped_trades": capped, "rejected_trades": rejected, "fills": fills,
+              "weights": (h / nav).tolist() if nav > 0 else [0.0] * len(h),
+              "stale_codes": [state["codes"][i] for i in np.where(halted)[0]]}
+    return next_state, detail
+
+
 def trailing_liquidity(panel: Panel) -> tuple[np.ndarray, np.ndarray]:
     """20-day mean traded amount and daily-return volatility through each day's close. A trade decided at the close
     of day t and executed at t+1 sees exactly this window, in the simulation and in the optimiser."""
@@ -46,59 +172,27 @@ def simulate(weights: pd.DataFrame, panel: Panel, costs: dict | None = None, ben
     if not targets:
         return {"days": 0}
     start = min(targets) + 1
-    holdings = np.zeros(len(codes))
-    cash, nav_prev, rows = 1.0, 1.0, []
+    state = initial_state(codes)
+    rows = []
     bench_close = None
     equal_weight = benchmark == "equal_weight"
-    prev_goal = np.zeros(len(codes))
     named = benchmark and not equal_weight and panel.benchmark is not None
     if named and f"{benchmark}_close" in panel.benchmark.columns:
         b = panel.benchmark.set_index(pd.to_datetime(panel.benchmark["date"]))[f"{benchmark}_close"]
         bench_close = b.reindex(dates).ffill().to_numpy(dtype=float)
     for t in range(start, len(dates)):
-        with np.errstate(invalid="ignore", divide="ignore"):
-            overnight = np.nan_to_num(open_px[t] / close_px[t - 1] - 1, nan=0.0, posinf=0.0, neginf=0.0)
-            intraday = np.nan_to_num(close_px[t] / open_px[t] - 1, nan=0.0, posinf=0.0, neginf=0.0)
-        holdings = holdings * (1 + overnight)
-        cost = 0.0
-        if (t - 1) in targets:
-            value = holdings.sum() + cash
-            current = holdings / value
-            goal = targets[t - 1]
-            if hold_unchanged:
-                same = np.isclose(goal, prev_goal) & (goal > 0)
-                goal = np.where(same, current, goal)
-                prev_goal = targets[t - 1]
-            blocked = ((goal > current) & ~buy_ok[t]) | ((goal < current) & ~sell_ok[t])
-            new = np.where(blocked, current, goal)
-            impact = 0.0
-            if aum:
-                limit = max_participation * np.nan_to_num(adv[t], nan=0.0) / max(value * aum, 1.0)
-                delta = new - current
-                over = np.abs(delta) > limit + 1e-12
-                trades_total += int((np.abs(delta) > 1e-9).sum())
-                capped_trades += int((over & (np.abs(delta) > 1e-9)).sum())
-                new = np.where(over, current + np.sign(delta) * limit, new)
-                traded = np.abs(new - current)
-                with np.errstate(invalid="ignore", divide="ignore"):
-                    part = np.where(np.nan_to_num(adv[t]) > 0, traded * value * aum / adv[t], 0.0)
-                impact = float((c.get("impact_k", 0.5) * np.nan_to_num(vol[t], nan=0.02) * np.sqrt(part)
-                                * traded).sum())
-            if new.sum() > 1:
-                free = ~blocked
-                new = np.where(free, new * max(0.0, 1 - (new.sum() - 1) / max(new[free].sum(), 1e-12)), new)
-            buys = np.clip(new - current, 0, None).sum()
-            sells = np.clip(current - new, 0, None).sum()
-            cost = buys * (c["commission"] + c["slippage"]) + sells * (c["commission"] + c["slippage"]
-                                                                        + c["stamp_duty_sell"]) + impact
-            impact_total += impact
-            traded_total += 0.5 * (buys + sells)
-            holdings = new * value
-            cash = value - holdings.sum() - cost * value
-        holdings = holdings * (1 + intraday)
-        nav = holdings.sum() + cash
-        day_ret = nav / nav_prev - 1
-        nav_prev = nav
+        goal = targets.get(t - 1)
+        state, detail = step_day(state, prev_close=close_px[t - 1], open_px=open_px[t], close_px=close_px[t],
+                                 buy_ok=buy_ok[t], sell_ok=sell_ok[t], goal=goal, costs=c,
+                                 adv=adv[t] if aum and goal is not None else None,
+                                 vol=vol[t] if aum and goal is not None else None,
+                                 aum=aum if goal is not None else None,
+                                 max_participation=max_participation, hold_unchanged=hold_unchanged,
+                                 strict_prices=False)
+        impact_total += detail["costs"]["impact"] / detail["open_nav"]
+        traded_total += detail["actual_turnover"]
+        capped_trades += detail["capped_trades"]
+        trades_total += detail["trades"]
         if bench_close is not None and np.isfinite(bench_close[t]) and np.isfinite(bench_close[t - 1]):
             bench_ret = bench_close[t] / bench_close[t - 1] - 1
         else:
@@ -109,8 +203,8 @@ def simulate(weights: pd.DataFrame, panel: Panel, costs: dict | None = None, ben
                 bench_ret = float(r[ok].mean()) if ok.any() else 0.0
             else:
                 bench_ret = float((cap[t - 1, ok] * r[ok]).sum() / cap[t - 1, ok].sum()) if ok.any() else 0.0
-        rows.append({"date": dates[t], "ret": day_ret, "bench": bench_ret, "cost": cost,
-                     "invested": holdings.sum() / nav if nav > 0 else 0.0})
+        rows.append({"date": dates[t], "ret": detail["ret"], "bench": bench_ret,
+                     "cost": detail["cost_ratio"], "invested": sum(detail["weights"])})
     df = pd.DataFrame(rows).set_index("date")
     excess = df["ret"] - df["bench"]
     ann = 252

@@ -231,6 +231,118 @@ MIGRATIONS: list[str] = [
         nonce TEXT PRIMARY KEY, decision_id TEXT, applied_at TEXT NOT NULL
     );
     """,
+    """
+    CREATE TABLE fresh_cohorts (
+        cohort_id TEXT PRIMARY KEY, object_kind TEXT NOT NULL, mode TEXT NOT NULL,
+        trial_id TEXT, source_hash TEXT NOT NULL, config_json TEXT NOT NULL,
+        config_hash TEXT NOT NULL, policy_json TEXT NOT NULL, policy_hash TEXT NOT NULL,
+        start_date TEXT NOT NULL, approval_id TEXT NOT NULL, approval_by TEXT NOT NULL,
+        approval_at TEXT NOT NULL, parent_id TEXT
+    );
+    CREATE TABLE fresh_members (
+        cohort_id TEXT NOT NULL, object_version_hash TEXT NOT NULL,
+        member_json TEXT NOT NULL, PRIMARY KEY(cohort_id, object_version_hash)
+    );
+    CREATE TABLE fresh_days (
+        universe TEXT NOT NULL, date TEXT NOT NULL, cutoff TEXT NOT NULL,
+        input_hash TEXT NOT NULL, partition_hash TEXT NOT NULL, benchmark_hash TEXT NOT NULL,
+        prev_hash TEXT NOT NULL, row_hash TEXT NOT NULL, manifest_json TEXT NOT NULL,
+        PRIMARY KEY(universe, date)
+    );
+    CREATE TABLE forward_runs (
+        run_id TEXT PRIMARY KEY, cohort_id TEXT NOT NULL, date TEXT NOT NULL,
+        kind TEXT NOT NULL, status TEXT NOT NULL, input_hash TEXT, model_id TEXT,
+        details_json TEXT NOT NULL, created_at TEXT NOT NULL
+    );
+    CREATE TABLE model_snapshots (
+        model_id TEXT PRIMARY KEY, cohort_id TEXT NOT NULL, date TEXT NOT NULL,
+        digest TEXT NOT NULL, manifest_json TEXT NOT NULL
+    );
+    CREATE TABLE fresh_observations (
+        cohort_id TEXT NOT NULL, member TEXT NOT NULL, signal_date TEXT NOT NULL,
+        horizon INTEGER NOT NULL, maturity_date TEXT NOT NULL, metric REAL,
+        reason TEXT, endpoints_json TEXT NOT NULL,
+        PRIMARY KEY(cohort_id, member, signal_date, horizon)
+    );
+    CREATE TABLE fresh_verdicts (
+        cohort_id TEXT PRIMARY KEY, verdict TEXT NOT NULL, metrics_json TEXT NOT NULL,
+        policy_hash TEXT NOT NULL, decided_at TEXT NOT NULL
+    );
+    CREATE TABLE paper_books (
+        book_id TEXT PRIMARY KEY, cohort_id TEXT NOT NULL, book_mode TEXT NOT NULL,
+        approval_id TEXT, capital REAL NOT NULL, benchmark TEXT NOT NULL,
+        start_date TEXT NOT NULL, created_at TEXT NOT NULL
+    );
+    CREATE TABLE paper_targets (
+        book_id TEXT NOT NULL, date TEXT NOT NULL, target_json TEXT NOT NULL,
+        digest TEXT NOT NULL, sealed_at TEXT NOT NULL, PRIMARY KEY(book_id,date)
+    );
+    CREATE TABLE paper_days (
+        book_id TEXT NOT NULL, date TEXT NOT NULL, status TEXT NOT NULL,
+        nav REAL, benchmark_nav REAL, ret REAL, benchmark_ret REAL,
+        checkpoint_json TEXT NOT NULL, metrics_json TEXT NOT NULL,
+        prev_hash TEXT NOT NULL, row_hash TEXT NOT NULL, manifest_json TEXT NOT NULL,
+        PRIMARY KEY(book_id,date)
+    );
+    CREATE TABLE paper_fills (
+        book_id TEXT NOT NULL, date TEXT NOT NULL, code TEXT NOT NULL,
+        fill_json TEXT NOT NULL, PRIMARY KEY(book_id,date,code)
+    );
+    CREATE TABLE forward_ledger (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT, record_kind TEXT NOT NULL,
+        cohort_id TEXT, run_id TEXT, book_id TEXT, date TEXT, actor TEXT NOT NULL,
+        payload_json TEXT NOT NULL, created_at TEXT NOT NULL,
+        prev_hash TEXT NOT NULL, row_hash TEXT NOT NULL
+    );
+    CREATE TRIGGER fresh_members_no_update BEFORE UPDATE ON fresh_members
+    BEGIN SELECT RAISE(ABORT,'fresh_members is append-only'); END;
+    CREATE TRIGGER fresh_members_no_delete BEFORE DELETE ON fresh_members
+    BEGIN SELECT RAISE(ABORT,'fresh_members is append-only'); END;
+    CREATE TRIGGER forward_runs_no_update BEFORE UPDATE ON forward_runs
+    BEGIN SELECT RAISE(ABORT,'forward_runs is append-only'); END;
+    CREATE TRIGGER forward_runs_no_delete BEFORE DELETE ON forward_runs
+    BEGIN SELECT RAISE(ABORT,'forward_runs is append-only'); END;
+    CREATE TRIGGER model_snapshots_no_update BEFORE UPDATE ON model_snapshots
+    BEGIN SELECT RAISE(ABORT,'model_snapshots is append-only'); END;
+    CREATE TRIGGER model_snapshots_no_delete BEFORE DELETE ON model_snapshots
+    BEGIN SELECT RAISE(ABORT,'model_snapshots is append-only'); END;
+    CREATE TRIGGER fresh_observations_no_update BEFORE UPDATE ON fresh_observations
+    BEGIN SELECT RAISE(ABORT,'fresh_observations is append-only'); END;
+    CREATE TRIGGER fresh_observations_no_delete BEFORE DELETE ON fresh_observations
+    BEGIN SELECT RAISE(ABORT,'fresh_observations is append-only'); END;
+    CREATE TRIGGER fresh_verdicts_no_update BEFORE UPDATE ON fresh_verdicts
+    BEGIN SELECT RAISE(ABORT,'fresh_verdicts is append-only'); END;
+    CREATE TRIGGER fresh_verdicts_no_delete BEFORE DELETE ON fresh_verdicts
+    BEGIN SELECT RAISE(ABORT,'fresh_verdicts is append-only'); END;
+    CREATE TRIGGER paper_books_no_update BEFORE UPDATE ON paper_books
+    BEGIN SELECT RAISE(ABORT,'paper_books is append-only'); END;
+    CREATE TRIGGER paper_books_no_delete BEFORE DELETE ON paper_books
+    BEGIN SELECT RAISE(ABORT,'paper_books is append-only'); END;
+    CREATE TRIGGER paper_targets_no_update BEFORE UPDATE ON paper_targets
+    BEGIN SELECT RAISE(ABORT,'paper_targets is append-only'); END;
+    CREATE TRIGGER paper_targets_no_delete BEFORE DELETE ON paper_targets
+    BEGIN SELECT RAISE(ABORT,'paper_targets is append-only'); END;
+    CREATE TRIGGER paper_fills_no_update BEFORE UPDATE ON paper_fills
+    BEGIN SELECT RAISE(ABORT,'paper_fills is append-only'); END;
+    CREATE TRIGGER paper_fills_no_delete BEFORE DELETE ON paper_fills
+    BEGIN SELECT RAISE(ABORT,'paper_fills is append-only'); END;
+    CREATE TRIGGER fresh_cohorts_no_update BEFORE UPDATE ON fresh_cohorts
+    BEGIN SELECT RAISE(ABORT,'fresh_cohorts is append-only'); END;
+    CREATE TRIGGER fresh_cohorts_no_delete BEFORE DELETE ON fresh_cohorts
+    BEGIN SELECT RAISE(ABORT,'fresh_cohorts is append-only'); END;
+    CREATE TRIGGER fresh_days_no_update BEFORE UPDATE ON fresh_days
+    BEGIN SELECT RAISE(ABORT,'fresh_days is append-only'); END;
+    CREATE TRIGGER fresh_days_no_delete BEFORE DELETE ON fresh_days
+    BEGIN SELECT RAISE(ABORT,'fresh_days is append-only'); END;
+    CREATE TRIGGER paper_days_no_update BEFORE UPDATE ON paper_days
+    BEGIN SELECT RAISE(ABORT,'paper_days is append-only'); END;
+    CREATE TRIGGER paper_days_no_delete BEFORE DELETE ON paper_days
+    BEGIN SELECT RAISE(ABORT,'paper_days is append-only'); END;
+    CREATE TRIGGER forward_ledger_no_update BEFORE UPDATE ON forward_ledger
+    BEGIN SELECT RAISE(ABORT,'forward_ledger is append-only'); END;
+    CREATE TRIGGER forward_ledger_no_delete BEFORE DELETE ON forward_ledger
+    BEGIN SELECT RAISE(ABORT,'forward_ledger is append-only'); END;
+    """,
 ]
 
 

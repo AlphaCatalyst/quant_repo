@@ -9,6 +9,7 @@ import { Data, Ledger } from "./pages/Ledger";
 import { Mandates, Strategy } from "./pages/Mandates";
 import Compare from "./pages/Compare";
 import Inbox from "./pages/Inbox";
+import Forward from "./pages/Forward";
 import { Glossary } from "./components";
 
 function useHashPath(): string {
@@ -30,6 +31,7 @@ const NAV: [string, string][] = [
   ["/mandates", "策略"],
   ["/factors", "因子"],
   ["/ledger", "试验记录"],
+  ["/forward", "前瞻"],
   ["/data", "数据"],
 ];
 
@@ -92,6 +94,7 @@ function App() {
   else if (parts[0] === "mandates") page = <Mandates />;
   else if (parts[0] === "factors") page = <Factors />;
   else if (parts[0] === "ledger") page = <Ledger />;
+  else if (parts[0] === "forward") page = <Forward />;
   else if (parts[0] === "data") page = <Data />;
   else if (parts[0] === "inbox") page = <Inbox />;
   else page = <Overview />;

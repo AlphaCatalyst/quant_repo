@@ -28,6 +28,42 @@ from alphasieve.strategy.portfolio import _size_z
 SEGMENTS = 4
 
 
+def _score_z(raw: np.ndarray) -> np.ndarray:
+    return np.nan_to_num((raw - np.nanmean(raw)) / (np.nanstd(raw) or 1.0), nan=0.0)
+
+
+def trailing_alpha_scale(z_scores: np.ndarray, open_px: np.ndarray, buy_ok: np.ndarray,
+                         dates: pd.DatetimeIndex, decision: int, fallback: float = 0.005) -> dict:
+    """Estimate the 10-session return slope from labels mature by the decision close."""
+    slopes, ends = [], []
+    for end in range(max(11, decision - 251), decision + 1):
+        if dates[end] > pd.Timestamp("2022-12-31"):
+            continue
+        start = end - 11
+        z = z_scores[start]
+        opening, closing = open_px[start + 1], open_px[end]
+        ok = (buy_ok[start] & np.isfinite(z) & np.isfinite(opening) & np.isfinite(closing)
+              & (opening > 0) & (closing > 0))
+        if ok.sum() < 100:
+            continue
+        x = z[ok]
+        y = closing[ok] / opening[ok] - 1
+        x = x - x.mean()
+        denom = float(x @ x)
+        if denom <= 0:
+            continue
+        slope = float(x @ (y - y.mean()) / denom)
+        if np.isfinite(slope):
+            slopes.append(slope)
+            ends.append(dates[end].date().isoformat())
+    enough = len(slopes) >= 126
+    mean = float(np.mean(slopes)) if enough else fallback
+    return {"alpha_scale": max(0.0, mean) if enough else fallback, "valid_days": len(slopes),
+            "earliest_label_end": ends[0] if ends else None, "latest_label_end": ends[-1] if ends else None,
+            "fallback_reason": None if enough else "fewer_than_126_valid_days",
+            "clipped_negative": bool(enough and mean < 0)}
+
+
 def _impact_rows(kappa: np.ndarray, qmax: np.ndarray, n: int) -> tuple[sparse.csr_matrix, np.ndarray]:
     """Rows ``slope * (u_i + v_i) - e_i <= -intercept`` of the chord envelope, over variables [w, u, v, e]."""
     rows, cols, vals, rhs = [], [], [], []
@@ -110,6 +146,8 @@ def build_weights_lp(scores: pd.DataFrame, panel: Panel, universe_mask: np.ndarr
     cap = panel.wide("circ_mv").to_numpy(dtype=float)
     groups = panel.industry().reindex(codes).fillna("unknown").to_numpy()
     net = cfg is not None and cfg.objective == "net_alpha_pwl"
+    trailing = net and cfg.alpha_scale_mode == "trailing_10d"
+    cost_aware = trailing or (net and cfg.impact_design_aum is not None)
     liquidity_cap = cfg is not None and cfg.active_liquidity_adv_fraction is not None
     if net or liquidity_cap:
         from alphasieve.strategy.execution import DEFAULT_COSTS, trailing_liquidity
@@ -120,13 +158,25 @@ def build_weights_lp(scores: pd.DataFrame, panel: Panel, universe_mask: np.ndarr
     prev = np.zeros(len(codes))
     rows, relaxed, failed = {}, 0, 0
     expected, frozen_names, capped_names = [], [], []
+    scale_info, target_info = {}, {}
+    if trailing:
+        open_px = panel.wide("open").to_numpy(dtype=float)
+        buy_ok = panel.mask("tradable_buy").to_numpy(dtype=bool)
+        historical_z = np.full_like(s, np.nan)
+        built_through = -1
     for t in active[::rebalance_every]:
+        if trailing:
+            for u in range(built_through + 1, t + 1):
+                eligible = universe_mask[u] & np.isfinite(cap[u]) & (cap[u] > 0) & np.isfinite(s[u])
+                if eligible.any():
+                    historical_z[u, eligible] = _score_z(np.where(eligible, s[u], np.nan))[eligible]
+            built_through = t
         member = universe_mask[t] & np.isfinite(cap[t]) & (cap[t] > 0)
         if member.sum() < 20:
             continue
         b = np.where(member, cap[t], 0.0) / cap[t][member].sum()
         raw = np.where(member & np.isfinite(s[t]), s[t], np.nan)
-        z = np.nan_to_num((raw - np.nanmean(raw)) / (np.nanstd(raw) or 1.0), nan=0.0)
+        z = _score_z(raw)
         keep = member | (prev > 0)
         idx = np.flatnonzero(keep)
         bt = beta[t][idx] if beta is not None else None
@@ -143,8 +193,14 @@ def build_weights_lp(scores: pd.DataFrame, panel: Panel, universe_mask: np.ndarr
         if net:
             safe = np.where(known, a, 1.0)
             kappa = np.where(known, c.get("impact_k", 0.5) * np.nan_to_num(vol[t][idx], nan=0.02)
-                             * np.sqrt(cfg.aum / safe), 0.0)
-            cost = {"alpha_scale": cfg.alpha_return_scale, "c_buy": c["commission"] + c["slippage"],
+                             * np.sqrt((cfg.impact_design_aum if cfg.impact_design_aum is not None else cfg.aum)
+                                       / safe), 0.0)
+            scale = cfg.alpha_return_scale
+            if trailing:
+                scale_diag = trailing_alpha_scale(historical_z, open_px, buy_ok, dates, t, scale)
+                scale = scale_diag["alpha_scale"]
+                scale_info[dates[t].date().isoformat()] = scale_diag
+            cost = {"alpha_scale": scale, "c_buy": c["commission"] + c["slippage"],
                     "c_sell": c["commission"] + c["slippage"] + c["stamp_duty_sell"], "kappa": kappa,
                     "frozen": ~known}
             frozen_names.append(int((~known).sum()))
@@ -153,6 +209,19 @@ def build_weights_lp(scores: pd.DataFrame, panel: Panel, universe_mask: np.ndarr
         if w_sub is None:
             failed += 1
             continue
+        if cost_aware:
+            change = w_sub - prev[idx]
+            buys = float(np.clip(change, 0, None).sum())
+            sells = float(np.clip(-change, 0, None).sum())
+            target_info[dates[t].date().isoformat()] = {
+                "target_one_way_turnover": 0.5 * (buys + sells),
+                "turnover_constraint_kept": bool(ok_turnover),
+                "expected_linear_cost": buys * cost["c_buy"] + sells * cost["c_sell"],
+                "expected_pwl_impact": exp_impact,
+                "expected_alpha_change": float(scale * (z[idx] @ change)),
+            }
+            if trailing:
+                scale_info[dates[t].date().isoformat()].update(target_info[dates[t].date().isoformat()])
         relaxed += 0 if ok_turnover else 1
         expected.append(exp_impact)
         w = np.zeros(len(codes))
@@ -166,6 +235,14 @@ def build_weights_lp(scores: pd.DataFrame, panel: Panel, universe_mask: np.ndarr
     if net:
         info |= {"objective": "net_alpha_pwl", "expected_impact_per_rebalance_mean": float(np.mean(expected)),
                  "names_without_liquidity_mean": float(np.mean(frozen_names))}
+    if trailing:
+        calibrated = [v["alpha_scale"] for v in scale_info.values() if v["fallback_reason"] is None]
+        info["alpha_scale_by_date"] = scale_info
+        info["alpha_scale_fallback_share"] = sum(v["fallback_reason"] is not None
+                                                 for v in scale_info.values()) / len(scale_info) if scale_info else 0.0
+        info["alpha_scale_calibrated_mean"] = float(np.mean(calibrated)) if calibrated else None
+    if cost_aware:
+        info["cost_aware_target_by_date"] = target_info
     if liquidity_cap:
         info["names_below_uniform_cap_share"] = float(np.mean(capped_names))
     return frame, info

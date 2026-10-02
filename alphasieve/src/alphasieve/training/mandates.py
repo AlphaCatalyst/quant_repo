@@ -19,8 +19,8 @@ ACCEPTANCE = {
     "C": {"car_spread_t_min": 3.0, "decile_monotonicity_min": 0.8, "annual_excess_min": 0.05},
     "B": {"rank_ic_min": 0.03, "annual_excess_min": 0.05, "sharpe_min": 0.8},
 }
-# approved dev strategy-trial budgets: docs/20 §1 (B, C, D) and docs/21 §3 (A)
-STRATEGY_TRIAL_BUDGET = {"A": 13, "B": 5, "C": 4, "D": 4}
+# approved dev strategy-trial budgets: docs/20 §1 (B, C, D) and docs/22 (A)
+STRATEGY_TRIAL_BUDGET = {"A": 15, "B": 5, "C": 4, "D": 4}
 CAPACITY_AUMS = (1e8, 5e8, 2e9)
 FUTURES_ROLL_COST = 0.0002   # open the next contract, slippage and the settlement fee, per unit of notional
 TE_TARGET = (0.04, 0.06)

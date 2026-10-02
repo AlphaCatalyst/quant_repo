@@ -309,15 +309,17 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
                                     ("holdout_requests", "factor_holdout", "request_id")):
             for row in conn.execute(f"SELECT {id_col}, status, decided_at FROM {table}"
                                     " WHERE status IN ('approved', 'rejected') ORDER BY decided_at DESC LIMIT 10"):
-                signed = conn.execute("SELECT 1 FROM signed_approvals WHERE kind = ? AND target_id = ? LIMIT 1",
+                signed = conn.execute("SELECT 1 FROM signed_approval_outcomes AS o"
+                                      " JOIN signed_approvals AS a ON a.nonce = o.nonce"
+                                      " WHERE a.kind = ? AND a.target_id = ? LIMIT 1",
                                       (kind, row[id_col])).fetchone()
                 history.append({"id": row[id_col], "kind": kind, "status": row["status"],
                                 "decided_at": row["decided_at"],
                                 "signature_status": "已签名" if signed else "签名机制上线前"})
         for row in conn.execute("SELECT decision_id, object_id, decision, decided_at FROM decisions"
-                                " ORDER BY decided_at DESC LIMIT 10"):
-            signed = conn.execute("SELECT 1 FROM signed_approvals WHERE kind = 'review' AND target_id = ? LIMIT 1",
-                                  (row["object_id"],)).fetchone()
+                                " WHERE object_type = 'review_packet' ORDER BY decided_at DESC LIMIT 10"):
+            signed = conn.execute("SELECT 1 FROM signed_approval_outcomes WHERE decision_id = ? LIMIT 1",
+                                  (row["decision_id"],)).fetchone()
             history.append({"id": row["decision_id"], "kind": "review", "status": row["decision"],
                             "decided_at": row["decided_at"],
                             "signature_status": "已签名" if signed else "签名机制上线前"})

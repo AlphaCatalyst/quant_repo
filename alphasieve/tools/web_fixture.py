@@ -138,8 +138,8 @@ def main() -> None:
     assert verify_ledger(conn)["ok"]
     conn.close()
     print("【合成演示】看板数据已创建：", ROOT)
-    print("ALPHASIEVE_HOT_ROOT=/tmp/alphasieve-web-round4-synthetic/hot \\")
-    print("ALPHASIEVE_STORE_ROOT=/tmp/alphasieve-web-round4-synthetic/store \\")
+    print(f"ALPHASIEVE_HOT_ROOT={ROOT / 'hot'} \\")
+    print(f"ALPHASIEVE_STORE_ROOT={ROOT / 'store'} \\")
     print("ALPHASIEVE_STORE_MOUNT='' ALPHASIEVE_ROLE=human ALPHASIEVE_WEB_AUTH=none \\")
     print("uv run alphasieve serve --host 127.0.0.1 --port 8743")
 

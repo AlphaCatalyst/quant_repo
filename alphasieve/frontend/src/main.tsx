@@ -31,7 +31,46 @@ const NAV: [string, string][] = [
   ["/data", "数据"],
 ];
 
+function useTableOverflow() {
+  useEffect(() => {
+    const root = document.getElementById("root");
+    if (!root) return;
+    const observed = new Set<HTMLElement>();
+    const update = (container: HTMLElement) => {
+      const table = container.querySelector("table");
+      container.dataset.overflow = String(!!table && table.scrollWidth > container.clientWidth + 1);
+    };
+    const resize = new ResizeObserver(() => {
+      for (const container of observed) update(container);
+    });
+    const scan = () => {
+      for (const container of observed) {
+        if (!root.contains(container)) {
+          resize.unobserve(container);
+          const table = container.querySelector("table");
+          if (table) resize.unobserve(table);
+          observed.delete(container);
+        }
+      }
+      for (const container of root.querySelectorAll<HTMLElement>(".table-scroll")) {
+        if (!observed.has(container)) {
+          observed.add(container);
+          resize.observe(container);
+          const table = container.querySelector("table");
+          if (table) resize.observe(table);
+        }
+        update(container);
+      }
+    };
+    const mutation = new MutationObserver(scan);
+    mutation.observe(root, { childList: true, characterData: true, subtree: true });
+    scan();
+    return () => { mutation.disconnect(); resize.disconnect(); };
+  }, []);
+}
+
 function App() {
+  useTableOverflow();
   const path = useHashPath();
   const { data: overview } = useApi<Json>("/api/overview", 30000);
   const { data: mandateSummary } = useApi<Json>("/api/mandates", 30000);

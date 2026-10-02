@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import * as echarts from "echarts";
+import * as echarts from "echarts/core";
+import { BarChart, LineChart } from "echarts/charts";
+import { GridComponent, LegendComponent, TooltipComponent } from "echarts/components";
+import { CanvasRenderer } from "echarts/renderers";
+import type { EChartsOption } from "echarts";
+
+echarts.use([BarChart, LineChart, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer]);
 
 export const STATUS_LABEL: Record<string, string> = {
   draft: "草稿",
@@ -120,9 +126,9 @@ export function duration(a?: string | null, b?: string | null): string {
   return s >= 60 ? `${Math.floor(s / 60)}分${Math.round(s % 60)}秒` : `${Math.round(s)}秒`;
 }
 
-export function Chart({ option, height = 280 }: { option: echarts.EChartsOption; height?: number }) {
+export function Chart({ option, height = 280 }: { option: EChartsOption; height?: number }) {
   const ref = useRef<HTMLDivElement>(null);
-  const chart = useRef<echarts.ECharts | null>(null);
+  const chart = useRef<ReturnType<typeof echarts.init> | null>(null);
   useEffect(() => {
     if (!ref.current) return;
     chart.current = echarts.init(ref.current);

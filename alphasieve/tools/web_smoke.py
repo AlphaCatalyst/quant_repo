@@ -29,6 +29,11 @@ def check(page):
         const a = h.getBoundingClientRect(), b = row.getBoundingClientRect();
         if (a.bottom > b.top + 2 && a.top < b.bottom - 2) issues.push('表头遮挡首行');
       }
+      for (const wrap of document.querySelectorAll('.table-scroll')) {
+        const table = wrap.querySelector('table');
+        const overflow = !!table && table.scrollWidth > wrap.clientWidth + 1;
+        if ((wrap.dataset.overflow === 'true') !== overflow) issues.push('表格横向滚动提示状态不符');
+      }
       return issues;
     }""")
 
@@ -36,20 +41,25 @@ def check(page):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('--url', default='http://127.0.0.1:8732')
-    p.add_argument('--shots', default='/tmp/as_shots/round3')
+    p.add_argument('--shots', default='/tmp/as_shots/round4')
+    p.add_argument('--browser-path', default=None, help='Optional local Chromium or Chrome executable')
+    p.add_argument('--strategy', default=None, help='Optional non-holdout strategy trial for detail screenshot')
     args = p.parse_args()
     out = Path(args.shots)
     out.mkdir(parents=True, exist_ok=True)
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=True)
+        browser = pw.chromium.launch(headless=True, executable_path=args.browser_path)
         page = browser.new_page(viewport={'width': 1440, 'height': 900}, device_scale_factor=1)
         page.goto(args.url + '/#/mandates')
         page.wait_for_selector('.card', timeout=30000)
         page.wait_for_timeout(1200)
         strategy_links = page.locator('a[href^="#/strategy/S-"]:not([href$="-H"])')
-        strategies = list(dict.fromkeys(strategy_links.all_text_contents()))
-        strategy = strategy_links.first.get_attribute('href')
-        ids = [s.strip() for s in strategies if s.strip().startswith('S-')]
+        strategies = list(dict.fromkeys(strategy_links.evaluate_all(
+            "els => els.map(el => el.getAttribute('href').split('/').pop())")))
+        strategy = f'#/strategy/{args.strategy}' if args.strategy else strategy_links.first.get_attribute('href')
+        if strategy and strategy.endswith('-H'):
+            raise SystemExit('strategy screenshot must use a non-holdout trial')
+        ids = [s for s in strategies if s and s.startswith('S-')]
         compare = f'#/compare?a={ids[0]}&b={ids[1]}' if len(ids) > 1 else None
         page.goto(args.url + '/#/factors')
         page.wait_for_selector('.card', timeout=30000)
@@ -77,14 +87,18 @@ def main():
                     errors = []
                     tab.on('pageerror', lambda e: errors.append(str(e)))
                     tab.on('console', lambda m: errors.append(m.text) if m.type == 'error' else None)
-                    tab.goto(args.url + '/' + route, wait_until='domcontentloaded')
-                    tab.wait_for_selector('.card, .page-head', timeout=30000)
-                    tab.wait_for_timeout(650)
-                    issues = check(tab)
                     path = out / f'{name}-{width}-{theme}.png'
-                    tab.screenshot(path=str(path), full_page=True, animations='disabled')
-                    report.append({'route': name, 'width': width, 'theme': theme, 'shot': str(path),
-                                   'issues': issues, 'errors': errors})
+                    try:
+                        tab.goto(args.url + '/' + route, wait_until='domcontentloaded')
+                        tab.wait_for_selector('.card, .page-head', timeout=30000)
+                        tab.wait_for_timeout(650)
+                        issues = check(tab)
+                        tab.screenshot(path=str(path), full_page=True, animations='disabled')
+                        report.append({'route': name, 'width': width, 'theme': theme, 'shot': str(path),
+                                       'issues': issues, 'errors': errors})
+                    except Exception as exc:
+                        report.append({'route': name, 'width': width, 'theme': theme, 'error': str(exc)[:300],
+                                       'errors': errors})
                     context.close()
         guide_context = browser.new_context(viewport={'width': 1024, 'height': 900})
         guide = guide_context.new_page()

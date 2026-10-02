@@ -99,7 +99,7 @@ export function Mandates() {
             columns={[
               { key: "select", label: "对比", value: (t: Json) => t.trial_id, sortable: false, render: (t: Json) => <input type="checkbox" aria-label={`选择 ${t.trial_id} 对比`} checked={selected.includes(t.trial_id)} onChange={() => toggle(t.trial_id)} /> },
               { key: "id", label: "trial", value: (t: Json) => t.trial_id, render: (t: Json) => <a className="mono nowrap" href={link(`/strategy/${t.trial_id}`)}>{t.trial_id}</a> },
-              { key: "config", label: "配置", value: (t: Json) => t.config_label ?? t.task_id, render: (t: Json) => <span title={t.task_description ?? t.task_id}>{t.config_label ?? t.task_id ?? "—"}</span> },
+              { key: "config", label: "配置", value: (t: Json) => t.task_label ?? t.config_label ?? t.task_id, render: (t: Json) => <span title={[t.task_id, t.task_description].filter(Boolean).join(" · ")}>{t.task_label ?? t.config_label ?? t.task_id ?? "—"}</span> },
               { key: "tier", label: "证据", value: (t: Json) => t.tier, render: (t: Json) => <span className="tag">{t.tier ?? "—"}</span> },
               { key: "outcome", label: "结果", value: (t: Json) => t.outcome ?? t.status, render: (t: Json) => <Badge value={t.outcome ?? t.status} /> },
               { key: "excess", label: "净超额", value: (t: Json) => t.metrics?.annual_excess ?? t.metrics?.annual_return, render: (t: Json) => fmtPct(headline(t.metrics).excess, 2) },
@@ -157,7 +157,7 @@ function TrialMatrix({ trials, result, selected, toggle }: { trials: Json[]; res
       <tbody>{rows.map((t: Json) => <tr key={t.trial_id} className={t.trial_id === best ? "best-row" : ""}>
         <td><input type="checkbox" aria-label={`选择 ${t.trial_id} 对比`} checked={selected.includes(t.trial_id)} onChange={() => toggle(t.trial_id)} /></td>
         <td className="small mono nowrap"><a href={link(`/strategy/${t.trial_id}`)}>{t.trial_id}</a>{t.trial_id === best && <span className="tag">折扣后最佳</span>}</td>
-        <td className="small nowrap" title={t.task_description ?? t.task_id}>{t.config_label ?? t.task_id ?? "—"}</td>
+        <td className="small nowrap" title={[t.task_id, t.task_description].filter(Boolean).join(" · ")}>{t.task_label ?? t.config_label ?? t.task_id ?? "—"}</td>
         <td className="small">{t.tier === "holdout" ? "留出集" : t.tier === "dev" ? "开发" : "—"}</td>
         <td><span className={`badge ${t.acceptance?.passed == null ? "grey" : t.acceptance.passed ? "green" : "red"}`}>{t.acceptance?.passed == null ? "—" : t.acceptance.passed ? "通过" : "未通过"}</span></td>
         {metrics.map((k) => {
@@ -177,7 +177,7 @@ function TrialMatrix({ trials, result, selected, toggle }: { trials: Json[]; res
 function HoldoutRequests({ rows }: { rows: Json[] }) {
   if (!rows.length) return <div className="muted small">没有 holdout 申请。申请与批准只走 CLI（train holdout-request / holdout-approve），且只能由人执行。</div>;
   return (
-    <table className="table">
+    <div className="table-scroll"><table className="table">
       <thead><tr><th>申请</th><th>trial</th><th>配置哈希</th><th>状态</th><th>申请人</th><th>决定人</th><th>理由</th><th>holdout 结果</th></tr></thead>
       <tbody>
         {rows.map((q: Json) => (
@@ -191,7 +191,7 @@ function HoldoutRequests({ rows }: { rows: Json[] }) {
           </tr>
         ))}
       </tbody>
-    </table>
+    </table></div>
   );
 }
 
@@ -310,7 +310,7 @@ export function Strategy({ id }: { id: string }) {
         <table className="kv">
           <tbody>
             <tr><td>mandate</td><td>{started?.scope} · {TITLES[started?.scope] ?? ""}</td></tr>
-            <tr><td>配置</td><td><span title={data.task_description ?? undefined}>{started?.metrics?.task_id}</span>{data.task_description && <div className="muted small" style={{ maxWidth: 720 }}>{data.task_description}</div>}哈希 <span className="mono">{started?.candidate_hash}</span></td></tr>
+            <tr><td>配置</td><td><span title={data.task_description ?? undefined}>{data.task_label ?? started?.metrics?.task_id ?? "—"}</span><div className="muted small">{started?.metrics?.task_id}</div>{data.task_description && <div className="muted small" style={{ maxWidth: 720 }}>{data.task_description}</div>}哈希 <span className="mono">{started?.candidate_hash}</span></td></tr>
             <tr><td>tier</td><td><span className="tag">{result?.evidence_tier ?? "未完成"}</span> {result?.data_window ?? ""}</td></tr>
             <tr><td>结果</td><td>{result ? <Badge value={result.outcome} /> : <Badge value="open" />} {result?.metrics?.error ?? ""}</td></tr>
             <tr><td>搜索折扣</td><td>N = {sd.trials ?? "—"}，零假设期望最大 {fmtNum(sd.null_expected_max_ratio, 3)}，折扣后 {fmtNum(sd.deflated_ratio, 3)}</td></tr>

@@ -31,6 +31,8 @@ def test_web_requires_login_and_serves_read_models(panel_settings):
     factors = client.get("/api/factors", auth=auth).json()
     assert factors["factors"][0]["factor_id"] == result["factor_id"]
     assert factors["count"] == 1 and factors["offset"] == 0
+    assert client.get("/api/factors?campaign=c-web", auth=auth).json()["count"] == 1
+    assert client.get("/api/factors?campaign=missing", auth=auth).json()["count"] == 0
     assert client.get("/api/factors?limit=1&offset=1", auth=auth).json()["factors"] == []
     assert client.get("/api/factors?state=missing", auth=auth).json()["count"] == 0
     assert client.get("/api/factors?limit=0", auth=auth).status_code == 422
@@ -113,11 +115,14 @@ def test_web_mandate_and_strategy_views(panel_settings, tmp_path, capsys):
     assert client.get("/api/strategy/..%2Fetc", auth=auth).status_code in (400, 404)
 
 
-def test_strategy_description_and_approved_holdout_acceptance_are_visible(panel_settings):
+def test_strategy_description_and_approved_holdout_acceptance_are_visible(panel_settings, monkeypatch):
     task_id = "t_synthetic"
     config = panel_settings.config_dir / "training_tasks" / f"{task_id}.yaml"
     config.parent.mkdir(parents=True, exist_ok=True)
     config.write_text("task_id: t_synthetic\ndescription: Synthetic task subtitle\n", encoding="utf-8")
+    labels = panel_settings.config_dir / "web" / "task_labels.yaml"
+    labels.parent.mkdir(parents=True, exist_ok=True)
+    labels.write_text("t_synthetic: 合成任务短名\n", encoding="utf-8")
     artifact_id = "a" * 24
     artifact = panel_settings.artifacts_dir / artifact_id / "metrics.json"
     artifact.parent.mkdir(parents=True, exist_ok=True)
@@ -133,11 +138,30 @@ def test_strategy_description_and_approved_holdout_acceptance_are_visible(panel_
                                         created_by="human", layer="strategy", scope="A", artifact_id=artifact_id,
                                         outcome="holdout_pass"))
     conn.close()
+    from pathlib import Path
+
+    original_read_text = Path.read_text
+    metrics_reads = 0
+
+    def counted_read_text(path, *args, **kwargs):
+        nonlocal metrics_reads
+        if path == artifact:
+            metrics_reads += 1
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", counted_read_text)
     client = TestClient(create_app(panel_settings, require_auth=False))
     mandate = next(m for m in client.get("/api/mandates").json()["mandates"] if m["mandate"] == "A")
+    client.get("/api/mandates")
+    assert metrics_reads == 1
     row = mandate["trials"][0]
     assert row["task_description"] == "Synthetic task subtitle"
+    assert row["task_label"] == "合成任务短名"
     assert row["acceptance"]["checks"][0]["name"] == "synthetic_check"
     detail = client.get(f"/api/strategy/{trial_id}").json()
     assert detail["task_description"] == "Synthetic task subtitle"
+    assert detail["task_label"] == "合成任务短名"
     assert detail["detail"]["acceptance"]["passed"] is True
+    filtered = client.get("/api/ledger?layer=strategy&mandate=A&outcome=holdout_pass").json()["trials"]
+    assert [record["trial_id"] for record in filtered] == [trial_id]
+    assert client.get("/api/ledger?layer=factor&mandate=A&outcome=holdout_pass").json()["trials"] == []

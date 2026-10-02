@@ -39,6 +39,7 @@ export function useApi<T>(path: string | null, refreshMs = 0) {
   const [loading, setLoading] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const isPaused = useRefreshPaused();
+  const [isHidden, setIsHidden] = useState(document.hidden);
   const load = useCallback(() => {
     if (!path) return;
     setLoading(true);
@@ -56,10 +57,18 @@ export function useApi<T>(path: string | null, refreshMs = 0) {
     load();
   }, [load]);
   useEffect(() => {
-    if (!refreshMs || isPaused) return;
+    const onVisibilityChange = () => {
+      setIsHidden(document.hidden);
+      if (!document.hidden && refreshMs && !paused) load();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, [load, refreshMs]);
+  useEffect(() => {
+    if (!refreshMs || isPaused || isHidden) return;
     const id = window.setInterval(load, refreshMs);
     return () => window.clearInterval(id);
-  }, [load, refreshMs, isPaused]);
+  }, [load, refreshMs, isPaused, isHidden]);
   return { data, error, loading, updatedAt, reload: load };
 }
 

@@ -120,7 +120,20 @@ export default function Campaign({ id }: { id: string }) {
 
       <div id="campaign-trials"><Card title={`研究轮次（${data.turns.length}）`}>
         {data.turns.length === 0 ? <Empty /> : (
-          <table className="table">
+          <><div className="turn-timeline" aria-label="研究轮次时间线">
+            {(data.turns as Json[]).map((t: Json) => {
+              const submitted = typeof t.trials_after === "number" && typeof t.trials_before === "number"
+                ? Math.max(0, t.trials_after - t.trials_before) : null;
+              return <button className="turn-stop" type="button" key={t.turn_id} onClick={() => setTurnId(t.turn_id)}
+                title={`打开第 ${t.turn_index} 轮详情`}>
+                <span className="turn-dot" />
+                <strong>第 {t.turn_index} 轮 <Badge value={t.status} /></strong>
+                <span>{fmtTime(t.started_at)}</span>
+                <span>提交 {submitted ?? "—"} · L2 新通过 {t.robust_passed_new ?? "—"}</span>
+                <span>费用 {t.usage?.cost_usd != null ? `$${fmtNum(t.usage.cost_usd, 2)}` : "—"} · 耗时 {duration(t.started_at, t.ended_at)}</span>
+              </button>;
+            })}
+          </div><table className="table">
             <thead>
               <tr><th>#</th><th>agent</th><th>状态</th><th>trial</th><th>新 L2</th><th>token（输入/输出）</th><th>费用</th><th>耗时</th><th>开始</th><th>摘要</th></tr>
             </thead>
@@ -140,7 +153,7 @@ export default function Campaign({ id }: { id: string }) {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></>
         )}
       </Card></div>
 

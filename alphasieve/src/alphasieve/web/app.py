@@ -6,11 +6,12 @@ import os
 import re
 import secrets
 import sqlite3
-import yaml
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
+from functools import lru_cache
 from pathlib import Path
 
+import yaml
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
@@ -97,6 +98,17 @@ def _task_description(settings: Settings, task_id: str | None) -> str | None:
     return description.strip() or None if isinstance(description, str) else None
 
 
+def _task_labels(settings: Settings) -> dict[str, str]:
+    try:
+        labels = yaml.safe_load((settings.config_dir / "web" / "task_labels.yaml").read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return {}
+    if not isinstance(labels, dict):
+        return {}
+    return {key: value.strip() for key, value in labels.items()
+            if isinstance(key, str) and isinstance(value, str) and value.strip()}
+
+
 def _transcript_events(path: Path, limit: int = 400) -> list[dict]:
     events = []
     if not path.exists():
@@ -141,6 +153,11 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
     if require_auth:
         ensure_credentials(settings)
     app = FastAPI(title="AlphaSieve", version=__version__, docs_url=None, redoc_url=None)
+    task_labels = _task_labels(settings)
+
+    @lru_cache(maxsize=512)
+    def artifact_metrics(artifact_id: str) -> dict:
+        return json.loads((settings.artifacts_dir / artifact_id / "metrics.json").read_text(encoding="utf-8"))
 
     def auth(creds: HTTPBasicCredentials | None = Depends(security)) -> str:
         if not require_auth:
@@ -303,24 +320,30 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
     def factors(user: str = Depends(auth), conn=Depends(db), state: str | None = None,
                 campaign: str | None = None, limit: int = Query(500, ge=1, le=5000),
                 offset: int = Query(0, ge=0)):
-        query = ("SELECT f.factor_id, f.version, f.name, f.state, f.canonical_expression, f.created_by, f.created_at,"
-                 " f.spec_json, (SELECT metrics_json FROM trials t WHERE t.factor_id = f.factor_id AND t.version ="
-                 " f.version AND t.record_kind = 'completed' AND t.evidence_tier = 'dev' ORDER BY seq DESC LIMIT 1)"
-                 " AS metrics_json, (SELECT campaign_id FROM trials t WHERE t.factor_id = f.factor_id AND t.version ="
-                 " f.version AND t.record_kind = 'completed' ORDER BY seq LIMIT 1) AS campaign_id"
-                 " FROM factor_specs f")
+        rollup = ("WITH trial_rollup AS (SELECT factor_id, version,"
+                  " MAX(CASE WHEN evidence_tier = 'dev' THEN seq END) AS dev_seq, MIN(seq) AS first_seq"
+                  " FROM trials WHERE record_kind = 'completed' AND factor_id IS NOT NULL"
+                  " GROUP BY factor_id, version) ")
+        joined = (" FROM factor_specs f LEFT JOIN trial_rollup tr ON tr.factor_id = f.factor_id"
+                  " AND tr.version = f.version LEFT JOIN trials latest ON latest.seq = tr.dev_seq"
+                  " LEFT JOIN trials first ON first.seq = tr.first_seq")
+        query = (rollup + "SELECT f.factor_id, f.version, f.name, f.state, f.canonical_expression,"
+                 " f.created_by, f.created_at, f.spec_json, latest.metrics_json, first.campaign_id" + joined)
         where, params = [], []
         if state:
             where.append("f.state = ?")
             params.append(state)
         if campaign:
-            where.append("(SELECT campaign_id FROM trials t WHERE t.factor_id = f.factor_id AND"
-                         " t.version = f.version AND t.record_kind = 'completed' ORDER BY seq LIMIT 1) = ?")
+            where.append("first.campaign_id = ?")
             params.append(campaign)
         if where:
             query += " WHERE " + " AND ".join(where)
-        count_query = "SELECT COUNT(*) FROM factor_specs f" + (" WHERE " + " AND ".join(where) if where else "")
-        total = conn.execute(count_query, params).fetchone()[0]
+        if campaign:
+            count_query = rollup + "SELECT COUNT(*)" + joined + " WHERE " + " AND ".join(where)
+            total = conn.execute(count_query, params).fetchone()[0]
+        else:
+            total = conn.execute("SELECT COUNT(*) FROM factor_specs f" + (" WHERE f.state = ?" if state else ""),
+                                 (state,) if state else ()).fetchone()[0]
         rows = []
         for r in conn.execute(query + " ORDER BY f.created_at DESC, f.factor_id LIMIT ? OFFSET ?",
                               (*params, limit, offset)):
@@ -330,7 +353,7 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
             d["direction"] = spec.get("direction")
             d["metrics"] = _loads(d.pop("metrics_json"), {})
             rows.append(d)
-        library = {m["factor_id"] for m in lib.library_members(conn)}
+        library = {r[0] for r in conn.execute("SELECT factor_id FROM library")}
         for d in rows:
             d["in_library"] = d["factor_id"] in library
         return {"factors": rows, "count": total, "limit": limit, "offset": offset}
@@ -355,11 +378,16 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
 
     @app.get("/api/ledger")
     def ledger(user: str = Depends(auth), conn=Depends(db), campaign: str | None = None,
+               layer: str | None = None, mandate: str | None = None, outcome: str | None = None,
                limit: int = Query(200, le=2000), offset: int = 0):
         query, params = "SELECT * FROM trials WHERE record_kind != 'started'", []
         if campaign:
             query += " AND campaign_id = ?"
             params.append(campaign)
+        for column, value in (("layer", layer), ("scope", mandate), ("outcome", outcome)):
+            if value:
+                query += f" AND {column} = ?"
+                params.append(value)
         rows = [dict(r) for r in conn.execute(query + " ORDER BY seq DESC LIMIT ? OFFSET ?", (*params, limit, offset))]
         for r in rows:
             r["metrics"] = _loads(r.pop("metrics_json"), {})
@@ -382,16 +410,16 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
                 if isinstance(task_id, str) and task_id not in descriptions:
                     descriptions[task_id] = _task_description(settings, task_id)
                 t.update(task_id=metrics.get("task_id"), config_label=metrics.get("task_id"),
-                         task_description=descriptions.get(task_id),
+                         task_description=descriptions.get(task_id), task_label=task_labels.get(task_id),
                          started_at=r["created_at"])
             else:
                 t.update(status=r["record_kind"], tier=r["evidence_tier"], outcome=r["outcome"],
                          artifact_id=r["artifact_id"], finished_at=r["created_at"], metrics=metrics)
                 if r["artifact_id"] and r["record_kind"] == "completed":
-                    artifact = settings.artifacts_dir / r["artifact_id"] / "metrics.json"
-                    if artifact.is_file():
-                        detail = json.loads(artifact.read_text(encoding="utf-8"))
-                        t["acceptance"] = detail.get("acceptance")
+                    try:
+                        t["acceptance"] = artifact_metrics(r["artifact_id"]).get("acceptance")
+                    except FileNotFoundError:
+                        pass
         requests = [dict(r) for r in conn.execute("SELECT * FROM strategy_holdout_requests ORDER BY created_at")]
         for q in requests:
             q["result"] = _loads(q.pop("result_json"))
@@ -441,7 +469,8 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
         for q in requests:
             q["result"] = _loads(q.pop("result_json"))
         return {"trial_id": trial_id, "records": rows, "detail": detail,
-                "task_description": task_description, "holdout_requests": requests}
+                "task_description": task_description, "task_label": task_labels.get(task_id),
+                "holdout_requests": requests}
 
     @app.get("/api/artifacts/{artifact_id}/report", response_class=PlainTextResponse)
     def artifact_report(artifact_id: str, user: str = Depends(auth)):

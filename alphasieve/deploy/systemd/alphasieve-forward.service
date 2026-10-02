@@ -1,0 +1,15 @@
+[Unit]
+Description=AlphaSieve forward observation after market data update
+Requires=alphasieve-daily-update.service
+After=alphasieve-daily-update.service
+RequiresMountsFor=/mnt/private_felixjjiang
+
+[Service]
+Type=oneshot
+WorkingDirectory=/data/codebase/quant_repo/alphasieve
+Environment=ALPHASIEVE_ROLE=system
+Environment=ALPHASIEVE_USER=systemd
+ExecStart=/data/codebase/quant_repo/alphasieve/.venv/bin/alphasieve fresh daily --json
+StandardOutput=append:/data/alphasieve/logs/forward.jsonl
+StandardError=append:/data/alphasieve/logs/forward.err
+TimeoutStartSec=4h

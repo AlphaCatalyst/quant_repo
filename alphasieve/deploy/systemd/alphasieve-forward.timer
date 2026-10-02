@@ -1,0 +1,10 @@
+[Unit]
+Description=Run AlphaSieve forward observation after A-share data update
+
+[Timer]
+OnCalendar=Mon..Sat 20:00
+Persistent=true
+Unit=alphasieve-forward.service
+
+[Install]
+WantedBy=timers.target

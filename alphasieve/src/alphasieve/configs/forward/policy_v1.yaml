@@ -1,0 +1,44 @@
+# 推荐默认值；真实 cohort 须由 human 显式批准并冻结此文件的 digest。
+version: forward_policy_v1
+approval_required: true
+real_activation: pending_human_decision
+initial_cohorts:
+  first_strategy_shadow: pending_human_decision
+  strategy_diagnostic_shadow: 1
+  factor_validation: 1
+  factor_members_max: 10
+strategy_a:
+  capital_cny: 500000000
+  initial_nav: 1.0
+  benchmark: csi500_pit_float_cap_total_return_proxy
+  valid_return_days_min: 120
+  coverage_min: 0.95
+  excess_drawdown_floor: -0.08
+  tracking_error_annual_min: 0.04
+  tracking_error_annual_max: 0.06
+factor:
+  mature_valid_days_min: 60
+  coverage_min: 0.95
+statistics:
+  hac_one_sided_p_max: 0.05
+  bh_q_max: 0.10
+  first_eligible_endpoint_only: true
+  auto_extend_inconclusive: false
+operational_refit:
+  approval_required: true
+  decision: pending_human_decision
+  window: rolling_5y
+  schedule: first_trading_day_of_month
+  fixed_parameters: true
+data_gap:
+  pause_after_consecutive_trading_days: 2
+  backfill_missed_signals: false
+resources:
+  workers_max: 2
+  cpu_threads_per_worker_max: 8
+  memory_gib_per_worker_max: 32
+  refit_seconds_max: 7200
+  daily_seconds_max: 14400
+privacy:
+  isolated_system_runtime_required: true
+  forward_web_human_auth_required: true

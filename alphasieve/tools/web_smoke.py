@@ -43,13 +43,19 @@ def main():
     p.add_argument('--url', default='http://127.0.0.1:8732')
     p.add_argument('--shots', default='/tmp/as_shots/round4')
     p.add_argument('--browser-path', default=None, help='Optional local Chromium or Chrome executable')
+    p.add_argument('--credentials', default=None, help='Synthetic Basic credentials file for local fixture')
     p.add_argument('--strategy', default=None, help='Optional non-holdout strategy trial for detail screenshot')
     args = p.parse_args()
     out = Path(args.shots)
     out.mkdir(parents=True, exist_ok=True)
+    http_credentials = None
+    if args.credentials:
+        values = dict(line.split('=', 1) for line in Path(args.credentials).read_text().splitlines() if '=' in line)
+        http_credentials = {'username': values['username'], 'password': values['password']}
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True, executable_path=args.browser_path)
-        page = browser.new_page(viewport={'width': 1440, 'height': 900}, device_scale_factor=1)
+        page = browser.new_page(viewport={'width': 1440, 'height': 900}, device_scale_factor=1,
+                                http_credentials=http_credentials)
         page.goto(args.url + '/#/mandates')
         page.wait_for_selector('.card', timeout=30000)
         page.wait_for_timeout(1200)
@@ -72,7 +78,7 @@ def main():
                   'strategy': strategy,
                   'compare': compare,
                   'factors': '#/factors', 'factor': factor, 'campaign': campaign,
-                  'ledger': '#/ledger', 'data': '#/data'}
+                  'ledger': '#/ledger', 'data': '#/data', 'forward': '#/forward'}
         report = []
         for name, route in routes.items():
             if not route or route.endswith('-H'):
@@ -80,7 +86,8 @@ def main():
                 continue
             for width in (1024, 1440):
                 for theme in ('light', 'dark'):
-                    context = browser.new_context(viewport={'width': width, 'height': 900}, device_scale_factor=1)
+                    context = browser.new_context(viewport={'width': width, 'height': 900}, device_scale_factor=1,
+                                                  http_credentials=http_credentials)
                     context.add_init_script(f"localStorage.setItem('alphasieve-theme','{theme}')")
                     context.add_init_script("localStorage.setItem('alphasieve-guide-seen','1')")
                     tab = context.new_page()
@@ -100,7 +107,8 @@ def main():
                         report.append({'route': name, 'width': width, 'theme': theme, 'error': str(exc)[:300],
                                        'errors': errors})
                     context.close()
-        guide_context = browser.new_context(viewport={'width': 1024, 'height': 900})
+        guide_context = browser.new_context(viewport={'width': 1024, 'height': 900},
+                                            http_credentials=http_credentials)
         guide = guide_context.new_page()
         guide.goto(args.url + '/#/', wait_until='domcontentloaded')
         guide.wait_for_selector('.intro-guide', timeout=30000)

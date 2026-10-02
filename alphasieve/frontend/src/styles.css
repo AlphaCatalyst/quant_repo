@@ -50,6 +50,16 @@ h4 { margin: 14px 0 6px; font-size: 13px; color: var(--muted); }
 main { max-width: 1480px; margin: 0 auto; padding: 20px 24px 60px; }
 .page { display: flex; flex-direction: column; gap: 16px; }
 .page-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.forward-cohorts { display: flex; flex-wrap: wrap; gap: 8px; }
+.forward-cohort { display: flex; flex-direction: column; gap: 3px; min-width: 180px; border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; background: var(--card); color: var(--text); text-align: left; font: inherit; cursor: pointer; }
+.forward-cohort.selected { border-color: var(--blue); background: color-mix(in srgb, var(--blue) 7%, var(--card)); }
+.forward-cohort span, .forward-cohort small { color: var(--muted); }
+.forward-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.forward-facts div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.forward-facts span { color: var(--muted); font-size: 12px; }
+.forward-facts strong { overflow-wrap: anywhere; }
+.forward-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
+.forward-verdict { font-size: 18px; }
 .subnav { display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--line); padding: 0 0 6px; }
 .subnav button { border: 0; background: transparent; color: var(--blue); cursor: pointer; font: inherit; padding: 2px 4px; }
 [id^="strategy-"] { scroll-margin-top: 60px; }

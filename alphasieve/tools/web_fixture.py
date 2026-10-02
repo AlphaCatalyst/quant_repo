@@ -16,7 +16,7 @@ from alphasieve.ledger import append_trial, verify_ledger
 from alphasieve.state import connect
 
 
-ROOT = Path("/tmp/alphasieve-web-round4-synthetic")
+ROOT = Path("/tmp/alphasieve-web-forward-synthetic")
 CAMPAIGN = "c-synthetic-web"
 APPROVED = "S-000000000001"
 HOLDOUT = APPROVED + "-H"
@@ -50,12 +50,59 @@ def strategy(conn, trial_id: str, tier: str, artifact_id: str, ir: float) -> Non
                                      "deflated_ratio": ir - 0.4}}))
 
 
+def forward_fixture(conn) -> None:
+    """Synthetic observation, gap, and pending approval for forward UI review."""
+    policy = {"strategy": {"min_valid_days": 120}, "factor": {"min_valid_days": 60}, "synthetic_fixture": True}
+    cohorts = [
+        ("forward-synthetic-shadow", "diagnostic_shadow", "A", APPROVED, "fixture-approved", "synthetic-reviewer"),
+    ]
+    for cohort_id, mode, scope, trial_id, approval_id, approval_by in cohorts:
+        config = {"scope": scope, "trial_id": trial_id, "synthetic_fixture": True}
+        conn.execute("INSERT INTO decisions (decision_id,object_type,object_id,decision,reason,decided_by,"
+                     "decided_at,evidence_hash) VALUES (?,?,?,?,?,?,?,?)",
+                     (approval_id, "fresh_cohort", cohort_id, "approved", "合成界面演示", approval_by,
+                      "2026-10-01T00:00:00Z", "synthetic-evidence"))
+        conn.execute("INSERT INTO fresh_cohorts (cohort_id, object_kind, mode, trial_id, source_hash,"
+                     " config_json, config_hash, policy_json, policy_hash, start_date, approval_id,"
+                     " approval_by, approval_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                     (cohort_id, "strategy", mode, trial_id, "synthetic-source", json.dumps(config),
+                      "synthetic-config", json.dumps(policy), "synthetic-policy", "2026-10-01",
+                      approval_id, approval_by, "2026-10-01T00:00:00Z"))
+    approved = cohorts[0][0]
+    conn.execute("INSERT INTO paper_books (book_id, cohort_id, book_mode, capital, benchmark, start_date, created_at)"
+                 " VALUES (?,?,?,?,?,?,?)",
+                 (f"B-{approved}", approved, "observation", 500_000_000, "synthetic-CSI500-TR",
+                  "2026-10-01", "2026-10-01T00:00:00Z"))
+    date = datetime(2026, 10, 1, tzinfo=UTC)
+    valid_count = 0
+    for i in range(38):
+        day = date + timedelta(days=i)
+        if day.weekday() >= 5:
+            continue
+        trading_date = day.date().isoformat()
+        gap = trading_date == "2026-10-15"
+        if not gap:
+            valid_count += 1
+        nav = round(1.0 + valid_count * 0.0013, 6)
+        benchmark_nav = round(1.0 + valid_count * 0.0008, 6)
+        conn.execute("INSERT INTO paper_days (book_id, date, status, nav, benchmark_nav, ret, benchmark_ret,"
+                     " checkpoint_json, metrics_json, prev_hash, row_hash, manifest_json)"
+                     " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                     (f"B-{approved}", trading_date, "data_gap" if gap else "valid", nav,
+                      benchmark_nav, None if gap else 0.0013, None if gap else 0.0008,
+                      "{}", json.dumps({"reason": "【合成演示】基准缺失"} if gap else {}),
+                      "synthetic-prev", f"synthetic-day-{i}", json.dumps({"synthetic_fixture": True})))
+
+
 def main() -> None:
     if ROOT.exists():
         raise SystemExit(f"已存在 {ROOT}；为避免覆盖数据，请先自行选择新的空目录")
     ROOT.mkdir(mode=0o700)
     hot = ROOT / "hot"
     store = ROOT / "store"
+    hot.mkdir(mode=0o700)
+    (hot / "web.credentials").write_text("username=synthetic\npassword=synthetic-only-forward\n", encoding="utf-8")
+    (hot / "web.credentials").chmod(0o600)
     settings = Settings(hot_root=hot, store_root=store, store_mount=None,
                         config_dir=PACKAGE_CONFIG_DIR, role="human", user="synthetic-fixture")
     conn = connect(settings.state_db)
@@ -127,13 +174,15 @@ def main() -> None:
                  ("req-factor-synthetic-pending", "shortlist-synthetic", CAMPAIGN, 1, "pending",
                   "2026-09-04T00:00:00Z"))
 
+    forward_fixture(conn)
+
     assert verify_ledger(conn)["ok"]
     conn.close()
     print("【合成演示】看板数据已创建：", ROOT)
-    print("ALPHASIEVE_HOT_ROOT=/tmp/alphasieve-web-round4-synthetic/hot \\")
-    print("ALPHASIEVE_STORE_ROOT=/tmp/alphasieve-web-round4-synthetic/store \\")
-    print("ALPHASIEVE_STORE_MOUNT='' ALPHASIEVE_ROLE=human ALPHASIEVE_WEB_AUTH=none \\")
-    print("uv run alphasieve serve --host 127.0.0.1 --port 8733")
+    print("ALPHASIEVE_HOT_ROOT=/tmp/alphasieve-web-forward-synthetic/hot \\")
+    print("ALPHASIEVE_STORE_ROOT=/tmp/alphasieve-web-forward-synthetic/store \\")
+    print("ALPHASIEVE_STORE_MOUNT='' ALPHASIEVE_ROLE=human ALPHASIEVE_WEB_AUTH=basic \\")
+    print("uv run alphasieve serve --host 127.0.0.1 --port 8742")
 
 
 if __name__ == "__main__":

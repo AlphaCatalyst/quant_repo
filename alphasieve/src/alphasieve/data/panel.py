@@ -187,7 +187,7 @@ def _attach_financials(panel: pd.DataFrame, frames: list[pd.DataFrame]) -> pd.Da
     panel = panel.sort_values(["date", "code"])
     for aligned in frames:
         aligned = aligned.rename(columns={"effective_date": "date"}).sort_values(["date", "code"])
-        aligned["date"] = pd.to_datetime(aligned["date"])
+        aligned["date"] = pd.to_datetime(aligned["date"]).astype(panel["date"].dtype)
         panel = pd.merge_asof(panel, aligned, on="date", by="code", direction="backward")
     return panel
 
@@ -324,6 +324,8 @@ def _benchmark(root: Path, calendar: list[str], window_end: str) -> pd.DataFrame
 
 def _write_tier(settings: Settings, tier: str, panel: pd.DataFrame, bench: pd.DataFrame, meta: dict,
                 universe: str | None = None) -> dict:
+    if tier == "fresh":
+        raise ValueError("fresh panel is append-only; use data.fresh.append_day")
     out_dir = settings.panel_dir(tier, universe)
     out_dir.mkdir(parents=True, exist_ok=True)
     if tier != "dev":
@@ -351,6 +353,9 @@ def build_panel(settings: Settings, conn: sqlite3.Connection | None = None, end:
                 universe: str | None = None, tiers: tuple[str, ...] = ("dev", "holdout"),
                 warmup_start: str | None = None) -> dict:
     from alphasieve.data.quality import quality_report
+
+    if "fresh" in tiers:
+        raise ValueError("fresh panel is append-only; use data.fresh.append_day")
 
     splits = load_config(settings, "splits")
     cfg = universe_config(settings, universe)

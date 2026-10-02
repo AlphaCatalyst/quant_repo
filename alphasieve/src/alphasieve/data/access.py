@@ -96,6 +96,15 @@ def _read(panel_path: str, mtime: float) -> tuple[pd.DataFrame, dict, pd.DataFra
 def load_panel(settings: Settings, tier: str = "dev", role: str | None = None, universe: str | None = None) -> Panel:
     role = role or settings.role
     check_tier_access(role, tier)
+    if tier == "fresh":
+        from alphasieve.data.fresh import load_asof
+        from alphasieve.state import connect
+
+        conn = connect(settings.state_db)
+        try:
+            return load_asof(settings, conn, "9999-12-31", universe or "csi800", role)
+        finally:
+            conn.close()
     path = settings.panel_dir(tier, universe) / "panel.parquet"
     if not path.exists():
         raise AlphaSieveError("NOT_FOUND", f"{tier} panel for universe {universe or 'csi800'} not built;"

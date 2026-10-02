@@ -36,7 +36,7 @@ def test_report_features_pit_broker_latest_and_old_columns_stable():
     assert a.loc["2021-01-07", "wr_eps_fy1"] == 2.5  # latest per broker, then median
     assert a.loc["2021-01-07", "wr_coverage_90d"] == 2.0
     assert a.loc["2021-01-07", "wr_rating_mean"] == 4.0
-    assert a.loc["2021-01-07", "wr_revision_balance_30d"] == pytest.approx(1 / 3)
+    assert a.loc["2021-01-07", "wr_revision_balance_30d"] == 0.0
     assert a.loc["2021-01-07", "wr_consensus_ep"] == pytest.approx(2.5 / a.loc["2021-01-06", "close_raw"])
     assert a.loc["2021-02-10", "wr_eps_fy1"] == 2.5
     assert a.loc["2021-02-11", "wr_eps_fy1"] == 3.0

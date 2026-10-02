@@ -51,7 +51,7 @@ def _check_signers(settings: Settings) -> None:
         )
 
 
-def evidence_hash(conn: sqlite3.Connection, settings: Settings, kind: str, target_id: str) -> str:
+def evidence_snapshot(conn: sqlite3.Connection, settings: Settings, kind: str, target_id: str) -> str:
     if kind == "strategy_holdout":
         row = conn.execute(
             "SELECT request_id, mandate, task_id, trial_id, config_hash, status"
@@ -113,7 +113,11 @@ def evidence_hash(conn: sqlite3.Connection, settings: Settings, kind: str, targe
         data = dict(row)
     else:
         raise validation_error(f"unknown approval kind {kind}")
-    return sha256_hex(canonical_json(data))
+    return canonical_json(data)
+
+
+def evidence_hash(conn: sqlite3.Connection, settings: Settings, kind: str, target_id: str) -> str:
+    return sha256_hex(evidence_snapshot(conn, settings, kind, target_id))
 
 
 def _decision(kind: str, decision: str) -> str:
@@ -135,20 +139,21 @@ def create_challenge(
     if _policy(settings):
         _check_signers(settings)
     nonce = secrets.token_hex(24)
+    snapshot = evidence_snapshot(conn, settings, kind, target_id)
     payload = {
         "schema": "alphasieve.approval/v1",
         "kind": kind,
         "target_id": target_id,
         "decision": decision,
-        "evidence_hash": evidence_hash(conn, settings, kind, target_id),
+        "evidence_hash": sha256_hex(snapshot),
         "nonce": nonce,
         "expires_at": (datetime.now(UTC) + timedelta(minutes=30)).isoformat(),
     }
     content = canonical_json(payload) + "\n"
     conn.execute(
-        "INSERT INTO approval_challenges (nonce, kind, target_id, decision, content, expires_at)"
-        " VALUES (?, ?, ?, ?, ?, ?)",
-        (nonce, kind, target_id, decision, content, payload["expires_at"]),
+        "INSERT INTO approval_challenges (nonce, kind, target_id, decision, content, evidence_json, expires_at)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (nonce, kind, target_id, decision, content, snapshot, payload["expires_at"]),
     )
     output = output or settings.hot_root / "approval_challenges" / f"{nonce}.txt"
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -245,6 +250,7 @@ def consume_signature(
                 "target_id": target_id,
                 "decision": decision,
                 "content": row["content"],
+                "evidence_json": row["evidence_json"],
                 "signature": signature,
                 "created_at": now,
                 "prev_hash": prev_hash,
@@ -252,8 +258,8 @@ def consume_signature(
             }
             record["hash"] = sha256_hex(prev_hash + canonical_json(record))
             conn.execute(
-                "INSERT INTO signed_approvals (nonce, kind, target_id, decision, content, signature,"
-                " created_at, prev_hash, trial_head, hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO signed_approvals (nonce, kind, target_id, decision, content, evidence_json, signature,"
+                " created_at, prev_hash, trial_head, hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 tuple(record.values()),
             )
             return record
@@ -291,6 +297,7 @@ def verify_records(conn: sqlite3.Connection, settings: Settings) -> list[dict]:
                         "target_id",
                         "decision",
                         "content",
+                        "evidence_json",
                         "signature",
                         "created_at",
                         "prev_hash",
@@ -307,6 +314,8 @@ def verify_records(conn: sqlite3.Connection, settings: Settings) -> list[dict]:
             payload = json.loads(data["content"])
             if any(payload[k] != data[k] for k in ("nonce", "kind", "target_id", "decision")):
                 errors.append({"approval_seq": data["seq"], "error": "approval content mismatch"})
+            if payload["evidence_hash"] != sha256_hex(data["evidence_json"]):
+                errors.append({"approval_seq": data["seq"], "error": "approval evidence mismatch"})
         except (OSError, ValueError, KeyError, TypeError):
             errors.append({"approval_seq": data["seq"], "error": "malformed approval"})
         if (

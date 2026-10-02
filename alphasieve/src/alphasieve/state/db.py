@@ -214,12 +214,13 @@ MIGRATIONS: list[str] = [
     """
     CREATE TABLE approval_challenges (
         nonce TEXT PRIMARY KEY, kind TEXT NOT NULL, target_id TEXT NOT NULL,
-        decision TEXT NOT NULL, content TEXT NOT NULL, expires_at TEXT NOT NULL, used_at TEXT
+        decision TEXT NOT NULL, content TEXT NOT NULL, evidence_json TEXT NOT NULL,
+        expires_at TEXT NOT NULL, used_at TEXT
     );
     CREATE TABLE signed_approvals (
         seq INTEGER PRIMARY KEY AUTOINCREMENT, nonce TEXT NOT NULL UNIQUE,
         kind TEXT NOT NULL, target_id TEXT NOT NULL, decision TEXT NOT NULL,
-        content TEXT NOT NULL, signature TEXT NOT NULL, created_at TEXT NOT NULL,
+        content TEXT NOT NULL, evidence_json TEXT NOT NULL, signature TEXT NOT NULL, created_at TEXT NOT NULL,
         prev_hash TEXT NOT NULL, trial_head TEXT NOT NULL, hash TEXT NOT NULL
     );
     CREATE TRIGGER signed_approvals_no_update BEFORE UPDATE ON signed_approvals

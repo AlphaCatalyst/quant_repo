@@ -1,4 +1,4 @@
-version: 3
+version: 4
 search_space_id: ss-ashare-daily-v1
 expressiveness: [E1]
 derived_version: dv1
@@ -23,6 +23,10 @@ domains:
   fin_growth: [ws_asset_growth_yoy, ws_rev_growth_yoy, ws_np_growth_q_yoy, ws_np_surprise_q]
   fund_flow: [mf_main_net_ratio, mf_jumbo_net_ratio, mf_block_net_ratio, mf_mid_net_ratio, mf_small_net_ratio]  # v3: 2020+
   margin: [mg_fin_to_mv, mg_fin_chg_4w, mg_fin_buy_share, mg_short_to_fin]  # v3: weekly snapshots, hs300_2020 scope
+  # v4: westock sell-side reports, 2010+; publication day T is usable from the next trading day.
+  sellside: [wr_coverage_90d, wr_coverage_180d, wr_eps_fy1, wr_eps_fy2, wr_eps_change_30d,
+             wr_eps_change_90d, wr_revision_balance_30d, wr_revision_balance_90d, wr_rating_mean,
+             wr_rating_change_30d, wr_rating_change_90d, wr_consensus_ep, wr_eps_growth]
 default_horizon:            # prediction horizon (trading days) by the signal's data domain (D-24)
   price: 5
   volume: 5
@@ -36,6 +40,7 @@ default_horizon:            # prediction horizon (trading days) by the signal's 
   fin_growth: 20
   fund_flow: 5
   margin: 20
+  sellside: 20
 forms:
   - level
   - change_momentum

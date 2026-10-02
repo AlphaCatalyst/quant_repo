@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 from alphasieve.config import Settings, load_config
 
-FINANCIAL_DOMAINS = ("profitability", "growth", "fin_quality", "fin_growth")
+FINANCIAL_DOMAINS = ("profitability", "growth", "fin_quality", "fin_growth", "sellside")
 
 
 @dataclass(frozen=True)

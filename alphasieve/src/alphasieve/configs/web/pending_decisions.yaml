@@ -105,16 +105,16 @@ decisions:
     decided_at: null
   - id: paid-data
     title: 数据源付费升级
-    question: 是否购买 Tushare 积分，补官方指数权重、中证 500 全收益指数、PIT 申万行业和卖方盈利预测？
+    question: 是否购买 Tushare 积分，补官方指数权重、中证 500 全收益指数、PIT 申万行业，以及两融、股东户数等历史？卖方预测已由 westock 研报覆盖。
     evidence: docs/17-data-vendors.md
     options:
+      - name: Tushare 2000 积分（个人约 200 元/年，机构价约 2000 元/年）
+        consequence: 补齐官方权重、全收益指数、PIT 行业；顺带两融、资金流、股东户数和交易所涨跌停价。依赖基准与行业的结论统一复核。
       - name: Tushare 10000 积分（个人约 1000 元/年，机构价约 1 万元/年）
-        consequence: 一次补齐基准口径、PIT 行业和一致预期；一致预期按普通因子走 L1–L4 与预算流程。
-      - name: Tushare 2000 积分（个人约 200 元/年）
-        consequence: 只修正确性（官方权重、全收益指数、PIT 行业），一致预期以后再加。
+        consequence: 在 2000 积分基础上加 report_rc 卖方预测，与 westock 研报重叠，可用于对账。
       - name: 暂缓升级
-        consequence: 继续用 D-31 自算基准代理；风险模型 v1 的行业仍有前视偏差。
-    recommendation: Tushare 10000 积分；购买前确认适用个人价还是机构价，以及“不得商用”条款是否限制内部研究。
+        consequence: 研究照常进行；mandate 与前瞻继续用 D-31 自算代理并标注，PIT 行业前视偏差保留，两融和股东类因子无法研究。
+    recommendation: Tushare 2000 积分（docs/17 §7）；不买也不阻塞当前研究。购买前确认适用个人价还是机构价，以及“不得商用”条款是否限制内部研究。
     status: open
     decision: null
     decided_at: null

@@ -313,7 +313,11 @@ NET_INDEX_START = "2024-05-08"
 
 def sync_westock_reports(settings: Settings, conn: sqlite3.Connection, workers: int = 4, progress=None,
                          universe: str | None = None) -> dict:
-    """Append newly listed reports, stopping each stock at its first stored report id."""
+    """Append newly listed reports, stopping each stock at its first stored report id.
+
+    Only stocks already backfilled by ``tools/westock_reports_crawl.py`` are updated, and only new reports get their
+    text fetched: a stock's full history takes minutes, which belongs in the backfill, not in the daily run.
+    """
     from alphasieve.data.providers import westock
 
     root = westock_root(settings) / "reports"
@@ -331,7 +335,9 @@ def sync_westock_reports(settings: Settings, conn: sqlite3.Connection, workers: 
         for i, code in enumerate(codes, 1):
             raw_code = westock.to_westock(code)
             old = db.execute("SELECT rows_json FROM lists WHERE code=?", (raw_code,)).fetchone()
-            previous = json.loads(old[0]) if old else []
+            if old is None:
+                continue
+            previous = json.loads(old[0])
             known = {str(r.get("id")) for r in previous}
             new = []
             try:
@@ -349,7 +355,7 @@ def sync_westock_reports(settings: Settings, conn: sqlite3.Connection, workers: 
                            (raw_code, json.dumps(merged, ensure_ascii=False), len(merged), utcnow_iso()))
                 db.commit()
                 listed += len(new)
-                for row in merged:
+                for row in new:
                     rid = str(row.get("id", ""))
                     if not rid or not westock.is_broker_report(row.get("title", "")):
                         continue

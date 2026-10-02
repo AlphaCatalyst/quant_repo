@@ -76,7 +76,7 @@ def append_trial(conn: sqlite3.Connection, entry: TrialLedgerEntry) -> dict:
     return row
 
 
-def verify_ledger(conn: sqlite3.Connection) -> dict:
+def verify_ledger(conn: sqlite3.Connection, settings=None) -> dict:
     errors = []
     prev_hash = GENESIS_HASH
     rows = 0
@@ -106,6 +106,10 @@ def verify_ledger(conn: sqlite3.Connection) -> dict:
             errors.append({"trial_id": trial_id, "error": "more than one result record"})
         elif not results:
             open_trials.append(trial_id)
+    if settings is not None:
+        from alphasieve.approvals import verify_records
+
+        errors.extend(verify_records(conn, settings))
     return {"ok": not errors, "rows": rows, "trials": len(kinds), "open_trials": open_trials, "errors": errors}
 
 

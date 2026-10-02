@@ -1,5 +1,7 @@
 import { useApi, type Json } from "../api";
 import { Badge, Card, DataTable, Empty, fmtNum, fmtPct, fmtTime, link, Loading, Progress } from "../components";
+import { InboxSummary } from "./Inbox";
+import ResearchProgress from "./Progress";
 
 const TITLES: Record<string, string> = { A: "中证 500 增强", B: "行业 ETF 轮动", C: "业绩超预期漂移", D: "股指期货对冲" };
 const FAILURE_LABELS: Record<string, string> = {
@@ -29,6 +31,8 @@ export default function Overview() {
   if (!data) return <Loading error={error} />;
   return (
     <div className="page">
+      <InboxSummary />
+      <ResearchProgress />
       <div className="metric-strip">
         <Stat label="dev trial 总数" value={data.ledger.completed_trials} />
         <Stat label="不同候选" value={data.ledger.distinct_candidates} />

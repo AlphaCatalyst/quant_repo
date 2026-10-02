@@ -192,20 +192,25 @@ def cmd_train_holdout_request(args, ctx) -> CommandResult:
 def _configure_decide(p):
     p.add_argument("request_id")
     p.add_argument("--reason", required=True)
+    p.add_argument("--signature")
 
 
 @command("train holdout-approve", HUMAN, configure=_configure_decide, needs_store=True,
          help="approve and run one strategy-layer holdout read (human only, one per mandate)")
 def cmd_train_holdout_approve(args, ctx) -> CommandResult:
+    from alphasieve.approvals import consume_signature
     from alphasieve.training.holdout import approve_read
 
+    consume_signature(ctx.conn, ctx.settings, "strategy_holdout", args.request_id, "approve", args.signature)
     return CommandResult(data=approve_read(ctx.conn, ctx.settings, args.request_id, args.reason))
 
 
 @command("train holdout-reject", HUMAN, configure=_configure_decide, help="reject a strategy-layer holdout request")
 def cmd_train_holdout_reject(args, ctx) -> CommandResult:
+    from alphasieve.approvals import consume_signature
     from alphasieve.training.holdout import reject_read
 
+    consume_signature(ctx.conn, ctx.settings, "strategy_holdout", args.request_id, "reject", args.signature)
     return CommandResult(data=reject_read(ctx.conn, ctx.settings, args.request_id, args.reason))
 
 

@@ -10,6 +10,7 @@ import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
+from alphasieve.config import get_settings
 from alphasieve.errors import AlphaSieveError
 from alphasieve.ledger import verify_ledger
 from alphasieve.util import canonical_json, sha256_hex
@@ -27,7 +28,8 @@ def list_backups(backups_dir: Path) -> list[Path]:
     return sorted(backups_dir.glob(f"{PREFIX}*.db"), key=_stamp)
 
 
-def take_backup(conn: sqlite3.Connection, backups_dir: Path, now: datetime | None = None) -> dict:
+def take_backup(conn: sqlite3.Connection, backups_dir: Path, now: datetime | None = None, settings=None) -> dict:
+    settings = settings or get_settings()
     now = now or datetime.now(UTC)
     backups_dir.mkdir(parents=True, exist_ok=True)
     final = backups_dir / f"{PREFIX}{now.strftime('%Y%m%dT%H%M%SZ')}.db"
@@ -38,7 +40,7 @@ def take_backup(conn: sqlite3.Connection, backups_dir: Path, now: datetime | Non
         conn.backup(dst)
         integrity = dst.execute("PRAGMA integrity_check").fetchone()[0]
         dst.row_factory = sqlite3.Row
-        ledger = verify_ledger(dst)
+        ledger = verify_ledger(dst, settings)
         head = dst.execute("SELECT hash FROM trials ORDER BY seq DESC LIMIT 1").fetchone()
     finally:
         dst.close()

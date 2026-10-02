@@ -84,6 +84,29 @@ def _loads(value, default=None):
     return json.loads(value) if value else default
 
 
+def _pending_decisions(settings: Settings) -> list[dict]:
+    path = settings.config_dir / "web" / "pending_decisions.yaml"
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return []
+    return data.get("decisions", []) if isinstance(data, dict) and isinstance(data.get("decisions"), list) else []
+
+
+def _recent_decisions(settings: Settings) -> list[dict]:
+    path = Path(__file__).resolve().parents[3] / "docs" / "10-decisions.md"
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    rows = []
+    for line in lines:
+        match = re.match(r"^\*\*(D-(\d+)\s+[^*]+)\*\*", line)
+        if match:
+            rows.append({"id": f"D-{match[2]}", "title": match[1], "evidence": "docs/10-decisions.md"})
+    return rows[-5:][::-1]
+
+
 def _task_description(settings: Settings, task_id: str | None) -> str | None:
     if not task_id or not re.fullmatch(r"[a-z0-9_-]{3,64}", task_id):
         return None
@@ -222,7 +245,13 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
         last_update = _last_daily_update()
         latest_trade_date = last_update.get("end") if last_update else None
         trade_days_lag, trade_calendar_source = _trade_days_lag(settings, latest_trade_date)
+        try:
+            from alphasieve.approvals import fingerprints as signer_fingerprints
+            fingerprints = signer_fingerprints(settings)
+        except ImportError:
+            fingerprints = []
         return {
+            "approval_fingerprints": fingerprints,
             "running_campaigns": conn.execute("SELECT COUNT(*) FROM campaigns WHERE status = 'running'").fetchone()[0],
             "latest_trade_date": latest_trade_date,
             "trade_days_lag": trade_days_lag,
@@ -244,6 +273,124 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
             },
             "data_last_daily_update": last_update,
         }
+
+    @app.get("/api/inbox")
+    def inbox(user: str = Depends(auth), conn=Depends(db)):
+        items = []
+        history = []
+        for table, kind, id_col, title, target in (
+            ("strategy_holdout_requests", "strategy_holdout", "request_id", "策略留出集申请", "trial_id"),
+            ("holdout_requests", "factor_holdout", "request_id", "因子留出集申请", "campaign_id"),
+            ("review_packets", "review", "packet_id", "待评审包", "campaign_id"),
+        ):
+            state = "open" if kind == "review" else "pending"
+            for row in conn.execute(f"SELECT * FROM {table} WHERE status = ? ORDER BY created_at DESC", (state,)):
+                item = {"id": row[id_col], "kind": kind, "title": title, "target": row[target],
+                        "created_at": row["created_at"], "detail": dict(row)}
+                decisions = ("rejected", "needs_repair", "approved_for_shadow") if kind == "review" else ("approve", "reject")
+                item["signing"] = [{"decision": decision,
+                    "challenge_command": f"alphasieve approval challenge {kind} {row[id_col]} --decision {decision}",
+                    "note": "先通过 CLI 生成含 nonce 和有效期的待签文件，再在笔记本签名。"}
+                    for decision in decisions]
+                try:
+                    from alphasieve.approvals import preview_challenge
+                    for signing in item["signing"]:
+                        preview = preview_challenge(conn, settings, kind, row[id_col], signing["decision"])
+                        if preview:
+                            signing.update(preview)
+                except ImportError:
+                    pass
+                items.append(item)
+        for row in conn.execute("SELECT request_id, campaign_id, kind, content, created_at FROM agent_requests"
+                                " WHERE status = 'open' ORDER BY created_at DESC"):
+            items.append({"id": row["request_id"], "kind": "agent_request", "title": "待回复的 agent 请求",
+                          "target": row["campaign_id"], "detail": row["content"], "created_at": row["created_at"]})
+        for table, kind, id_col in (("strategy_holdout_requests", "strategy_holdout", "request_id"),
+                                    ("holdout_requests", "factor_holdout", "request_id")):
+            for row in conn.execute(f"SELECT {id_col}, status, decided_at FROM {table}"
+                                    " WHERE status IN ('approved', 'rejected') ORDER BY decided_at DESC LIMIT 10"):
+                signed = conn.execute("SELECT 1 FROM signed_approval_outcomes AS o"
+                                      " JOIN signed_approvals AS a ON a.nonce = o.nonce"
+                                      " WHERE a.kind = ? AND a.target_id = ? LIMIT 1",
+                                      (kind, row[id_col])).fetchone()
+                history.append({"id": row[id_col], "kind": kind, "status": row["status"],
+                                "decided_at": row["decided_at"],
+                                "signature_status": "已签名" if signed else "签名机制上线前"})
+        for row in conn.execute("SELECT decision_id, object_id, decision, decided_at FROM decisions"
+                                " WHERE object_type = 'review_packet' ORDER BY decided_at DESC LIMIT 10"):
+            signed = conn.execute("SELECT 1 FROM signed_approval_outcomes WHERE decision_id = ? LIMIT 1",
+                                  (row["decision_id"],)).fetchone()
+            history.append({"id": row["decision_id"], "kind": "review", "status": row["decision"],
+                            "decided_at": row["decided_at"],
+                            "signature_status": "已签名" if signed else "签名机制上线前"})
+        from alphasieve.training.mandates import STRATEGY_TRIAL_BUDGET
+        for mandate, budget in STRATEGY_TRIAL_BUDGET.items():
+            used = conn.execute("SELECT COUNT(DISTINCT trial_id) FROM trials WHERE layer = 'strategy'"
+                                " AND scope = ? AND record_kind = 'started' AND evidence_tier = 'dev'",
+                                (mandate,)).fetchone()[0]
+            if used >= budget:
+                items.append({"id": f"budget-{mandate}", "kind": "budget", "title": "策略预算已耗尽",
+                              "target": mandate, "detail": f"{used} / {budget} 次", "created_at": None})
+        backups = list_backups(settings.backups_dir)
+        latest = None
+        if backups:
+            try:
+                latest = datetime.strptime(backups[-1].stem.removeprefix("alphasieve-"), "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC)
+            except ValueError:
+                pass
+        if latest is None or datetime.now(UTC) - latest > timedelta(hours=24):
+            items.append({"id": "backup-stale", "kind": "stale", "title": "状态库备份过旧",
+                          "target": "状态库", "detail": latest.isoformat() if latest else "暂无备份", "created_at": None})
+        daily = _last_daily_update()
+        lag, _ = _trade_days_lag(settings, daily.get("end") if daily else None)
+        if lag is None or lag > 3:
+            items.append({"id": "data-stale", "kind": "stale", "title": "数据日更过旧",
+                          "target": "交易数据", "detail": f"落后 {lag} 个交易日" if lag is not None else "暂无有效日更", "created_at": None})
+        return {"items": items, "history": sorted(history, key=lambda x: x["decided_at"] or "", reverse=True)[:15],
+                "decisions": _pending_decisions(settings)}
+
+    @app.get("/api/progress")
+    def progress(user: str = Depends(auth), conn=Depends(db)):
+        from alphasieve.training.mandates import STRATEGY_TRIAL_BUDGET
+        now = datetime.now(UTC)
+        windows = {}
+        for days in (7, 30):
+            cutoff = (now - timedelta(days=days)).isoformat()
+            rows = conn.execute("SELECT trial_id, layer, scope, campaign_id, record_kind, outcome,"
+                                " gate_results_json, metrics_json FROM trials WHERE evidence_tier = 'dev'"
+                                " AND created_at >= ? AND record_kind != 'void' ORDER BY seq", (cutoff,)).fetchall()
+            groups = {}
+            for row in rows:
+                key = row["scope"] if row["layer"] == "strategy" else row["campaign_id"] or "未归属研究"
+                group = groups.setdefault((row["layer"], key), {"layer": row["layer"], "name": key,
+                                 "trials": set(), "passed": 0, "failed": 0, "failure_reasons": {}})
+                if row["record_kind"] == "started":
+                    group["trials"].add(row["trial_id"])
+                elif row["record_kind"] in ("completed", "failed"):
+                    outcome = row["outcome"] or row["record_kind"]
+                    passed = "pass" in outcome and "fail" not in outcome
+                    group["passed" if passed else "failed"] += 1
+                    if not passed:
+                        gates = _loads(row["gate_results_json"], {})
+                        reasons = [str(k) for k, v in gates.items() if isinstance(v, dict) and v.get("passed") is False]
+                        reason = reasons[0] if reasons else outcome
+                        group["failure_reasons"][reason] = group["failure_reasons"].get(reason, 0) + 1
+            windows[str(days)] = [{**g, "trials": len(g["trials"])} for g in groups.values()]
+        mandates = []
+        for mandate, budget in STRATEGY_TRIAL_BUDGET.items():
+            used = conn.execute("SELECT COUNT(DISTINCT trial_id) FROM trials WHERE layer='strategy' AND scope=?"
+                                " AND record_kind='started' AND evidence_tier='dev'", (mandate,)).fetchone()[0]
+            best = None
+            for row in conn.execute("SELECT trial_id, metrics_json FROM trials WHERE layer='strategy' AND scope=?"
+                                    " AND record_kind='completed' AND evidence_tier='dev' ORDER BY seq DESC", (mandate,)):
+                metrics = _loads(row["metrics_json"], {})
+                value = metrics.get("information_ratio", metrics.get("sharpe"))
+                if isinstance(value, (int, float)) and (best is None or value > best["value"]):
+                    best = {"trial_id": row["trial_id"], "value": value}
+            mandates.append({"mandate": mandate, "used": used, "budget": budget,
+                             "remaining": max(0, budget-used), "best_dev": best})
+        return {"windows": windows, "mandates": mandates, "latest_decisions": _recent_decisions(settings),
+                "next_steps": [d for d in _pending_decisions(settings) if d.get("status") == "open"]}
 
     def _last_daily_update() -> dict | None:
         log = settings.hot_root / "logs" / "daily-update.jsonl"
@@ -488,6 +635,15 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
         path = settings.reports_dir / campaign_id / "status.md"
         if not path.exists():
             raise HTTPException(404, "no report yet")
+        return path.read_text(encoding="utf-8")
+
+    @app.get("/api/docs/{name}", response_class=PlainTextResponse)
+    def decision_doc(name: str, user: str = Depends(auth)):
+        if not re.fullmatch(r"(?:06-interfaces|10-decisions|17-data-vendors|23-forward-paper|24-mandate-campaigns|25-risk-model)\.md", name):
+            raise HTTPException(404, "document not found")
+        path = Path(__file__).resolve().parents[3] / "docs" / name
+        if not path.is_file():
+            raise HTTPException(404, "document not found")
         return path.read_text(encoding="utf-8")
 
     if DIST.exists():

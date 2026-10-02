@@ -73,10 +73,37 @@ def test_web_status_reports_read_only_counts_and_backup_metadata(panel_settings)
     assert status["trade_calendar_source"] == "weekday"
     assert status["latest_backup"] == {"created_at": "2026-01-02T03:04:05+00:00",
                                        "size_bytes": len(b"synthetic backup"), "ledger_rows": 7}
+    assert status["approval_fingerprints"] == []
     assert status["inbox"] == {"open_requests": 0, "request_campaigns": [],
                                 "pending_factor_holdout": 0, "factor_holdout_campaigns": [],
                                 "pending_strategy_holdout": 1, "open_reviews": 0, "review_campaigns": []}
     assert "/private/path" not in json.dumps(status)
+
+
+def test_inbox_and_progress_are_read_only_and_hide_restricted_trials(panel_settings):
+    conn = connect(panel_settings.state_db)
+    conn.execute("INSERT INTO strategy_holdout_requests (request_id, mandate, task_id, trial_id, config_hash,"
+                 " status, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                 ("req-inbox", "A", "task", "S-000000000001", "hash", "pending", "human", "2026-10-02"))
+    conn.execute("INSERT INTO strategy_holdout_requests (request_id, mandate, task_id, trial_id, config_hash,"
+                 " status, created_by, created_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                 ("req-old", "A", "task", "S-000000000002", "hash", "approved", "human", "2026-09-01", "2026-09-02"))
+    append_trial(conn, TrialLedgerEntry(trial_id="S-000000000001-H", record_kind="started", layer="strategy",
+                                        scope="A", evidence_tier="holdout", created_by="human"))
+    conn.close()
+    client = TestClient(create_app(panel_settings, require_auth=False))
+    inbox = client.get("/api/inbox").json()
+    assert any(i["id"] == "req-inbox" for i in inbox["items"])
+    assert next(h for h in inbox["history"] if h["id"] == "req-old")["signature_status"] == "签名机制上线前"
+    assert len([d for d in inbox["decisions"] if d["status"] == "open"]) >= 9
+    assert "S-000000000001-H" not in json.dumps(inbox)
+    assert "ssh-keygen" not in json.dumps(inbox)
+    assert client.post("/api/inbox").status_code == 405
+    progress = client.get("/api/progress").json()
+    assert set(progress["windows"]) == {"7", "30"}
+    assert "S-000000000001-H" not in json.dumps(progress)
+    assert client.get("/api/docs/23-forward-paper.md").status_code == 200
+    assert client.get("/api/docs/invalid.md").status_code == 404
 
 
 def test_trade_lag_uses_exchange_calendar_when_available(panel_settings):

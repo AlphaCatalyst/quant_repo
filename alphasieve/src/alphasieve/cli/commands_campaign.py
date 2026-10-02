@@ -4,6 +4,7 @@ from pathlib import Path
 import yaml
 from pydantic import ValidationError
 
+from alphasieve.approvals import consume_signature
 from alphasieve.campaigns import lifecycle, memory, service, stats
 from alphasieve.cli.registry import CommandResult, command
 from alphasieve.contracts import Campaign
@@ -193,10 +194,12 @@ def _configure_respond(p):
     p.add_argument("request_id")
     p.add_argument("--decision", required=True, choices=["approved", "rejected", "answered"])
     p.add_argument("--response", required=True)
+    p.add_argument("--signature")
 
 
 @command("request respond", HUMAN, configure=_configure_respond, help="answer an agent request")
 def cmd_request_respond(args, ctx) -> CommandResult:
+    consume_signature(ctx.conn, ctx.settings, "request", args.request_id, args.decision, args.signature)
     return CommandResult(data=service.respond_request(ctx.conn, ctx.settings, args.request_id, args.decision,
                                                       args.response))
 
@@ -223,16 +226,19 @@ def cmd_holdout_list(args, ctx) -> CommandResult:
 def _configure_holdout_decide(p):
     p.add_argument("request_id")
     p.add_argument("--reason", required=True)
+    p.add_argument("--signature")
 
 
 @command("holdout approve", HUMAN, configure=_configure_holdout_decide, needs_store=True,
          help="approve one holdout read for a locked shortlist (human only)")
 def cmd_holdout_approve(args, ctx) -> CommandResult:
+    consume_signature(ctx.conn, ctx.settings, "factor_holdout", args.request_id, "approve", args.signature)
     return CommandResult(data=lifecycle.approve_holdout(ctx.conn, ctx.settings, args.request_id, args.reason))
 
 
 @command("holdout reject", HUMAN, configure=_configure_holdout_decide, help="reject a holdout request")
 def cmd_holdout_reject(args, ctx) -> CommandResult:
+    consume_signature(ctx.conn, ctx.settings, "factor_holdout", args.request_id, "reject", args.signature)
     return CommandResult(data=lifecycle.reject_holdout(ctx.conn, ctx.settings, args.request_id, args.reason))
 
 
@@ -259,11 +265,13 @@ def _configure_review_decide(p):
     p.add_argument("packet_id")
     p.add_argument("--decision", required=True, choices=sorted(lifecycle.REVIEW_DECISIONS))
     p.add_argument("--reason", required=True)
+    p.add_argument("--signature")
 
 
 @command("review decide", HUMAN, configure=_configure_review_decide, needs_store=True,
          help="record a review decision (human only)")
 def cmd_review_decide(args, ctx) -> CommandResult:
+    consume_signature(ctx.conn, ctx.settings, "review", args.packet_id, args.decision, args.signature)
     return CommandResult(data=lifecycle.decide_review(ctx.conn, ctx.settings, args.packet_id, args.decision,
                                                       args.reason))
 

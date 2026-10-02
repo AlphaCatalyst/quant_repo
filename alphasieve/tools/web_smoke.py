@@ -16,7 +16,7 @@ def check(page):
       for (const card of document.querySelectorAll('.card')) {
         const r = card.getBoundingClientRect();
         if (r.width < 100 || r.height < 150) continue;
-        const nodes = [...card.querySelectorAll('h3,h4,p,li,pre,td,th,canvas,svg,.stat,.progress,.empty,.bar-row')]
+        const nodes = [...card.querySelectorAll('h3,h4,p,li,pre,td,th,canvas,svg,details,a,.inbox-item,.stat,.progress,.empty,.bar-row')]
           .map(x => x.getBoundingClientRect()).filter(x => x.height > 0 && x.width > 0 && x.left < r.right && x.right > r.left);
         if (nodes.length) {
           const end = Math.max(...nodes.map(x => Math.min(x.bottom, r.bottom)));
@@ -67,7 +67,7 @@ def main():
         page.goto(args.url + '/#/')
         page.wait_for_selector('.card', timeout=30000)
         campaign = page.locator('a[href^="#/campaign/"]').first.get_attribute('href')
-        routes = {'overview': '#/', 'mandates': '#/mandates',
+        routes = {'overview': '#/', 'inbox': '#/inbox', 'mandates': '#/mandates',
                   'mandates-list': '#/mandates?view=list', 'mandates-holdout': '#/mandates?view=holdout',
                   'strategy': strategy,
                   'compare': compare,

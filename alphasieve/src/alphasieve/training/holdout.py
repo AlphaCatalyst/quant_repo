@@ -62,10 +62,15 @@ def _request(conn: sqlite3.Connection, request_id: str) -> dict:
 
 
 def _decision(conn: sqlite3.Connection, settings: Settings, request_id: str, decision: str, reason: str) -> None:
+    from alphasieve.approvals import record_applied
+
+    decision_id = f"D-{uuid.uuid4().hex[:10]}"
     conn.execute("INSERT INTO decisions (decision_id, object_type, object_id, decision, reason, decided_by,"
                  " decided_at, evidence_hash) VALUES (?, 'strategy_holdout_request', ?, ?, ?, ?, ?, ?)",
-                 (f"D-{uuid.uuid4().hex[:10]}", request_id, decision, reason, settings.user, utcnow_iso(),
+                 (decision_id, request_id, decision, reason, settings.user, utcnow_iso(),
                   sha256_hex(request_id + decision + reason)))
+    record_applied(conn, "strategy_holdout", request_id,
+                   {"approved": "approve", "rejected": "reject"}[decision], decision_id)
 
 
 def approve_read(conn: sqlite3.Connection, settings: Settings, request_id: str, reason: str, processes=None) -> dict:

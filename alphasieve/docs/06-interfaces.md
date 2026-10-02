@@ -73,13 +73,21 @@ AlphaSieve 有两个入口：JSON CLI（agent 与人共用）和 HTTP API（前�
 | `directive add <campaign_id> --kind ... --text ...` | H | 给 agent 下指令 |
 | `shortlist lock <campaign_id>` | H S | 锁定 shortlist 并冻结记忆 |
 | `holdout request <shortlist_id>` | S H | 提交 holdout 申请 |
-| `holdout approve\|reject <request_id> --reason ...` | H | 审批 |
+| `holdout approve\|reject <request_id> --reason ... --signature <file>` | H | 签名审批 |
 | `review show <packet_id>` | H | 查看 Review Packet |
-| `review decide <packet_id> --decision ... --reason ...` | H | 评审决定 |
+| `review decide <packet_id> --decision ... --reason ... --signature <file>` | H | 签名评审决定 |
 | `strategy backtest <strategy.yaml>` | H | 策略回测（M6） |
 | `fresh status [--cohort ...]` | H | 前瞻观察状态 |
 | `job status <job_id>` | A H S | 任务状态 |
 | `agent run --campaign <id> --once` | H S | 手动触发一个 turn（调试用） |
+
+### 1.5 人工决定的 SSH 签名
+
+一次性设置：human 在自己的笔记本上生成或选用 SSH ed25519 密钥，只把公钥提供给 agent。agent 将 `human ssh-ed25519 AAAA...` 登记到 git 跟踪的 `src/alphasieve/configs/approvers/allowed_signers`。私钥始终留在笔记本。`approvals.yaml` 的 `approvals.require_signature` 默认是 `true`；未登记公钥时审批明确失败。更换密钥时保留旧公钥，供历史记录复核。
+
+每次决定：先运行 `alphasieve approval challenge <kind> <target_id> --decision <decision>`，得到规范化内容文件和 30 分钟有效期。`kind` 为 `strategy_holdout`、`factor_holdout`、`review`、`request`；前两者的决定是 `approve` / `reject`，review 为 `approved_for_shadow` / `needs_repair` / `rejected`，request 为 `approved` / `rejected` / `answered`。内容包含目标、决定、当前证据摘要的哈希和随机 nonce。把文件内容贴到 human 笔记本并保存为同名文件，在笔记本运行 `ssh-keygen -Y sign -n alphasieve-approval -f <私钥路径> <内容文件>`。只把生成的 `.sig` 文本贴回给 agent；agent 将其保存为文件，执行相应命令并传 `--signature <签名文件>`。签名只对原内容有效，审批时会重新核对当前证据、有效期和 nonce。签名文件、待签内容与当时证据快照均留在状态库，`ledger verify` 和状态库备份会重新验签及核对快照哈希。
+
+签名覆盖决定、目标和当时的证据摘要；`--reason` 与请求回复文本不在签名内容中，属于执行记录。签名验证后先记签名尝试，决定落库时再关联决定记录；后续执行失败的签名尝试保留供审计，不代表批准成功。签名机制可独立核对 human 是否签署过该决定，但 root 若改写状态库、代码或删除末尾记录，单靠本机哈希链无法证明记录完整；应保留外部备份和签名原文。历史无签名记录仍有效，界面标注“签名机制上线前”。`train abandon`、campaign 状态切换等操作不属于此审批流程。
 
 ## 2. HTTP API
 

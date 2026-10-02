@@ -8,6 +8,7 @@ import { Factor, Factors } from "./pages/Factors";
 import { Data, Ledger } from "./pages/Ledger";
 import { Mandates, Strategy } from "./pages/Mandates";
 import Compare from "./pages/Compare";
+import Inbox from "./pages/Inbox";
 import { Glossary } from "./components";
 
 function useHashPath(): string {
@@ -25,6 +26,7 @@ function useHashPath(): string {
 
 const NAV: [string, string][] = [
   ["/", "总览"],
+  ["/inbox", "待你决定"],
   ["/mandates", "策略"],
   ["/factors", "因子"],
   ["/ledger", "试验记录"],
@@ -91,6 +93,7 @@ function App() {
   else if (parts[0] === "factors") page = <Factors />;
   else if (parts[0] === "ledger") page = <Ledger />;
   else if (parts[0] === "data") page = <Data />;
+  else if (parts[0] === "inbox") page = <Inbox />;
   else page = <Overview />;
   const active = "/" + (parts[0] === "campaign" ? "" : parts[0] === "factor" ? "factors"
     : parts[0] === "strategy" || parts[0] === "compare" ? "mandates" : parts[0] ?? "");

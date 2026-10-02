@@ -1,0 +1,118 @@
+decisions:
+  - id: forward-q8
+    title: paper 资金与基准
+    question: 是否为 A 的 paper 追踪固定 5 亿元人民币、初始 NAV=1，并采用 CSI 500 PIT 成员的前日流通市值加权后复权全收益代理？
+    evidence: docs/23-forward-paper.md#6-人工待决问题每项含推荐默认
+    options:
+      - name: 按推荐方案冻结
+        consequence: 规模同时用于参与率与冲击；价格指数及与代理的差异单列，官方全收益指数可得时另开 cohort。
+      - name: 暂缓
+        consequence: 不登记依赖资金与基准的正式 paper cohort。
+    recommendation: 按推荐方案冻结；不扫描 1 亿或 20 亿元规模。
+    status: open
+    decision: null
+    decided_at: null
+  - id: forward-shadow
+    title: 首批对象与诊断 shadow
+    question: 策略链路完成后，是否登记 A v4 的单一 diagnostic shadow？
+    evidence: docs/23-forward-paper.md#6-人工待决问题每项含推荐默认
+    options:
+      - name: 链路完成后由 human 登记
+        consequence: 允许未通过 dev/holdout 的 A v4 仅作诊断，不产生晋升资格；正式因子 cohort 仅取 review 批准成员。
+      - name: 暂缓
+        consequence: 不启动首批 shadow。
+    recommendation: 先完成策略链路，再由 human 决定是否登记。
+    status: open
+    decision: null
+    decided_at: null
+  - id: forward-refit
+    title: 部署重拟合历史用途
+    question: 是否批准 system 在本机按固定参数和成熟标签作 operational_refit 例外？
+    evidence: docs/23-forward-paper.md#6-人工待决问题每项含推荐默认
+    options:
+      - name: 批准限定例外
+        consequence: 沿用滚动 5 年与月度重训，单独记录用途，不作年度选参。
+      - name: 暂缓
+        consequence: 未决定前不开始真实 forward。
+    recommendation: 批准仅 system、本机、固定参数、成熟标签的限定例外。
+    status: open
+    decision: null
+    decided_at: null
+  - id: forward-policy
+    title: 前向统计期与 policy
+    question: 是否在注册前冻结因子 60 个成熟有效日、A 策略 120 个有效收益日及统计门槛？
+    evidence: docs/23-forward-paper.md#6-人工待决问题每项含推荐默认
+    options:
+      - name: 冻结推荐 policy
+        consequence: 覆盖率至少 95%、HAC p≤0.05、BH q=0.10，采用三态结论；证据不足后不自动延长。
+      - name: 暂缓
+        consequence: 不注册依赖该 policy 的正式 cohort。
+    recommendation: 注册前批准并冻结推荐 policy，开组后不改。
+    status: open
+    decision: null
+    decided_at: null
+  - id: forward-privacy
+    title: 前向隐私与运行额度
+    question: 是否按隔离用户或容器、Web 认证和固定资源上限部署 fresh 追踪？
+    evidence: docs/23-forward-paper.md#6-人工待决问题每项含推荐默认
+    options:
+      - name: 采用推荐边界
+        consequence: 最多 2 worker、每个 8 线程/32 GiB，单次重训 2 小时、日任务 4 小时；连续缺口 2 日暂停，超时不补目标。
+      - name: 暂缓
+        consequence: 不开始真实 forward 部署。
+    recommendation: 独立 system 用户或容器，Web 强制认证；先保证只追加和可复现。
+    status: open
+    decision: null
+    decided_at: null
+  - id: mandate-factor-budget
+    title: mandate 化因子入模预算
+    question: 何时为已锁定的因子批次分配新的 A strategy trial 名额？
+    evidence: docs/24-mandate-campaigns.md#6-人工待决定的问题
+    options:
+      - name: 现在为 0
+        consequence: 只能锁定批次，工程完成后由 human 为一批另批 1 个新名额并登记用途。
+      - name: 现在新增预算
+        consequence: 需人工明确名额与用途；不得挪用 docs/22 的两个成本试验名额。
+    recommendation: 现在为 0；工程完成后再由 human 决定。
+    status: open
+    decision: null
+    decided_at: null
+  - id: risk-v1
+    title: 风险模型 v1
+    question: 是否实施组合层风险模型 v1 的报告与实际持仓闭环设计？
+    evidence: docs/25-risk-model.md#6-人工待决定问题
+    options:
+      - name: 先实现报告与合成验收
+        consequence: 非 PIT 行业只作带警告的 provisional dev 报告；固定暴露、协方差和 bias 口径；暂缓 QP、硬 TE 与真实 trial。
+      - name: 暂缓工程
+        consequence: 保留当前组合约束与报告能力，不新增风险模型路径。
+    recommendation: 先按文档固定口径实现报告和合成验收；真实试验、预算、约束另行批准。
+    status: open
+    decision: null
+    decided_at: null
+  - id: paid-data
+    title: 数据源付费升级
+    question: 是否付费升级数据源，以及优先补齐哪些字段和历史口径？
+    evidence: docs/17-data-vendors.md
+    options:
+      - name: 待调研
+        consequence: 先核对字段、PIT 历史、授权范围、费用和替代方案。
+      - name: 暂缓升级
+        consequence: 继续使用现有数据；严格 PIT 风险模型需等合格行业源。
+    recommendation: 待调研。
+    status: open
+    decision: null
+    decided_at: null
+  - id: approval-key
+    title: 登记审批签名公钥
+    question: human 是否提供笔记本 SSH 公钥，以启用每次审批的独立签名复核？
+    evidence: docs/06-interfaces.md
+    options:
+      - name: 登记公钥
+        consequence: human 在笔记本用私钥签名；审批记录可独立验签。
+      - name: 暂缓
+        consequence: 默认签名必需时，新的人工审批无法完成。
+    recommendation: human 登记用于审批的公钥；私钥留在笔记本。
+    status: open
+    decision: null
+    decided_at: null

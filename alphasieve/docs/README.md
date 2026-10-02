@@ -28,6 +28,9 @@
 | [20-training-round2.md](20-training-round2.md) | 第二轮训练任务：C 事件分数接入 A、因子库扩充、ETF 行业映射轮动、真实期货与基差对冲 |
 | [21-a-portfolio.md](21-a-portfolio.md) | A 的组合构建：冻结 v4 分数、成本与容量诊断、四个预注册配置、N≤13 预算和停止规则 |
 | [22-a-cost-aware.md](22-a-cost-aware.md) | A 的成本感知续研：因果收益尺度与 20 亿冲击定价、两个固定配置、N≤15 预算和停止规则 |
+| [23-forward-paper.md](23-forward-paper.md) | 前瞻验证与 paper 追踪设计：只追加的 fresh 日分区、锁定模型的前向重拟合、观察账簿、统计判定与人工审批 |
+| [24-mandate-campaigns.md](24-mandate-campaigns.md) | 从属于 mandate 的因子 campaign 设计：冻结 A 基线、对齐 A 的 ridge 边际贡献、5 个一批进入 A 的规则 |
+| [25-risk-model.md](25-risk-model.md) | 组合层风险模型 v1 设计：六个风格暴露、固定参数因子协方差与事前 TE 校验、实际持仓闭环；暂不引入 QP |
 | [acceptance-training.md](acceptance-training.md) | 训练任务与四个 mandate 的 dev 验收记录：结果、作废的 trial、平台实测、阻塞项 |
 | [acceptance-m0-m2.md](acceptance-m0-m2.md) | M0–M2 验收记录：真实数据同步结果、测试、端到端评估、gate 校准 |
 | [acceptance-scaling.md](acceptance-scaling.md) | 扩容 S-1 至 S-7 验收记录：评估性能、常驻服务、程序化搜索、策略回测、全 A 与事件、日内数据 |

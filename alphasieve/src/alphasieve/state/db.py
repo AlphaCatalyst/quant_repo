@@ -226,6 +226,9 @@ MIGRATIONS: list[str] = [
     BEGIN SELECT RAISE(ABORT, 'signed approvals are append-only'); END;
     CREATE TRIGGER signed_approvals_no_delete BEFORE DELETE ON signed_approvals
     BEGIN SELECT RAISE(ABORT, 'signed approvals are append-only'); END;
+    CREATE TABLE signed_approval_outcomes (
+        nonce TEXT PRIMARY KEY, decision_id TEXT, applied_at TEXT NOT NULL
+    );
     """,
 ]
 

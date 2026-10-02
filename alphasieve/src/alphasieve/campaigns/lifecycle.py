@@ -237,12 +237,19 @@ def create_review_packet(conn: sqlite3.Connection, settings: Settings, result: d
 
 
 def _decision(conn, settings, object_type, object_id, decision, reason, evidence_hash) -> str:
+    from alphasieve.approvals import record_applied
+
     decision_id = f"DEC-{uuid.uuid4().hex[:10]}"
     conn.execute("INSERT INTO decisions (decision_id, object_type, object_id, decision, reason, decided_by, decided_at,"
                  " evidence_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                  (decision_id, object_type, object_id, decision, reason, settings.user, utcnow_iso(), evidence_hash))
     record_event(conn, settings, "decision.recorded", object_type=object_type, object_id=object_id,
                  payload={"decision_id": decision_id, "decision": decision})
+    kind = {"holdout_request": "factor_holdout", "review_packet": "review"}.get(object_type)
+    if kind:
+        signed_decision = ({"approved": "approve", "rejected": "reject"}.get(decision, decision)
+                           if kind == "factor_holdout" else decision)
+        record_applied(conn, kind, object_id, signed_decision, decision_id)
     return decision_id
 
 

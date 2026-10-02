@@ -206,6 +206,8 @@ def create_request(conn: sqlite3.Connection, settings: Settings, campaign_id: st
 
 def respond_request(conn: sqlite3.Connection, settings: Settings, request_id: str, decision: str,
                     response: str) -> dict:
+    from alphasieve.approvals import record_applied
+
     row = conn.execute("SELECT * FROM agent_requests WHERE request_id = ?", (request_id,)).fetchone()
     if row is None:
         raise not_found(f"request {request_id} not found")
@@ -218,4 +220,5 @@ def respond_request(conn: sqlite3.Connection, settings: Settings, request_id: st
     add_directive(conn, settings, row["campaign_id"], "answer", f"[{request_id} {decision}] {response}")
     record_event(conn, settings, "inbox.resolved", object_type="agent_request", object_id=request_id,
                  payload={"decision": decision})
+    record_applied(conn, "request", request_id, decision)
     return {"request_id": request_id, "status": decision}

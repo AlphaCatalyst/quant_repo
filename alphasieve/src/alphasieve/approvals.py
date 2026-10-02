@@ -260,6 +260,21 @@ def consume_signature(
     raise AlphaSieveError("PERMISSION_DENIED", "signature invalid, expired, replayed, or evidence changed")
 
 
+def record_applied(
+    conn: sqlite3.Connection, kind: str, target_id: str, decision: str, decision_id: str | None = None
+) -> None:
+    row = conn.execute(
+        "SELECT nonce FROM signed_approvals WHERE kind = ? AND target_id = ? AND decision = ?"
+        " ORDER BY seq DESC LIMIT 1",
+        (kind, target_id, decision),
+    ).fetchone()
+    if row is not None:
+        conn.execute(
+            "INSERT INTO signed_approval_outcomes (nonce, decision_id, applied_at) VALUES (?, ?, ?)",
+            (row["nonce"], decision_id, datetime.now(UTC).isoformat()),
+        )
+
+
 def verify_records(conn: sqlite3.Connection, settings: Settings) -> list[dict]:
     errors = []
     previous = "0" * 64
@@ -301,5 +316,33 @@ def verify_records(conn: sqlite3.Connection, settings: Settings) -> list[dict]:
             errors.append({"approval_seq": data["seq"], "error": "trial head missing"})
         if data["kind"] not in KINDS:
             errors.append({"approval_seq": data["seq"], "error": "unknown approval kind"})
+        outcome = conn.execute(
+            "SELECT decision_id FROM signed_approval_outcomes WHERE nonce = ?", (data["nonce"],)
+        ).fetchone()
+        if outcome is not None:
+            if data["kind"] == "request":
+                request = conn.execute(
+                    "SELECT status FROM agent_requests WHERE request_id = ?", (data["target_id"],)
+                ).fetchone()
+                if request is None or request["status"] != data["decision"]:
+                    errors.append({"approval_seq": data["seq"], "error": "applied request mismatch"})
+            else:
+                expected_type = {
+                    "strategy_holdout": "strategy_holdout_request",
+                    "factor_holdout": "holdout_request",
+                    "review": "review_packet",
+                }.get(data["kind"])
+                expected_decision = (
+                    {"approve": "approved", "reject": "rejected"}.get(data["decision"], data["decision"])
+                    if data["kind"] != "review"
+                    else data["decision"]
+                )
+                linked = conn.execute(
+                    "SELECT 1 FROM decisions WHERE decision_id = ? AND object_type = ?"
+                    " AND object_id = ? AND decision = ?",
+                    (outcome["decision_id"], expected_type, data["target_id"], expected_decision),
+                ).fetchone()
+                if linked is None:
+                    errors.append({"approval_seq": data["seq"], "error": "applied decision mismatch"})
         previous = data["hash"]
     return errors

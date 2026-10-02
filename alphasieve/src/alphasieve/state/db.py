@@ -343,6 +343,16 @@ MIGRATIONS: list[str] = [
     CREATE TRIGGER forward_ledger_no_delete BEFORE DELETE ON forward_ledger
     BEGIN SELECT RAISE(ABORT,'forward_ledger is append-only'); END;
     """,
+    """
+    CREATE TABLE forward_approval_requests (
+        request_id TEXT PRIMARY KEY, config_json TEXT NOT NULL, eligibility_hash TEXT,
+        policy_hash TEXT NOT NULL, source_hash TEXT NOT NULL, created_at TEXT NOT NULL
+    );
+    CREATE TRIGGER forward_approval_requests_no_update BEFORE UPDATE ON forward_approval_requests
+    BEGIN SELECT RAISE(ABORT,'forward_approval_requests is append-only'); END;
+    CREATE TRIGGER forward_approval_requests_no_delete BEFORE DELETE ON forward_approval_requests
+    BEGIN SELECT RAISE(ABORT,'forward_approval_requests is append-only'); END;
+    """,
 ]
 
 

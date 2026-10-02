@@ -7,7 +7,7 @@ import pytest
 from alphasieve.config import Settings
 from alphasieve.data import fresh
 from alphasieve.data.access import load_panel
-from alphasieve.data.fresh import append_day, load_asof
+from alphasieve.data.fresh import append_day, load_asof, seal_raw_inputs
 from alphasieve.data.panel import build_panel
 from alphasieve.errors import AlphaSieveError
 from alphasieve.state import connect
@@ -104,3 +104,30 @@ def test_fresh_recovers_same_input_after_file_commit(settings, monkeypatch):
                       cutoff=f"{day}T18:30:00+08:00", raw_snapshot_hash="a" * 64,
                       calendar=[day])["date"] == day
     conn.close()
+
+
+def test_raw_pit_snapshot_late_revision_holiday_and_conflict(settings, tmp_path):
+    system = _system(settings)
+    source = tmp_path / 'raw.parquet'
+    day = '2022-01-03'
+    cutoff = f'{day}T18:30:00+08:00'
+    rows = pd.DataFrame([
+        {'event_date': '2022-01-01', 'observed_at': '2022-01-01T18:00:00+08:00', 'code': 'A', 'close': 8.0},
+        {'event_date': day, 'observed_at': f'{day}T17:00:00+08:00', 'code': 'A', 'close': 10.0},
+        {'event_date': day, 'observed_at': f'{day}T20:00:00+08:00', 'code': 'A', 'close': 11.0},
+        {'event_date': '2022-01-04', 'observed_at': '2022-01-04T17:00:00+08:00', 'code': 'A', 'close': 12.0},
+    ])
+    rows.to_parquet(source, index=False)
+    frames, evidence = seal_raw_inputs(system, day, cutoff, {'panel': source})
+    assert frames['panel']['close'].tolist() == [8.0, 10.0]
+    saved = pd.read_parquet(evidence['panel']['snapshot'])
+    rows.loc[1, 'close'] = 99.0
+    rows.to_parquet(source, index=False)
+    assert pd.read_parquet(evidence['panel']['snapshot']).equals(saved)
+    again, changed = seal_raw_inputs(system, day, cutoff, {'panel': source})
+    assert again['panel']['close'].tolist() == [8.0, 99.0]
+    assert changed['panel']['sha256'] != evidence['panel']['sha256']
+    conflict = pd.concat([rows, rows.iloc[[1]].assign(close=13.0)], ignore_index=True)
+    conflict.to_parquet(source, index=False)
+    with pytest.raises(AlphaSieveError, match='conflicting duplicate'):
+        seal_raw_inputs(system, day, cutoff, {'panel': source})

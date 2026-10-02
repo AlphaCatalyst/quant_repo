@@ -6,7 +6,9 @@ import os
 import re
 import sqlite3
 import tempfile
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -22,6 +24,95 @@ def _digest(value: dict) -> str:
 
 def _day_path(settings: Settings, universe: str, asof: str) -> Path:
     return settings.panel_dir("fresh", universe) / "days" / asof
+
+
+def seal_raw_inputs(settings: Settings, asof: str, cutoff: str, sources: dict[str, Path]) -> tuple[dict, dict]:
+    """Read only eligible raw rows, then freeze those rows before any panel conversion.
+
+    Sources are staged PIT parquet tables with ``event_date`` and ``observed_at``.
+    A legacy raw file lacking either field is refused rather than assigned a guessed time.
+    """
+    if settings.role != "system":
+        raise permission_denied("only system may seal fresh raw inputs")
+    import pyarrow as pa
+    import pyarrow.dataset as ds
+
+    cutoff_ts = pd.Timestamp(cutoff)
+    if cutoff_ts.tzinfo is None:
+        raise validation_error("fresh cutoff must include timezone")
+    snapshot_root = settings.hot_root / "fresh_raw_snapshots"
+    snapshot_root.mkdir(parents=True, exist_ok=True)
+    os.chmod(snapshot_root, 0o700)
+    frames, evidence = {}, {}
+    for kind, path in sorted(sources.items()):
+        source = ds.dataset(path, format="parquet")
+        schema = source.schema
+        if not {"event_date", "observed_at"}.issubset(schema.names):
+            raise validation_error(f"{kind} raw input lacks event_date/observed_at")
+        if not (pa.types.is_string(schema.field("event_date").type)
+                or pa.types.is_large_string(schema.field("event_date").type)):
+            raise validation_error(f"{kind} event_date must be ISO YYYY-MM-DD text")
+        cutoff_arrow = pa.scalar(cutoff_ts.to_pydatetime(), type=pa.timestamp("us", tz="UTC"))
+        predicate = ((ds.field("event_date") <= asof)
+                     & (ds.field("observed_at").cast(pa.timestamp("us", tz="UTC")) <= cutoff_arrow))
+        frame = source.to_table(filter=predicate).to_pandas()
+        if not frame.empty:
+            observed = pd.to_datetime(frame["observed_at"], utc=True, errors="coerce")
+            events = pd.to_datetime(frame["event_date"], errors="coerce")
+            if observed.isna().any() or events.isna().any() or \
+                    (observed > cutoff_ts.tz_convert("UTC")).any() or \
+                    (events > pd.Timestamp(asof)).any():
+                raise validation_error(f"{kind} raw input violates PIT cutoff")
+            key = ["event_date"] + (["code"] if "code" in frame else [])
+            same = key + ["observed_at"]
+            conflicts = frame[frame.duplicated(same, keep=False)]
+            if not conflicts.empty and conflicts.groupby(same, dropna=False).nunique(dropna=False).gt(1).any().any():
+                raise validation_error(f"{kind} raw has conflicting duplicate submissions")
+            frame = frame.sort_values(same, kind="stable").drop_duplicates(same)
+            frame = frame.sort_values("observed_at", kind="stable").drop_duplicates(key, keep="last")
+            frame = frame.sort_values(key, kind="stable").reset_index(drop=True)
+        with tempfile.NamedTemporaryFile(prefix=".raw-", suffix=".parquet", dir=snapshot_root, delete=False) as tmp:
+            staged = Path(tmp.name)
+        try:
+            frame.to_parquet(staged, index=False)
+            digest = file_sha256(staged)
+            target = snapshot_root / f"{digest}.parquet"
+            if target.exists():
+                if file_sha256(target) != digest:
+                    raise AlphaSieveError("CONFLICT", "raw snapshot digest mismatch")
+                staged.unlink()
+            else:
+                os.chmod(staged, 0o600)
+                os.rename(staged, target)
+        finally:
+            staged.unlink(missing_ok=True)
+        frames[kind] = frame
+        evidence[kind] = {"snapshot": str(target), "sha256": digest, "rows": len(frame),
+                          "source": str(path), "source_schema": str(schema),
+                          "event_date_max": asof, "observed_at_cutoff": cutoff_ts.isoformat()}
+    return frames, evidence
+
+
+def append_from_raw(settings: Settings, conn: sqlite3.Connection, asof: str,
+                    universe: str = "csi800") -> dict:
+    root = settings.raw_dir / "forward"
+    sources = {kind: root / f"{kind}.parquet" for kind in ("panel", "benchmark")}
+    calendar_path = root / "calendar.json"
+    if not calendar_path.is_file() or not all(path.is_file() for path in sources.values()):
+        raise validation_error("staged PIT raw sources and locked trading calendar are required")
+    now = datetime.now(ZoneInfo("Asia/Shanghai"))
+    if now.date().isoformat() != asof:
+        raise validation_error("fresh append cannot backfill an earlier trading day")
+    cutoff = now.isoformat()
+    frames, evidence = seal_raw_inputs(settings, asof, cutoff, sources)
+    today = {}
+    for kind, frame in frames.items():
+        today[kind] = frame.loc[frame["event_date"] == asof].rename(columns={"event_date": "date"}).copy()
+        today[kind]["date"] = pd.to_datetime(today[kind]["date"])
+    raw_hash = hashlib.sha256(json.dumps(evidence, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    return append_day(settings, conn, asof, universe, today["panel"], today["benchmark"], cutoff,
+                      raw_snapshot_hash=raw_hash, calendar=json.loads(calendar_path.read_text()),
+                      raw_evidence=evidence)
 
 
 def _validate_frame(frame: pd.DataFrame, asof: str, cutoff: pd.Timestamp, kind: str) -> None:
@@ -43,7 +134,7 @@ def _validate_frame(frame: pd.DataFrame, asof: str, cutoff: pd.Timestamp, kind: 
 def append_day(settings: Settings, conn: sqlite3.Connection, asof: str, universe: str = "csi800",
                panel: pd.DataFrame | None = None, benchmark: pd.DataFrame | None = None,
                cutoff: str | None = None, *, raw_snapshot_hash: str | None = None,
-               calendar: list[str] | None = None) -> dict:
+               calendar: list[str] | None = None, raw_evidence: dict | None = None) -> dict:
     """Commit a day from a sealed PIT snapshot; live raw conversion is intentionally unavailable.
 
     Both frames must have already been constructed from inputs filtered *before reading*
@@ -87,11 +178,12 @@ def append_day(settings: Settings, conn: sqlite3.Connection, asof: str, universe
                               "splits": split_hash, "universe": universe, "date": asof})
         manifest = {"tier": "fresh", "universe": universe, "date": asof,
                     "cutoff": cutoff_ts.isoformat(), "raw_snapshot_hash": raw_snapshot_hash,
+                    "raw_evidence": raw_evidence or {},
                     "splits_hash": split_hash, "input_hash": input_hash,
                     "partition_hash": panel_hash, "benchmark_hash": bench_hash,
                     "rows": len(panel), "codes": int(panel["code"].nunique()),
-                    "warnings": ["input was supplied as a sealed PIT snapshot;"
-                                 " caller must prove upstream cutoff filtering"]}
+                    "warnings": ([] if raw_evidence else [
+                        "input was supplied as a sealed PIT snapshot; caller must prove upstream cutoff filtering"])}
         conn.execute("BEGIN IMMEDIATE")
         try:
             existing = conn.execute("SELECT * FROM fresh_days WHERE universe=? AND date=?", (universe, asof)).fetchone()

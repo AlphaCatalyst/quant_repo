@@ -95,7 +95,8 @@ def test_inbox_and_progress_are_read_only_and_hide_restricted_trials(panel_setti
     inbox = client.get("/api/inbox").json()
     assert any(i["id"] == "req-inbox" for i in inbox["items"])
     assert next(h for h in inbox["history"] if h["id"] == "req-old")["signature_status"] == "签名机制上线前"
-    assert len([d for d in inbox["decisions"] if d["status"] == "open"]) >= 9
+    assert len([d for d in inbox["decisions"] if d["status"] == "open"]) >= 5
+    assert len([d for d in inbox["decisions"] if d["status"] == "decided"]) >= 5
     assert "S-000000000001-H" not in json.dumps(inbox)
     assert "ssh-keygen" not in json.dumps(inbox)
     assert client.post("/api/inbox").status_code == 405

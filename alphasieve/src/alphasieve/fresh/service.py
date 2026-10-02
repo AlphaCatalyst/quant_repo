@@ -5,6 +5,7 @@ import uuid
 
 import yaml
 
+from alphasieve.approvals import consume_signature, record_applied
 from alphasieve.config import Settings
 from alphasieve.contracts.forward import ForwardConfig
 from alphasieve.errors import AlphaSieveError, permission_denied, validation_error
@@ -72,14 +73,27 @@ def config_from_trial(conn: sqlite3.Connection, settings: Settings, trial_id: st
                          seeds=task["search"]["seeds"], horizons=horizons, primary_horizon=horizons[0],
                          train_window=task["split"]["window"], train_years=task["split"]["train_years"],
                          purge_days=task["sample"]["purge_days"], retrain=task["split"]["retrain"],
-                         benchmark=task["portfolio"].get("benchmark") or "zz500", capital=task["portfolio"]["aum"],
+                         benchmark=policy(settings)[0]["strategy_a"]["benchmark"],
+                         capital=policy(settings)[0]["strategy_a"]["capital_cny"],
                          start_date=start_date)
+
+
+def prepare_cohort(conn: sqlite3.Connection, settings: Settings, config: ForwardConfig,
+                   eligibility_hash: str | None = None) -> dict:
+    _require_human(settings)
+    _, policy_hash = policy(settings)
+    request_id = f"FR-{uuid.uuid4().hex[:12]}"
+    conn.execute("INSERT INTO forward_approval_requests VALUES (?,?,?,?,?,?)",
+                 (request_id, canonical_json(config.model_dump(mode="json")), eligibility_hash,
+                  policy_hash, config.source_hash, utcnow_iso()))
+    return {"request_id": request_id, "config_hash": config.digest, "policy_hash": policy_hash,
+            "source_hash": config.source_hash}
 
 
 def approve_cohort(conn: sqlite3.Connection, settings: Settings, config: ForwardConfig, reason: str,
                    *, approve_policy: bool, approve_operational_refit: bool,
-                   eligibility_hash: str | None = None, parent_id: str | None = None) -> dict:
-    """Single human-only approval seam; SSH signature verification can wrap this function."""
+                   eligibility_hash: str | None = None, parent_id: str | None = None,
+                   request_id: str | None = None, signature: str | None = None) -> dict:
     _require_human(settings)
     if not reason.strip() or not approve_policy or not approve_operational_refit:
         raise validation_error("human must explicitly approve policy and operational_refit with a reason")
@@ -97,6 +111,18 @@ def approve_cohort(conn: sqlite3.Connection, settings: Settings, config: Forward
     if set(config.chosen) != {str(h) for h in config.horizons}:
         raise validation_error("selected model missing for a horizon")
     pol, pol_hash = policy(settings)
+    if config.object_kind == "strategy" and config.capital != pol["strategy_a"]["capital_cny"]:
+        raise validation_error("forward capital differs from approved policy")
+    if config.object_kind == "strategy" and config.benchmark != pol["strategy_a"]["benchmark"]:
+        raise validation_error("forward benchmark differs from approved policy")
+    if request_id is None:
+        raise validation_error("fresh cohort requires a frozen approval request")
+    request = conn.execute("SELECT * FROM forward_approval_requests WHERE request_id=?", (request_id,)).fetchone()
+    if request is None or request["config_json"] != canonical_json(config.model_dump(mode="json")) or \
+            request["policy_hash"] != pol_hash or request["source_hash"] != config.source_hash or \
+            request["eligibility_hash"] != eligibility_hash:
+        raise validation_error("forward approval request does not match locked evidence")
+    consume_signature(conn, settings, "fresh_cohort", request_id, "approve", signature)
     approval_id = f"D-{uuid.uuid4().hex[:10]}"
     cohort_id = f"F-{uuid.uuid4().hex[:12]}"
     now = utcnow_iso()
@@ -106,7 +132,7 @@ def approve_cohort(conn: sqlite3.Connection, settings: Settings, config: Forward
     try:
         conn.execute("INSERT INTO decisions (decision_id,object_type,object_id,decision,reason,decided_by,"
                      "decided_at,evidence_hash) VALUES (?,?,?,?,?,?,?,?)",
-                     (approval_id, "fresh_cohort", cohort_id, "approved", reason, settings.user, now,
+                     (approval_id, "forward_request", request_id, "approved", reason, settings.user, now,
                       sha256_hex(canonical_json(payload))))
         conn.execute("INSERT INTO fresh_cohorts VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                      (cohort_id, config.object_kind, config.mode, config.trial_id, config.source_hash,
@@ -116,6 +142,7 @@ def approve_cohort(conn: sqlite3.Connection, settings: Settings, config: Forward
                      (f"B-{cohort_id}", cohort_id, "observation", None, config.capital,
                       config.benchmark, config.start_date, now))
         append_ledger(conn, "cohort_approved", settings.user, payload, cohort_id)
+        record_applied(conn, "fresh_cohort", request_id, "approve", approval_id)
         conn.execute("COMMIT")
     except Exception:
         conn.execute("ROLLBACK")
@@ -130,25 +157,42 @@ def active_cohorts(conn: sqlite3.Connection, asof: str) -> list[dict]:
                         (asof,)).fetchall()
     out = []
     for row in rows:
-        events = conn.execute("SELECT record_kind FROM forward_ledger WHERE cohort_id=? ORDER BY seq",
+        events = conn.execute("SELECT record_kind FROM forward_ledger WHERE cohort_id=?"
+                              " AND record_kind IN ('closed','paused','resumed') ORDER BY seq",
                               (row["cohort_id"],)).fetchall()
-        if any(e[0] in ("closed", "paused") for e in events):
+        if events and events[-1][0] in ("closed", "paused"):
             continue
         out.append(dict(row))
     return out
 
 
-def pause_or_close(conn: sqlite3.Connection, settings: Settings, cohort_id: str, kind: str, reason: str) -> None:
+def pause_or_close(conn: sqlite3.Connection, settings: Settings, cohort_id: str, kind: str, reason: str,
+                   signature: str | None = None) -> None:
     _require_human(settings)
-    if kind not in ("paused", "closed") or not reason.strip():
-        raise validation_error("reason and paused/closed state required")
+    if kind not in ("paused", "closed", "resumed") or not reason.strip():
+        raise validation_error("reason and paused/closed/resumed state required")
     if not conn.execute("SELECT 1 FROM fresh_cohorts WHERE cohort_id=?", (cohort_id,)).fetchone():
         raise AlphaSieveError("NOT_FOUND", f"cohort {cohort_id} not found")
-    append_ledger(conn, kind, settings.user, {"reason": reason}, cohort_id)
+    latest = conn.execute("SELECT record_kind FROM forward_ledger WHERE cohort_id=? AND"
+                          " record_kind IN ('paused','closed','resumed') ORDER BY seq DESC LIMIT 1",
+                          (cohort_id,)).fetchone()
+    state = latest["record_kind"] if latest else "observing"
+    if state == "closed" or (kind == "resumed" and state != "paused") or \
+            (kind == "paused" and state == "paused"):
+        raise validation_error("invalid forward state transition")
+    decision = {"paused": "pause", "closed": "close", "resumed": "resume"}[kind]
+    consume_signature(conn, settings, "fresh_state", cohort_id, decision, signature)
+    decision_id = f"D-{uuid.uuid4().hex[:10]}"
+    conn.execute("INSERT INTO decisions (decision_id,object_type,object_id,decision,reason,decided_by,"
+                 "decided_at,evidence_hash) VALUES (?,?,?,?,?,?,?,?)",
+                 (decision_id, "fresh_state", cohort_id, kind, reason, settings.user, utcnow_iso(),
+                  sha256_hex(canonical_json({"cohort_id": cohort_id, "decision": kind}))))
+    append_ledger(conn, kind, settings.user, {"reason": reason, "decision_id": decision_id}, cohort_id)
+    record_applied(conn, "fresh_state", cohort_id, decision, decision_id)
 
 
 def approve_paper(conn: sqlite3.Connection, settings: Settings, cohort_id: str,
-                  evidence_hash: str, reason: str, start_date: str) -> dict:
+                  evidence_hash: str, reason: str, start_date: str, signature: str | None = None) -> dict:
     _require_human(settings)
     if not reason.strip() or len(evidence_hash) != 64:
         raise validation_error("paper approval needs a reason and evidence SHA-256")
@@ -161,6 +205,7 @@ def approve_paper(conn: sqlite3.Connection, settings: Settings, cohort_id: str,
         raise validation_error("paper evidence hash does not match the locked verdict")
     if start_date <= utcnow_iso()[:10]:
         raise validation_error("paper book must start on a future date")
+    consume_signature(conn, settings, "paper_book", cohort_id, "approve", signature)
     book_id = f"P-{uuid.uuid4().hex[:12]}"
     decision_id = f"D-{uuid.uuid4().hex[:10]}"
     config = json.loads(row["config_json"])
@@ -168,7 +213,7 @@ def approve_paper(conn: sqlite3.Connection, settings: Settings, cohort_id: str,
     try:
         conn.execute("INSERT INTO decisions (decision_id,object_type,object_id,decision,reason,decided_by,"
                      "decided_at,evidence_hash) VALUES (?,?,?,?,?,?,?,?)",
-                     (decision_id, "paper_book", book_id, "approved", reason, settings.user,
+                     (decision_id, "paper_book", cohort_id, "approved", reason, settings.user,
                       utcnow_iso(), evidence_hash))
         conn.execute("INSERT INTO paper_books VALUES (?,?,?,?,?,?,?,?)",
                      (book_id, cohort_id, "approved_paper", decision_id, config["capital"],
@@ -176,6 +221,7 @@ def approve_paper(conn: sqlite3.Connection, settings: Settings, cohort_id: str,
         append_ledger(conn, "paper_approved", settings.user,
                       {"decision_id": decision_id, "evidence_hash": evidence_hash}, cohort_id,
                       book_id=book_id)
+        record_applied(conn, "paper_book", cohort_id, "approve", decision_id)
         conn.execute("COMMIT")
     except Exception:
         conn.execute("ROLLBACK")
@@ -186,7 +232,8 @@ def approve_paper(conn: sqlite3.Connection, settings: Settings, cohort_id: str,
 def read_model(conn: sqlite3.Connection) -> dict:
     cohorts = []
     for row in conn.execute("SELECT c.* FROM fresh_cohorts c JOIN decisions d ON d.decision_id=c.approval_id"
-                            " WHERE d.object_type='fresh_cohort' AND d.object_id=c.cohort_id"
+                            " WHERE (d.object_type='forward_request' OR"
+                            " (d.object_type='fresh_cohort' AND d.object_id=c.cohort_id))"
                             " AND d.decision='approved' ORDER BY c.approval_at DESC"):
         cid = row["cohort_id"]
         days = conn.execute("SELECT date,status,nav,benchmark_nav,ret,benchmark_ret,metrics_json FROM paper_days"
@@ -202,12 +249,12 @@ def read_model(conn: sqlite3.Connection) -> dict:
             required = pol.get("factor", {}).get("mature_valid_days_min", 60)
         vr = conn.execute("SELECT verdict,metrics_json FROM fresh_verdicts WHERE cohort_id=?", (cid,)).fetchone()
         event = conn.execute("SELECT record_kind FROM forward_ledger WHERE cohort_id=? AND record_kind IN"
-                             " ('paused','closed') ORDER BY seq DESC LIMIT 1", (cid,)).fetchone()
+                             " ('paused','closed','resumed') ORDER BY seq DESC LIMIT 1", (cid,)).fetchone()
         cohorts.append({"cohort_id": cid, "object_kind": row["object_kind"], "mode": row["mode"],
                         "trial_id": row["trial_id"], "approved": True, "approved_by": row["approval_by"],
                         "approved_at": row["approval_at"], "start_date": row["start_date"],
                         "last_date": days[-1]["date"] if days else None,
-                        "status": event[0] if event else ("observing" if days else "locked"),
+                        "status": event[0] if event and event[0] != "resumed" else ("observing" if days else "locked"),
                         "observed_days": valid, "required_days": required,
                         "verdict": vr["verdict"] if vr else None, "nav": nav, "missing_days": missing,
                         "metrics": json.loads(vr["metrics_json"]) if vr else {}})

@@ -159,7 +159,7 @@ def settle_day(
         bench_ret = b_close / previous_benchmark - 1
         bench_nav *= 1 + bench_ret
         checkpoint = {"state": state, "close": closing.tolist(), "benchmark_close": b_close}
-        if prior and prior["status"] != "valid":
+        if prior and prior["status"] == "data_gap":
             status = "recovered_multi_day"
             detail["multi_day_ret"] = detail["ret"]
             detail["multi_day_benchmark_ret"] = bench_ret

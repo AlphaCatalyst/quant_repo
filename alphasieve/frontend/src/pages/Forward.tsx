@@ -66,6 +66,9 @@ function CohortDetail({ cohort }: { cohort: Cohort }) {
 export default function Forward() {
   const { data, error } = useApi<ForwardResponse>("/api/forward", 30000);
   const [selected, setSelected] = useState<string | null>(null);
+  if (error?.startsWith("403 ")) return <div className="page"><div className="page-head"><h2>前瞻</h2></div>
+    <Card title="访问受限"><p>前瞻数据需以 human 身份认证访问；当前服务为免密模式，故不显示。</p>
+      <p>启用方式：由运维去掉服务中的 ALPHASIEVE_WEB_AUTH=none，配置 human 登录认证后重启服务。</p></Card></div>;
   if (!data) return <Loading error={error} />;
   const cohorts = data.cohorts ?? [];
   const active = cohorts.find((c) => c.cohort_id === selected) ?? cohorts[0];
@@ -78,7 +81,9 @@ export default function Forward() {
           <strong>{c.cohort_id}</strong><span>{c.mode === "diagnostic_shadow" ? "诊断影子" : "正式验证"} · {c.object_kind === "factor" ? "因子" : "策略"}</span>
           <small>{c.approved ? `${c.observed_days ?? 0} / ${c.required_days ?? 0} 日` : "待人工批准"}</small>
         </button>)}
-      </div> : <Empty text="暂无已登记的前瞻观察组" />}
+      </div> : <div><Empty text="暂无已登记的前瞻观察组" />
+        <p>已定政策：A 观察资金 100 万元；CSI 500 PIT 前日流通市值加权全收益代理，价格指数单列参考。因子 60 个成熟有效日、策略 120 个有效收益日，覆盖率至少 95%，HAC p≤0.05、BH q=0.10，三态裁决且不自动延长。</p>
+        <p>仍待 human 决定：是否登记 A v4 诊断影子组；同机 root 风险是否接受或迁移隔离。链路状态：25 个交易日合成验收已完成；真实隔离与连续 20 个交易日运维验收未完成。</p></div>}
     </Card>
     {active && <CohortDetail cohort={active} />}
   </div>;

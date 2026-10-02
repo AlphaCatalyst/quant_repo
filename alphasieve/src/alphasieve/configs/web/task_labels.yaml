@@ -7,6 +7,8 @@ a_csi500_residual_v5_factor: 中证500增强加入衍生因子
 a_csi500_residual_v5_combined: 中证500增强合并新特征
 a_csi500_residual_v5_sensitivity: 中证500成分股训练敏感性
 a_csi500_portfolio_cost_v1: 成本感知组合
+a_csi500_portfolio_cost_scale_v2: 因果收益尺度成本组合
+a_csi500_portfolio_cost_capacity_v2: 容量规模定价成本组合
 a_csi500_portfolio_ema_v1: 分数平滑组合
 a_csi500_portfolio_liquidity_v1: 流动性约束组合
 a_csi500_portfolio_size_v1: 规模暴露收紧组合

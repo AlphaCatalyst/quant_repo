@@ -8,38 +8,16 @@ full text of broker reports once per report id. Everything is stored verbatim; p
 
 import argparse
 import json
-import re
 import sqlite3
-import subprocess
 import threading
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
 
-CLI = "/usr/local/bin/westock-data"
+from alphasieve.data.providers.westock import is_broker_report as is_broker
+from alphasieve.data.providers.westock import report_call as call
+
 ROOT = Path("/data/alphasieve/data/raw/westock/reports")
-MEDIA = re.compile(r"报$|网|新闻|财经|杂志|周刊|资讯|日报|时报|快讯")
-
-
-def call(args: list[str], retries: int = 4):
-    for attempt in range(retries):
-        try:
-            out = subprocess.run([CLI, *args, "--raw"], capture_output=True, text=True, timeout=90).stdout
-            i = min([p for p in (out.find("["), out.find("{")) if p >= 0], default=-1)
-            if i >= 0:
-                return json.loads(out[i:])
-            if "数据为空" in out or "暂无" in out:
-                return []
-        except (subprocess.TimeoutExpired, json.JSONDecodeError):
-            pass
-        time.sleep(2 ** attempt)
-    raise RuntimeError(f"westock {' '.join(args[:3])} failed after {retries} attempts")
-
-
-def is_broker(title: str) -> bool:
-    m = re.match(r"^【([^】]+)】", title)
-    return bool(m) and not MEDIA.search(m.group(1))
 
 
 def connect() -> sqlite3.Connection:

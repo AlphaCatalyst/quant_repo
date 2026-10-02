@@ -1,26 +1,16 @@
-import { useState } from "react";
 import { useApi, type Json } from "../api";
-import { Badge, Card, Empty, exportCSV, fmtNum, fmtPct, fmtTime, link, Loading, Progress } from "../components";
+import { Badge, Card, DataTable, Empty, fmtNum, fmtPct, fmtTime, link, Loading, Progress } from "../components";
 
 const TITLES: Record<string, string> = { A: "中证 500 增强", B: "行业 ETF 轮动", C: "业绩超预期漂移", D: "股指期货对冲" };
 
 export default function Overview() {
-  const [campaignSort, setCampaignSort] = useState("started_at");
   const { data, error } = useApi<Json>("/api/overview", 30000);
   const mandates = useApi<Json>("/api/mandates", 30000).data?.mandates ?? [];
   const activity = useApi<Json>("/api/ledger?limit=8", 30000).data?.trials ?? [];
   if (!data) return <Loading error={error} />;
-  const running = data.campaigns.filter((c: Json) => c.status === "running").length;
-  const campaignRows = sortRows(data.campaigns, campaignSort, {
-    campaign_id: (c) => c.title || c.campaign_id, status: (c) => c.status,
-    trials: (c) => c.budgets?.trials?.used, l1: (c) => c.funnel?.l1,
-    l2: (c) => c.funnel?.l2, l3: (c) => c.funnel?.l3,
-    started_at: (c) => c.started_at, cost: (c) => c.budgets?.usage?.cost_usd,
-  });
   return (
     <div className="page">
-      <div className="stats-row">
-        <Stat label="运行中的 campaign" value={running} />
+      <div className="metric-strip">
         <Stat label="dev trial 总数" value={data.ledger.completed_trials} />
         <Stat label="不同候选" value={data.ledger.distinct_candidates} />
         <Stat label="因子库" value={data.library_size} />
@@ -29,26 +19,7 @@ export default function Overview() {
         <Stat label="待评审" value={data.inbox.open_reviews} tone={data.inbox.open_reviews ? "amber" : undefined} />
       </div>
 
-      <Card title={`因子研究（${data.campaigns.length}）`} extra={<button className="btn small" onClick={() => exportCSV("campaigns.csv", ["研究", "状态", "trial 用量", "L1", "L2", "L3", "开始时间", "费用 USD"], campaignRows.map((c: Json) => [c.title || c.campaign_id, c.status, c.budgets?.trials?.used, c.funnel?.l1, c.funnel?.l2, c.funnel?.l3, c.started_at, c.budgets?.usage?.cost_usd]))}>导出 CSV</button>}>
-        {data.campaigns.length === 0 ? (
-          <Empty />
-        ) : (
-          <table className="table">
-            <thead><tr>{[["campaign_id", "研究"], ["status", "状态"], ["trials", "trial 用量"], ["l1", "L1"], ["l2", "L2"], ["l3", "L3"], ["started_at", "开始时间"], ["cost", "费用"]].map(([key, label]) => <th key={key}><button className="table-sort" onClick={() => setCampaignSort(campaignSort === key ? `-${key}` : key)}>{label}{campaignSort.replace("-", "") === key ? campaignSort.startsWith("-") ? " ↓" : " ↑" : ""}</button></th>)}</tr></thead>
-            <tbody>{campaignRows.map((c: Json) => (
-              <tr key={c.campaign_id}>
-                <td><a href={link(`/campaign/${c.campaign_id}`)}>{c.title || c.campaign_id}</a><div className="muted small">{c.campaign_id}</div></td>
-                <td><Badge value={c.status} /></td>
-                <td>{fmtNum(c.budgets?.trials?.used)} / {fmtNum(c.budgets?.trials?.budget)}</td>
-                <td>{fmtNum(c.funnel?.l1 ?? 0)}</td><td>{fmtNum(c.funnel?.l2 ?? 0)}</td><td>{fmtNum(c.funnel?.l3 ?? 0)}</td>
-                <td className="small">{fmtTime(c.started_at)}</td><td>${fmtNum(c.budgets?.usage?.cost_usd, 2)}</td>
-              </tr>
-            ))}</tbody>
-          </table>
-        )}
-      </Card>
-
-      <div className="stats-row">
+      <div className="mandate-strip">
         {mandates.map((m: Json) => {
           const dev = m.trials.filter((t: Json) => t.tier === "dev" && t.status === "completed");
           const ranked = [...dev].filter((t: Json) => typeof (t.metrics?.information_ratio ?? t.metrics?.sharpe) === "number")
@@ -64,6 +35,19 @@ export default function Overview() {
           </div>;
         })}
       </div>
+
+      <Card title={`因子研究（${data.campaigns.length}）`}>
+        <DataTable rows={data.campaigns as Json[]} filename="campaigns.csv" searchPlaceholder="搜索研究"
+          filters={[{ label: "状态", value: (c: Json) => c.status, options: Array.from(new Set((data.campaigns as Json[]).map((c) => c.status))).map((v: string) => ({ value: v, label: v })) }]}
+          columns={[
+            { key: "name", label: "研究", value: (c: Json) => c.title || c.campaign_id, render: (c: Json) => <><a href={link(`/campaign/${c.campaign_id}`)}>{c.title || c.campaign_id}</a><div className="muted small">{c.campaign_id}</div></> },
+            { key: "status", label: "状态", value: (c: Json) => c.status, render: (c: Json) => <Badge value={c.status} /> },
+            { key: "trials", label: "trial 用量", value: (c: Json) => c.budgets?.trials?.used, render: (c: Json) => `${fmtNum(c.budgets?.trials?.used)} / ${fmtNum(c.budgets?.trials?.budget)}` },
+            ...["l1", "l2", "l3"].map((k) => ({ key: k, label: k.toUpperCase(), value: (c: Json) => c.funnel?.[k] ?? 0 })),
+            { key: "started", label: "开始时间", value: (c: Json) => c.started_at, render: (c: Json) => fmtTime(c.started_at) },
+            { key: "cost", label: "费用", value: (c: Json) => c.budgets?.usage?.cost_usd, render: (c: Json) => `$${fmtNum(c.budgets?.usage?.cost_usd, 2)}` },
+          ]} />
+      </Card>
 
       <div className="two-col">
         <Card title="最近记录" extra={<a className="small" href={link("/ledger")}>查看全部</a>}>
@@ -84,7 +68,6 @@ export default function Overview() {
           <h4>主要失败原因</h4>
           <FailureList reasons={data.ledger.failure_reasons} />
         </Card>
-        <DataCard data={data.data} />
       </div>
     </div>
   );

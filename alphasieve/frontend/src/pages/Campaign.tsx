@@ -113,7 +113,7 @@ export default function Campaign({ id }: { id: string }) {
         </Card>
       </div>
 
-      <Card title={`Turns（${data.turns.length}）`}>
+      <Card title={`研究轮次（${data.turns.length}）`}>
         {data.turns.length === 0 ? <Empty /> : (
           <table className="table">
             <thead>
@@ -144,7 +144,7 @@ export default function Campaign({ id }: { id: string }) {
       </Card>
 
       <div className="two-col">
-        <Card title="Campaign 记忆（只来自 dev 证据）">
+        <Card title="研究记忆（仅开发阶段证据）">
           <h4>L2 通过的候选</h4>
           {derived.successes.length ? (
             <ul className="list">{derived.successes.map((s: Json, i: number) => (
@@ -159,10 +159,13 @@ export default function Campaign({ id }: { id: string }) {
           ) : <Empty text="没有" />}
           <h4>agent 总结的经验</h4>
           {data.memory.insights.length ? (
-            <ul className="list">{data.memory.insights.map((s: Json, i: number) => (
+            <ul className="list">{data.memory.insights.slice(-4).map((s: Json, i: number) => (
               <li key={i}><span className="muted small">{s.turn}</span> {s.text}</li>
             ))}</ul>
           ) : <Empty text="还没有" />}
+          {data.memory.insights.length > 4 && <details><summary>查看其余 {data.memory.insights.length - 4} 条经验</summary>
+            <ul className="list">{data.memory.insights.slice(0, -4).map((s: Json, i: number) => <li key={i}><span className="muted small">{s.turn}</span> {s.text}</li>)}</ul>
+          </details>}
         </Card>
         <Card title="搜索空间覆盖（trial / L1 通过 / L2 通过）">
           <CellTable cells={derived.cells} focus={c.spec.cells} dead={derived.dead_cells} />
@@ -170,7 +173,7 @@ export default function Campaign({ id }: { id: string }) {
       </div>
 
       <div className="two-col">
-        <Card title="指令与 agent 请求">
+        <Card title="指令与研究请求">
           <h4>指令（用 CLI `alphasieve directive add` 添加）</h4>
           {data.directives.length ? (
             <ul className="list">{data.directives.map((d: Json) => (
@@ -187,7 +190,7 @@ export default function Campaign({ id }: { id: string }) {
             ))}</ul>
           ) : <Empty text="没有" />}
         </Card>
-        <Card title="Shortlist 与 holdout">
+        <Card title="候选名单与留出集">
           <HoldoutSection data={data} />
         </Card>
       </div>

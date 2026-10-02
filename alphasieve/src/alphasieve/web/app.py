@@ -7,7 +7,7 @@ import re
 import secrets
 import sqlite3
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Query
@@ -19,6 +19,7 @@ from alphasieve import __version__
 from alphasieve.campaigns import memory, service, stats
 from alphasieve.config import Settings, get_settings, load_config
 from alphasieve.data.access import read_meta
+from alphasieve.data.sync import load_calendar, raw_root
 from alphasieve.errors import AlphaSieveError
 from alphasieve.factors import library as lib
 from alphasieve.ledger import ledger_stats, verify_ledger
@@ -27,6 +28,30 @@ from alphasieve.state.backup import list_backups
 DIST = Path(__file__).resolve().parent / "dist"
 ARTIFACT_ID = re.compile(r"^[0-9a-f]{24}$")
 security = HTTPBasic(auto_error=False)
+
+
+def _trade_days_lag(settings: Settings, last: str | None, today: date | None = None) -> tuple[int | None, str]:
+    if not last:
+        return None, "unknown"
+    try:
+        start = date.fromisoformat(last)
+    except ValueError:
+        return None, "unknown"
+    end = today or date.today()
+    calendar_path = raw_root(settings) / "trade_dates.parquet"
+    if calendar_path.is_file():
+        try:
+            calendar = load_calendar(settings)
+            if len(calendar) and calendar.iloc[-1] >= end.isoformat():
+                return int(((calendar > start.isoformat()) & (calendar <= end.isoformat())).sum()), "exchange"
+        except (OSError, ValueError):
+            pass
+    count = 0
+    cursor = start + timedelta(days=1)
+    while cursor <= end:
+        count += cursor.weekday() < 5
+        cursor += timedelta(days=1)
+    return count, "weekday"
 
 
 def credentials_path(settings: Settings) -> Path:
@@ -163,9 +188,13 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
                              "size_bytes": path.stat().st_size, "ledger_rows": ledger_rows}
             break
         last_update = _last_daily_update()
+        latest_trade_date = last_update.get("end") if last_update else None
+        trade_days_lag, trade_calendar_source = _trade_days_lag(settings, latest_trade_date)
         return {
             "running_campaigns": conn.execute("SELECT COUNT(*) FROM campaigns WHERE status = 'running'").fetchone()[0],
-            "latest_trade_date": last_update.get("end") if last_update else None,
+            "latest_trade_date": latest_trade_date,
+            "trade_days_lag": trade_days_lag,
+            "trade_calendar_source": trade_calendar_source,
             "latest_backup": latest_backup,
             "inbox": {
                 "open_requests": conn.execute("SELECT COUNT(*) FROM agent_requests WHERE status = 'open'").fetchone()[0],
@@ -257,27 +286,39 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
 
     @app.get("/api/factors")
     def factors(user: str = Depends(auth), conn=Depends(db), state: str | None = None,
-                campaign: str | None = None, limit: int = Query(500, le=5000)):
+                campaign: str | None = None, limit: int = Query(500, ge=1, le=5000),
+                offset: int = Query(0, ge=0)):
         query = ("SELECT f.factor_id, f.version, f.name, f.state, f.canonical_expression, f.created_by, f.created_at,"
                  " f.spec_json, (SELECT metrics_json FROM trials t WHERE t.factor_id = f.factor_id AND t.version ="
                  " f.version AND t.record_kind = 'completed' AND t.evidence_tier = 'dev' ORDER BY seq DESC LIMIT 1)"
                  " AS metrics_json, (SELECT campaign_id FROM trials t WHERE t.factor_id = f.factor_id AND t.version ="
                  " f.version AND t.record_kind = 'completed' ORDER BY seq LIMIT 1) AS campaign_id"
                  " FROM factor_specs f")
+        where, params = [], []
+        if state:
+            where.append("f.state = ?")
+            params.append(state)
+        if campaign:
+            where.append("(SELECT campaign_id FROM trials t WHERE t.factor_id = f.factor_id AND"
+                         " t.version = f.version AND t.record_kind = 'completed' ORDER BY seq LIMIT 1) = ?")
+            params.append(campaign)
+        if where:
+            query += " WHERE " + " AND ".join(where)
+        count_query = "SELECT COUNT(*) FROM factor_specs f" + (" WHERE " + " AND ".join(where) if where else "")
+        total = conn.execute(count_query, params).fetchone()[0]
         rows = []
-        for r in conn.execute(query + " ORDER BY f.created_at DESC LIMIT ?", (limit,)):
+        for r in conn.execute(query + " ORDER BY f.created_at DESC, f.factor_id LIMIT ? OFFSET ?",
+                              (*params, limit, offset)):
             d = dict(r)
             spec = _loads(d.pop("spec_json"), {})
             d["cell"] = spec.get("cell")
             d["direction"] = spec.get("direction")
             d["metrics"] = _loads(d.pop("metrics_json"), {})
-            if (state and d["state"] != state) or (campaign and d["campaign_id"] != campaign):
-                continue
             rows.append(d)
         library = {m["factor_id"] for m in lib.library_members(conn)}
         for d in rows:
             d["in_library"] = d["factor_id"] in library
-        return {"factors": rows, "count": len(rows)}
+        return {"factors": rows, "count": total, "limit": limit, "offset": offset}
 
     @app.get("/api/factors/{factor_id}")
     def factor(factor_id: str, user: str = Depends(auth), conn=Depends(db)):
@@ -321,7 +362,8 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
             t = trials.setdefault(r["trial_id"], {"trial_id": r["trial_id"], "mandate": r["scope"],
                                                   "config_hash": r["candidate_hash"], "status": "open"})
             if r["record_kind"] == "started":
-                t.update(task_id=metrics.get("task_id"), started_at=r["created_at"])
+                t.update(task_id=metrics.get("task_id"), config_label=metrics.get("task_id"),
+                         started_at=r["created_at"])
             else:
                 t.update(status=r["record_kind"], tier=r["evidence_tier"], outcome=r["outcome"],
                          artifact_id=r["artifact_id"], finished_at=r["created_at"], metrics=metrics)

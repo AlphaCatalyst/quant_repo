@@ -19,6 +19,21 @@ export const STATUS_LABEL: Record<string, string> = {
   rejected: "已拒绝",
   answered: "已答复",
   consumed: "已送达",
+  validation_failed: "校验未通过",
+  evaluation_failed: "评估未通过",
+  robust_failed: "稳健性未通过",
+  robust_passed: "稳健性通过",
+  holdout_passed: "留出集通过",
+  holdout_failed: "留出集未通过",
+  holdout_contaminated: "留出集污染",
+  error: "错误",
+  library: "已入库",
+  proposed: "待评估",
+  validating: "校验中",
+  validated: "已校验",
+  evaluating: "评估中",
+  robust_checking: "稳健性检查中",
+  shortlisted: "已入围",
 };
 
 export const OUTCOME_LABEL: Record<string, string> = {
@@ -145,6 +160,45 @@ export function exportCSV(filename: string, headers: string[], rows: unknown[][]
   a.download = filename;
   a.click();
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+export type TableColumn<T> = { key: string; label: string; value: (row: T) => unknown; render?: (row: T) => ReactNode; sortable?: boolean };
+
+export function DataTable<T>({ rows, columns, filename, searchPlaceholder = "搜索", filters = [] }: {
+  rows: T[]; columns: TableColumn<T>[]; filename: string; searchPlaceholder?: string;
+  filters?: { label: string; value: (row: T) => string; options: { value: string; label: string }[] }[];
+}) {
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState<Record<string, string>>({});
+  const [sort, setSort] = useState("");
+  const filtered = rows.filter((row) =>
+    (!query || columns.some((col) => String(col.value(row) ?? "").toLowerCase().includes(query.toLowerCase()))) &&
+    filters.every((f) => !selected[f.label] || f.value(row) === selected[f.label]));
+  const key = sort.replace(/^-/, "");
+  const column = columns.find((c) => c.key === key);
+  const ordered = column ? [...filtered].sort((a, b) => {
+    const x = column.value(a), y = column.value(b);
+    const n = x == null ? 1 : y == null ? -1 : typeof x === "number" && typeof y === "number" ? x - y
+      : String(x).localeCompare(String(y), "zh-CN", { numeric: true });
+    return sort.startsWith("-") ? -n : n;
+  }) : filtered;
+  return <>
+    <div className="table-tools filters">
+      <input aria-label={searchPlaceholder} placeholder={searchPlaceholder} value={query} onChange={(e) => setQuery(e.target.value)} />
+      {filters.map((f) => <select key={f.label} aria-label={f.label} value={selected[f.label] ?? ""}
+        onChange={(e) => setSelected({ ...selected, [f.label]: e.target.value })}>
+        <option value="">{f.label} · 全部（{rows.length}）</option>
+        {f.options.map((o) => <option key={o.value} value={o.value}>{o.label}（{rows.filter((r) => f.value(r) === o.value).length}）</option>)}
+      </select>)}
+      <span className="muted small">显示 {ordered.length} / {rows.length}</span>
+      <button className="btn small" onClick={() => exportCSV(filename, columns.map((c) => c.label), ordered.map((r) => columns.map((c) => c.value(r))))}>导出 CSV</button>
+    </div>
+    <div className="table-scroll" role="region" aria-label="数据表格，向右滚动查看更多列">
+      <table className="table"><thead><tr>{columns.map((c) => <th key={c.key}>
+        {c.sortable === false ? c.label : <button className="table-sort" onClick={() => setSort(sort === c.key ? `-${c.key}` : c.key)}>{c.label}{key === c.key ? sort.startsWith("-") ? " ↓" : " ↑" : ""}</button>}
+      </th>)}</tr></thead><tbody>{ordered.map((row, i) => <tr key={i}>{columns.map((c) => <td key={c.key}>{c.render ? c.render(row) : String(c.value(row) ?? "—")}</td>)}</tr>)}</tbody></table>
+    </div>
+  </>;
 }
 
 const TERMS: [string, string][] = [

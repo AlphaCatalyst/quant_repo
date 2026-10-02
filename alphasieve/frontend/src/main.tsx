@@ -33,6 +33,7 @@ const NAV: [string, string][] = [
 function App() {
   const path = useHashPath();
   const { data: overview } = useApi<Json>("/api/overview", 30000);
+  const { data: mandateSummary } = useApi<Json>("/api/mandates", 30000);
   const { data: status, updatedAt, error: statusError, reload } = useApi<Json>("/api/status", 30000);
   const paused = useRefreshPaused();
   const [now, setNow] = useState(Date.now());
@@ -52,7 +53,7 @@ function App() {
   const active = "/" + (parts[0] === "campaign" ? "" : parts[0] === "factor" ? "factors"
     : parts[0] === "strategy" ? "mandates" : parts[0] ?? "");
   const counts: Record<string, number | undefined> = {
-    "/": overview?.campaigns?.length, "/mandates": 4, "/factors": overview?.library_size,
+    "/mandates": mandateSummary?.mandates?.reduce((n: number, m: Json) => n + m.dev_trials, 0), "/factors": overview?.library_size,
     "/ledger": overview?.ledger?.completed_trials,
   };
   const notices: [string, string][] = [];
@@ -62,8 +63,8 @@ function App() {
   if (status?.inbox?.open_reviews) notices.push([`${status.inbox.open_reviews} 个待评审事项`, `/campaign/${status.inbox.review_campaigns?.[0]}`]);
   const backupAge = status?.latest_backup?.created_at ? now - Date.parse(status.latest_backup.created_at) : Infinity;
   if (status && backupAge > 86400000) notices.push([status.latest_backup ? "状态库备份超过 24 小时" : "暂无状态库备份", "/data"]);
-  const tradeAge = status?.latest_trade_date ? now - Date.parse(status.latest_trade_date) : NaN;
-  if (status && Number.isFinite(tradeAge) && tradeAge > 5 * 86400000) notices.push(["交易数据超过 5 天", "/data"]);
+  if (status?.trade_days_lag > 3)
+    notices.push([`交易数据落后 ${status.trade_days_lag} 个交易日`, "/data"]);
   return (
     <>
       <nav className="nav">
@@ -72,10 +73,13 @@ function App() {
           <a key={p} href={`#${p}`} className={active === p ? "active" : ""}>{label}{counts[p] != null && <span className="nav-count">{counts[p]}</span>}</a>
         ))}
         <span className="nav-note top-chip">{paused ? "已暂停" : statusError ? "刷新失败" : `实时 · ${age(updatedAt, now)}`}</span>
+        <span className="nav-meta" title="运行中的研究">运行中 {status?.running_campaigns ?? "—"}</span>
+        <span className="nav-meta" title="最近交易日">交易日 {status?.latest_trade_date ?? "—"}</span>
+        <span className="nav-meta" title="最近状态库备份">备份 {age(status?.latest_backup?.created_at, now)}</span>
         <button className="nav-button" onClick={() => { setRefreshPaused(!refreshPaused()); if (paused) reload(); }}>{paused ? "继续" : "暂停"}</button>
-        <button className="nav-button" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>{theme === "dark" ? "浅色" : "深色"}</button>
+        <button className="nav-button theme-button" title={theme === "dark" ? "切换浅色" : "切换深色"} aria-label="切换主题" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>◐</button>
+        <Glossary />
       </nav>
-      <div className="status-line"><span>运行中 {status?.running_campaigns ?? "—"}</span><span>最近更新交易日 {status?.latest_trade_date ?? "未知"}</span><span>状态库备份 {age(status?.latest_backup?.created_at, now)}</span><span>只读视图</span><Glossary /></div>
       <main>{notices.length > 0 && <div className="alert-banner"><strong>需要处理</strong>{notices.map(([label, href]) => <a key={label} href={`#${href}`}>{label} →</a>)}</div>}{page}</main>
     </>
   );

@@ -7,7 +7,7 @@ from fixtures.campaign import campaign_spec, start_campaign
 from alphasieve.contracts import FactorSpec
 from alphasieve.evaluation.evaluate import evaluate_spec
 from alphasieve.state import connect
-from alphasieve.web.app import _load_credentials, create_app
+from alphasieve.web.app import _load_credentials, _trade_days_lag, create_app
 
 REVERSAL = {"name": "rev_3d_excess", "expression": "ts_sum(excess_ret_1d, 3)", "direction": -1,
             "hypothesis": "short-term reversal", "cell": {"domain": "price", "form": "reversal", "scale": "short"}}
@@ -28,6 +28,10 @@ def test_web_requires_login_and_serves_read_models(panel_settings):
     assert campaign["funnel"]["counts"]["submitted"] == 1 and len(campaign["intensity"]) == 1
     factors = client.get("/api/factors", auth=auth).json()
     assert factors["factors"][0]["factor_id"] == result["factor_id"]
+    assert factors["count"] == 1 and factors["offset"] == 0
+    assert client.get("/api/factors?limit=1&offset=1", auth=auth).json()["factors"] == []
+    assert client.get("/api/factors?state=missing", auth=auth).json()["count"] == 0
+    assert client.get("/api/factors?limit=0", auth=auth).status_code == 422
     detail = client.get(f"/api/factors/{result['factor_id']}", auth=auth).json()
     assert detail["trials"][0]["evidence_tier"] == "dev" and detail["state_history"]
     ledger = client.get("/api/ledger", auth=auth).json()
@@ -62,12 +66,24 @@ def test_web_status_reports_read_only_counts_and_backup_metadata(panel_settings)
     status = client.get("/api/status").json()
     assert status["running_campaigns"] == 0
     assert status["latest_trade_date"] == "2026-01-02"
+    assert status["trade_calendar_source"] == "weekday"
     assert status["latest_backup"] == {"created_at": "2026-01-02T03:04:05+00:00",
                                        "size_bytes": len(b"synthetic backup"), "ledger_rows": 7}
     assert status["inbox"] == {"open_requests": 0, "request_campaigns": [],
                                 "pending_factor_holdout": 0, "factor_holdout_campaigns": [],
                                 "pending_strategy_holdout": 1, "open_reviews": 0, "review_campaigns": []}
     assert "/private/path" not in json.dumps(status)
+
+
+def test_trade_lag_uses_exchange_calendar_when_available(panel_settings):
+    from datetime import date
+    import pandas as pd
+
+    path = panel_settings.raw_dir / "baostock" / "trade_dates.parquet"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame({"calendar_date": ["2026-09-30", "2026-10-01", "2026-10-02"],
+                  "is_trading_day": [1, 0, 1]}).to_parquet(path)
+    assert _trade_days_lag(panel_settings, "2026-09-30", date(2026, 10, 2)) == (1, "exchange")
 
 
 def test_web_mandate_and_strategy_views(panel_settings, tmp_path, capsys):
@@ -85,6 +101,7 @@ def test_web_mandate_and_strategy_views(panel_settings, tmp_path, capsys):
     a = mandates["A"]
     assert a["dev_trials"] == 1 and a["holdout_reads"] == {"used": 0, "budget": 1}
     assert a["trials"][0]["trial_id"] == trial_id and a["trials"][0]["outcome"].startswith("dev_")
+    assert a["trials"][0]["config_label"] == "t_small"
     assert a["trials"][0]["acceptance"]["checks"]
     detail = client.get(f"/api/strategy/{trial_id}", auth=auth).json()
     assert [r["record_kind"] for r in detail["records"]] == ["started", "completed"]

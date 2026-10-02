@@ -1,88 +1,44 @@
-import { useEffect, useMemo, useState } from "react";
-import { getText, useApi, type Json } from "../api";
-import { Badge, Card, Empty, exportCSV, fmtNum, fmtPct, fmtTime, link, Loading } from "../components";
-import { sortRows } from "./Overview";
+import { useState } from "react";
+import { getJSON, getText, useApi, type Json } from "../api";
+import { Badge, Card, DataTable, Empty, STATUS_LABEL, fmtNum, fmtPct, fmtTime, link, Loading } from "../components";
 
 export function Factors() {
   const { data, error } = useApi<Json>("/api/factors?limit=5000", 60000);
-  const [factorSort, setFactorSort] = useState("-created_at");
-  const [filters, setFilters] = useState(() => new URLSearchParams(window.location.hash.split("?")[1] ?? ""));
-  useEffect(() => {
-    const update = () => setFilters(new URLSearchParams(window.location.hash.split("?")[1] ?? ""));
-    window.addEventListener("hashchange", update);
-    return () => window.removeEventListener("hashchange", update);
-  }, []);
-  const q = filters.get("q") ?? "";
-  const state = filters.get("state") ?? "";
-  const campaign = filters.get("campaign") ?? "";
-  const setFilter = (key: string, value: string) => {
-    const next = new URLSearchParams(filters);
-    if (value) next.set(key, value); else next.delete(key);
-    window.history.replaceState(null, "", `#/factors${next.size ? `?${next}` : ""}`);
-    setFilters(next);
-  };
-  const rows = useMemo(() => {
-    if (!data) return [];
-    const needle = q.toLowerCase();
-    return data.factors.filter((f: Json) =>
-      (!needle || (f.name ?? "").toLowerCase().includes(needle) || (f.canonical_expression ?? "").toLowerCase().includes(needle)) &&
-      (!state || f.state === state) && (!campaign || (f.campaign_id ?? "") === campaign));
-  }, [data, q, state, campaign]);
+  const [extra, setExtra] = useState<Json[]>([]);
+  const [loadingMore, setLoadingMore] = useState(false);
   if (!data) return <Loading error={error} />;
-  const searchMatch = (f: Json) => !q || (f.name ?? "").toLowerCase().includes(q.toLowerCase()) || (f.canonical_expression ?? "").toLowerCase().includes(q.toLowerCase());
-  const states = Array.from(new Set(data.factors.map((f: Json) => f.state))).sort() as string[];
-  const campaigns = Array.from(new Set(data.factors.map((f: Json) => f.campaign_id ?? ""))).sort() as string[];
-  const stateCount = (s: string) => data.factors.filter((f: Json) => searchMatch(f) && (!campaign || (f.campaign_id ?? "") === campaign) && (!s || f.state === s)).length;
-  const campaignCount = (c: string) => data.factors.filter((f: Json) => searchMatch(f) && (!state || f.state === state) && (!c || (f.campaign_id ?? "") === c)).length;
-  const sorted = sortRows(rows, factorSort, {
-    factor_id: (f) => f.factor_id, name: (f) => f.name, direction: (f) => f.direction,
-    state: (f) => f.state, ic: (f) => f.metrics?.ic_mean, icir: (f) => f.metrics?.icir,
-    coverage: (f) => f.metrics?.coverage, corr: (f) => f.metrics?.library_max_abs_corr,
-    campaign: (f) => f.campaign_id, created_at: (f) => f.created_at,
-  });
-  return (
-    <div className="page">
-      <Card title={`因子（${rows.length} / ${data.count}）`} extra={
-        <div className="filters">
-          <button className="btn small" onClick={() => exportCSV("factors.csv", ["ID", "版本", "名称", "表达式", "方向", "状态", "IC", "ICIR", "覆盖", "库相关", "研究", "创建"], sorted.map((f: Json) => [f.factor_id, f.version, f.name, f.canonical_expression, f.direction, f.state, f.metrics?.ic_mean, f.metrics?.icir, f.metrics?.coverage, f.metrics?.library_max_abs_corr, f.campaign_id, f.created_at]))}>导出 CSV</button>
-          <input aria-label="搜索因子" placeholder="搜索名称或表达式" value={q} onChange={(e) => setFilter("q", e.target.value)} />
-          <select aria-label="因子状态" value={state} onChange={(e) => setFilter("state", e.target.value)}>
-            <option value="">全部状态（{stateCount("")}）</option>
-            {states.map((s) => <option key={s} value={s}>{s}（{stateCount(s)}）</option>)}
-          </select>
-          <select aria-label="研究" value={campaign} onChange={(e) => setFilter("campaign", e.target.value)}>
-            <option value="">全部研究（{campaignCount("")}）</option>
-            {campaigns.filter(Boolean).map((s) => <option key={s} value={s}>{s}（{campaignCount(s)}）</option>)}
-          </select>
-        </div>
-      }>
-        <FactorMatrix rows={sorted} />
-        {rows.length === 0 ? <Empty /> : (
-          <table className="table">
-            <thead><tr>{[["factor_id", "ID"], ["name", "名称"], ["", "表达式"], ["direction", "方向"], ["", "格子"], ["state", "状态"], ["ic", "IC"], ["icir", "ICIR"], ["coverage", "覆盖"], ["corr", "库相关"], ["campaign", "研究"], ["created_at", "创建"]].map(([key, label], i) => <th key={`${key}-${i}`}>{key ? <button className="table-sort" onClick={() => setFactorSort(factorSort === key ? `-${key}` : key)}>{label}{factorSort.replace("-", "") === key ? factorSort.startsWith("-") ? " ↓" : " ↑" : ""}</button> : label}</th>)}</tr></thead>
-            <tbody>
-              {sorted.map((f: Json) => (
-                <tr key={`${f.factor_id}@${f.version}`}>
-                  <td><a href={link(`/factor/${f.factor_id}`)}>{f.factor_id}@{f.version}</a></td>
-                  <td>{f.name}{f.in_library && <span className="tag">库</span>}</td>
-                  <td><code>{f.canonical_expression}</code></td>
-                  <td>{f.direction}</td>
-                  <td className="small">{f.cell ? `${f.cell.domain}/${f.cell.form}/${f.cell.scale}` : "—"}</td>
-                  <td><Badge value={f.state} /></td>
-                  <td>{fmtNum(f.metrics.ic_mean, 4)}</td>
-                  <td>{fmtNum(f.metrics.icir)}</td>
-                  <td>{fmtPct(f.metrics.coverage, 0)}</td>
-                  <td>{fmtNum(f.metrics.library_max_abs_corr, 2)}</td>
-                  <td className="small">{f.campaign_id ?? "—"}</td>
-                  <td className="small">{fmtTime(f.created_at)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </Card>
-    </div>
-  );
+  const rows: Json[] = [...data.factors, ...extra];
+  const states = Array.from(new Set(rows.map((f) => f.state))) as string[];
+  const campaigns = Array.from(new Set(rows.map((f) => f.campaign_id).filter(Boolean))) as string[];
+  const loadMore = async () => {
+    setLoadingMore(true);
+    try { const next = await getJSON<Json>(`/api/factors?limit=5000&offset=${rows.length}`); setExtra([...extra, ...next.factors]); }
+    finally { setLoadingMore(false); }
+  };
+  return <div className="page"><Card title={`因子（已载入 ${rows.length} / ${data.count}）`}>
+    {rows.length < data.count && <div className="alert-banner">筛选与矩阵当前只覆盖已载入项。
+      <button className="btn small" disabled={loadingMore} onClick={loadMore}>{loadingMore ? "载入中…" : "载入后续 5000 项"}</button></div>}
+    <FactorMatrix rows={rows} />
+    <DataTable rows={rows} filename="factors.csv" searchPlaceholder="搜索因子、表达式"
+      filters={[
+        { label: "状态", value: (f: Json) => f.state, options: states.map((v) => ({ value: v, label: STATUS_LABEL[v] ?? v })) },
+        { label: "研究", value: (f: Json) => f.campaign_id ?? "", options: campaigns.map((v) => ({ value: v, label: v })) },
+      ]}
+      columns={[
+        { key: "id", label: "ID", value: (f: Json) => `${f.factor_id}@${f.version}`, render: (f: Json) => <a href={link(`/factor/${f.factor_id}`)}>{f.factor_id}@{f.version}</a> },
+        { key: "name", label: "名称", value: (f: Json) => f.name, render: (f: Json) => <>{f.name}{f.in_library && <span className="tag">库</span>}</> },
+        { key: "expr", label: "表达式", value: (f: Json) => f.canonical_expression, render: (f: Json) => <code>{f.canonical_expression}</code> },
+        { key: "direction", label: "方向", value: (f: Json) => f.direction },
+        { key: "cell", label: "格子", value: (f: Json) => f.cell ? `${f.cell.domain}/${f.cell.form}/${f.cell.scale}` : "—" },
+        { key: "state", label: "状态", value: (f: Json) => f.state, render: (f: Json) => <Badge value={f.state} /> },
+        { key: "ic", label: "IC", value: (f: Json) => f.metrics?.ic_mean, render: (f: Json) => fmtNum(f.metrics?.ic_mean, 4) },
+        { key: "icir", label: "ICIR", value: (f: Json) => f.metrics?.icir, render: (f: Json) => fmtNum(f.metrics?.icir) },
+        { key: "coverage", label: "覆盖", value: (f: Json) => f.metrics?.coverage, render: (f: Json) => fmtPct(f.metrics?.coverage, 0) },
+        { key: "corr", label: "库相关", value: (f: Json) => f.metrics?.library_max_abs_corr, render: (f: Json) => fmtNum(f.metrics?.library_max_abs_corr, 2) },
+        { key: "campaign", label: "研究", value: (f: Json) => f.campaign_id },
+        { key: "created", label: "创建", value: (f: Json) => f.created_at, render: (f: Json) => fmtTime(f.created_at) },
+      ]} />
+  </Card></div>;
 }
 
 const FACTOR_METRICS: [string, string, (v: unknown) => string][] = [
@@ -94,10 +50,10 @@ const FACTOR_METRICS: [string, string, (v: unknown) => string][] = [
 
 function FactorMatrix({ rows }: { rows: Json[] }) {
   if (!rows.length) return null;
-  const shown = rows.slice(0, 100);
+  const shown = rows;
   const values = FACTOR_METRICS.map(([key]) => shown.map((f: Json) => f.metrics?.[key]).filter((v: unknown): v is number => typeof v === "number" && Number.isFinite(v)));
-  return <div style={{ overflowX: "auto", maxHeight: 420, overflowY: "auto", marginBottom: 16 }}>
-    <h4>因子 × dev 指标（显示前 {shown.length} 项；颜色表示相对高低，不代表过关）</h4>
+  return <div className="table-scroll matrix-scroll" style={{ maxHeight: 420 }}>
+    <h4>因子 × dev 指标（共 {shown.length} 项；颜色表示相对高低，不代表过关）</h4>
     <table className="table compact">
       <thead><tr><th>因子</th>{FACTOR_METRICS.map(([, label]) => <th key={label}>{label}</th>)}</tr></thead>
       <tbody>{shown.map((f: Json) => <tr key={`${f.factor_id}@${f.version}`}>
@@ -157,7 +113,7 @@ export function Factor({ id }: { id: string }) {
       <Card title="状态变迁">
         <ul className="list">
           {data.state_history.map((e: Json, i: number) => (
-            <li key={i}>{fmtTime(e.ts)} · {e.from} → <b>{e.to}</b> <span className="muted small">({e.role}{e.reason ? `，${e.reason}` : ""})</span></li>
+            <li key={i}>{fmtTime(e.ts)} · {STATUS_LABEL[e.from] ?? e.from} → <b>{STATUS_LABEL[e.to] ?? e.to}</b> <span className="muted small">({e.role}{e.reason ? `，${e.reason}` : ""})</span></li>
           ))}
         </ul>
       </Card>

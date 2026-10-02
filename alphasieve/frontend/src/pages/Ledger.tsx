@@ -13,7 +13,7 @@ export function Ledger() {
   if (!data) return <Loading error={error} />;
   return (
     <div className="page">
-      <Card title="Trial ledger（追加写入、哈希链）" extra={
+      <Card title="试验记录（追加写入、哈希链）" extra={
         <div className="filters">
           <select value={campaign} onChange={(e) => { setCampaign(e.target.value); setPage(0); }}>
             <option value="">全部</option>
@@ -53,7 +53,7 @@ export function Data() {
   return (
     <div className="page">
       <DataCard data={data} />
-      <Card title="panel 元数据">
+      <Card title="数据面板元数据">
         <pre className="pre">{JSON.stringify(data.panels, null, 2)}</pre>
       </Card>
     </div>

@@ -33,7 +33,7 @@ def cmd_init(args, ctx) -> CommandResult:
 
 @command("ledger verify", ALL, help="verify the trial ledger hash chain")
 def cmd_ledger_verify(args, ctx) -> CommandResult:
-    report = verify_ledger(ctx.conn)
+    report = verify_ledger(ctx.conn, ctx.settings)
     error = None
     if not report["ok"]:
         error = AlphaSieveError("CONFLICT", "ledger verification failed", {"errors": report["errors"][:20]})
@@ -80,7 +80,7 @@ def _configure_backup(p):
 def cmd_state_backup(args, ctx) -> CommandResult:
     from alphasieve.state.backup import prune_backups, take_backup
 
-    info = take_backup(ctx.conn, ctx.settings.backups_dir)
+    info = take_backup(ctx.conn, ctx.settings.backups_dir, settings=ctx.settings)
     info["pruned"] = [] if args.no_prune else prune_backups(ctx.settings.backups_dir)
     return CommandResult(data=info)
 

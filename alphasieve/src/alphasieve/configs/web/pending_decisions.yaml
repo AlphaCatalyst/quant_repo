@@ -92,14 +92,29 @@ decisions:
     decided_at: null
   - id: paid-data
     title: 数据源付费升级
-    question: 是否付费升级数据源，以及优先补齐哪些字段和历史口径？
+    question: 是否购买 Tushare 积分，补官方指数权重、中证 500 全收益指数、PIT 申万行业和卖方盈利预测？
     evidence: docs/17-data-vendors.md
     options:
-      - name: 待调研
-        consequence: 先核对字段、PIT 历史、授权范围、费用和替代方案。
+      - name: Tushare 10000 积分（个人约 1000 元/年，机构价约 1 万元/年）
+        consequence: 一次补齐基准口径、PIT 行业和一致预期；一致预期按普通因子走 L1–L4 与预算流程。
+      - name: Tushare 2000 积分（个人约 200 元/年）
+        consequence: 只修正确性（官方权重、全收益指数、PIT 行业），一致预期以后再加。
       - name: 暂缓升级
-        consequence: 继续使用现有数据；严格 PIT 风险模型需等合格行业源。
-    recommendation: 待调研。
+        consequence: 继续用 D-31 自算基准代理；风险模型 v1 的行业仍有前视偏差。
+    recommendation: Tushare 10000 积分；购买前确认适用个人价还是机构价，以及“不得商用”条款是否限制内部研究。
+    status: open
+    decision: null
+    decided_at: null
+  - id: a-c1-rerun
+    title: A 的 C1 是否另批名额重跑
+    question: C1 因平台缺冻结分数来源而未产生结果（abandoned），C2 未通过。是否另批 1 个 A 名额（N=16）按原预注册配置重跑 C1？
+    evidence: docs/22-a-cost-aware.md
+    options:
+      - name: 不重跑（按 docs/22 §4 停止）
+        consequence: A 的组合研究停止，v4 保持 dev 参考；转向数据（一致预期、PIT 行业）或风险模型。
+      - name: 另批 1 个名额重跑 C1
+        consequence: 配置与代码冻结不变，C1 结果从未被看到；折扣按 N=16 计，所有候选的折扣后 IR 再降约 0.01。
+    recommendation: 不重跑。C1 只改收益尺度，P1–P4 与 C2 的超额都卡在 5%–6%，瓶颈更可能在信号与数据，而不在成本尺度。
     status: open
     decision: null
     decided_at: null

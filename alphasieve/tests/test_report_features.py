@@ -83,7 +83,8 @@ def test_panel_report_columns_do_not_change_existing_columns(built_root, tmp_pat
     code = baseline["code"].iloc[0]
     reports_dir = raw / "westock" / "reports"
     reports_dir.mkdir(parents=True)
-    pd.DataFrame([_row("r1", "2019-04-25", "甲", 2019, 2.0)]).assign(code=code).to_parquet(
+    pd.DataFrame([_row("r1", "2019-04-25", "甲", 2019, 2.0),
+                  _row("future", "2023-04-25", "甲", 2019, 99.0)]).assign(code=code).to_parquet(
         reports_dir / "parsed.parquet", index=False)
     extended, _, _ = build_long_panel(settings, "2019-12-31")
     pd.testing.assert_frame_equal(extended[baseline.columns], baseline)

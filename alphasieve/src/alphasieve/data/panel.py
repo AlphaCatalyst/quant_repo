@@ -295,7 +295,7 @@ def build_long_panel(settings: Settings, end: str, universe: str | None = None,
     if reports_path.exists():
         from alphasieve.data.report_features import attach_report_features
 
-        reports = pd.read_parquet(reports_path)
+        reports = pd.read_parquet(reports_path, filters=[("publish_date", "<=", end)])
         panel = attach_report_features(panel, reports[reports["code"].isin(codes)], calendar)
     panel = panel.sort_values(["date", "code"]).reset_index(drop=True)
     if cfg["membership"] == "hs300":

@@ -74,6 +74,8 @@ def test_approval_signature_and_rejections(tmp_path):
         consume_signature(conn, settings, "request", "R-1", "answered", str(signed))
     assert verify_records(conn, settings) == []
     conn.execute("DROP TRIGGER signed_approvals_no_update")
+    conn.execute("UPDATE signed_approvals SET evidence_json = '{}' ")
+    assert any("evidence" in error["error"] for error in verify_records(conn, settings))
     conn.execute("UPDATE signed_approvals SET signature = 'tampered'")
     assert any("signature" in error["error"] for error in verify_records(conn, settings))
     assert not verify_ledger(conn, settings)["ok"]

@@ -16,7 +16,7 @@ from alphasieve.ledger import append_trial, verify_ledger
 from alphasieve.state import connect
 
 
-ROOT = Path("/tmp/alphasieve-web-round4-synthetic")
+ROOT = Path("/tmp/alphasieve-web-inbox-synthetic")
 CAMPAIGN = "c-synthetic-web"
 APPROVED = "S-000000000001"
 HOLDOUT = APPROVED + "-H"
@@ -126,6 +126,14 @@ def main() -> None:
                  " created_at) VALUES (?, ?, ?, ?, ?, ?)",
                  ("req-factor-synthetic-pending", "shortlist-synthetic", CAMPAIGN, 1, "pending",
                   "2026-09-04T00:00:00Z"))
+    conn.execute("INSERT INTO agent_requests (request_id, campaign_id, kind, content, status, created_at)"
+                 " VALUES (?, ?, ?, ?, ?, ?)",
+                 ("request-synthetic", CAMPAIGN, "question", "【合成演示】请选择下一轮研究重点", "open",
+                  datetime.now(UTC).isoformat()))
+    conn.execute("INSERT INTO review_packets (packet_id, factor_id, version, campaign_id, shortlist_id, artifact_id,"
+                 " status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                 ("packet-synthetic", "F-000001", 1, CAMPAIGN, "shortlist-synthetic", "d" * 24,
+                  "open", datetime.now(UTC).isoformat()))
 
     assert verify_ledger(conn)["ok"]
     conn.close()
@@ -133,7 +141,7 @@ def main() -> None:
     print("ALPHASIEVE_HOT_ROOT=/tmp/alphasieve-web-round4-synthetic/hot \\")
     print("ALPHASIEVE_STORE_ROOT=/tmp/alphasieve-web-round4-synthetic/store \\")
     print("ALPHASIEVE_STORE_MOUNT='' ALPHASIEVE_ROLE=human ALPHASIEVE_WEB_AUTH=none \\")
-    print("uv run alphasieve serve --host 127.0.0.1 --port 8733")
+    print("uv run alphasieve serve --host 127.0.0.1 --port 8743")
 
 
 if __name__ == "__main__":

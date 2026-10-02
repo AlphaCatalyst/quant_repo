@@ -4,6 +4,7 @@ A task fixes the label, the sample, the features, the dev-only split, the candid
 before any result is seen. Every full run of a task is one strategy-layer trial; changing any field is a new trial.
 """
 
+import math
 import re
 from pathlib import Path
 from typing import Literal
@@ -138,6 +139,8 @@ class PortfolioLink(_Model):
     basis_head: Literal["enabled", "disabled"] = "disabled"
     objective: Literal["score", "net_alpha_pwl"] = "score"
     alpha_return_scale: float = 0.005
+    alpha_scale_mode: Literal["fixed", "trailing_10d"] = "fixed"
+    impact_design_aum: float | None = None
     impact_segments: int = 4
     score_ema_half_life: float | None = None
     active_liquidity_adv_fraction: float | None = None
@@ -223,6 +226,18 @@ class TrainingTask(_Model):
                           " index-enhancement construction")
         if pf.alpha_return_scale <= 0 or pf.liquidity_design_aum <= 0:
             errors.append("alpha_return_scale and liquidity_design_aum must be positive")
+        if not all(math.isfinite(v) for v in (pf.alpha_return_scale, pf.liquidity_design_aum, pf.aum)):
+            errors.append("portfolio scales and AUM must be finite")
+        if pf.impact_design_aum is not None and (not math.isfinite(pf.impact_design_aum)
+                                                  or pf.impact_design_aum <= 0):
+            errors.append("impact_design_aum must be finite and positive")
+        if pf.alpha_scale_mode != "fixed" or pf.impact_design_aum is not None:
+            if (self.mandate != "A" or self.score_source is None or pf.kind != "index_enhancement"
+                    or pf.construction != "lp" or pf.objective != "net_alpha_pwl"
+                    or (pf.alpha_scale_mode != "fixed" and (pf.rebalance_every != 10
+                                                        or pf.alpha_return_scale != 0.005))):
+                errors.append("cost-aware fields require frozen A net-alpha LP; trailing_10d needs 10-day rebalance"
+                              " and 0.005 fallback")
         if pf.impact_segments != 4:
             errors.append("impact_segments is fixed at 4 (docs/21 §2.1)")
         if pf.score_ema_half_life is not None and pf.score_ema_half_life <= 0:
@@ -267,6 +282,7 @@ class TrainingTask(_Model):
 LATER_FIELDS = (("features", "derived_fields"), ("features", "event_source"), ("features", "event_lag_days"),
                 ("features", "event_half_lives"), ("features", "etf_mapping"), ("portfolio", "hedge_ratios"),
                 ("portfolio", "objective"), ("portfolio", "alpha_return_scale"), ("portfolio", "impact_segments"),
+                ("portfolio", "alpha_scale_mode"), ("portfolio", "impact_design_aum"),
                 ("portfolio", "score_ema_half_life"), ("portfolio", "active_liquidity_adv_fraction"),
                 ("portfolio", "liquidity_design_aum"), (None, "score_source"))
 

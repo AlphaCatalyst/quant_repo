@@ -1,8 +1,8 @@
 # 22 · A 的成本感知续研
 
-状态：设计，未实现、未运行。日期 2026-10-01。用户已批准新增恰好 **2 个 A strategy trial**，累计 `N<=15`；不是重开 docs/21 的四个名额。本次只写本文和文档索引，不改代码或配置，不运行试验、不提交 Ray 作业，不申请或读取 holdout/fresh。
+状态：已实现、未运行。设计日期 2026-10-01，实现与 D-34 记录日期 2026-10-02。用户已批准新增恰好 **2 个 A strategy trial**，累计 `N<=15`；不是重开 docs/21 的四个名额。真实试验留待合并后由人工执行；未提交 Ray 作业，未申请或读取 holdout/fresh。
 
-依据为 [21-a-portfolio.md](21-a-portfolio.md)（尤其 §2.1、§4、§6、§7）、[18-mandates.md](18-mandates.md) §3、D-31–D-33 和 [acceptance-training.md](acceptance-training.md) §2b。后续实现须把 `STRATEGY_TRIAL_BUDGET["A"]` 从 13 改为 15，并在 `docs/10-decisions.md` 记录 D-34：用户批准两次成本感知试验，原验收与停止纪律不变。本次受文件范围限制，D-34 的正式落表留给实现提交；当前代码仍限制为 13。
+依据为 [21-a-portfolio.md](21-a-portfolio.md)（尤其 §2.1、§4、§6、§7）、[18-mandates.md](18-mandates.md) §3、D-31–D-34 和 [acceptance-training.md](acceptance-training.md) §2b。`STRATEGY_TRIAL_BUDGET["A"]` 已从 13 改为 15；D-34 记录用户批准两次成本感知试验，原验收与停止纪律不变。
 
 ## 1. 已有证据与收益尺度
 
@@ -90,7 +90,7 @@ portfolio:
 
 将两字段加入 `LATER_FIELDS`，默认值剔除，显式默认和缺省 hash 相同，非默认纳入 hash；不得重算替换原 ledger 身份。P1 原 hash 为 `488b1f8c2b00ddfa`，v4 原 hash 为 `18fc9302845d11b2`。现有 `alpha_return_scale>0` 的配置校验保持；校准得到的 0 是运行时系数，不写回任务或 hash。所有相关数值须有限，拒绝 NaN/Inf。
 
-| 文件 / 函数 | 后续实现范围 |
+| 文件 / 函数 | 实现范围 |
 |---|---|
 | `training/task.py`：`PortfolioLink`、`_portfolio_rules`、`LATER_FIELDS` | 两字段、校验与 hash 兼容；不改 `ScoreSource` 或训练 schema |
 | `strategy/portfolio_lp.py`：`build_weights_lp`、小型尺度辅助函数 | 抽出与现有数值完全一致的截面 z-score；仅开关启用时按 §2.1 计算调仓日系数，以 `cost["alpha_scale"]` 传入已有 `_solve`；目标规模取 `impact_design_aum or cfg.aum`。`_solve` 的变量、四段、风险约束和失败路径保持 |
@@ -108,7 +108,7 @@ portfolio:
 - 默认兼容：两字段关闭时 P1/v4 的权重、成交、现有指标与旧路径一致（绝对误差 ≤1e−10）；显式默认 hash 不变，载入已有任务确认上述两 hash；非默认 hash 改变，非法组合与非有限值拒绝。
 - 预算/选择：隔离 ledger 下 N=13 只允许两个不同预注册配置各启动一次，失败与 abandoned 占预算，重复启动及 N=15 新启动拒绝；胜出排序覆盖 IR 差 0.02 的边界与无合格者。清除 `<1e−6` 权重后重查 LP 约束，偏差 >1e−6 或换手放宽使候选不合格；市值以 `_size_z` 的总体标准差为准，不以现有报告近似值替代。
 
-后续实现完成后运行上述 focused tests 和仓库要求的 `uv run pytest`，工程通过且两配置提交冻结后才可真实运行。本次只检查文档增量和 YAML 语法，不执行这些测试或 trial。
+实现后运行上述 focused tests 和仓库要求的 `uv run pytest`；工程通过且两配置提交冻结后才可真实运行。本次只运行隔离合成测试，不执行真实 trial。
 
 ## 4. 验收、搜索折扣与停止
 
@@ -130,7 +130,7 @@ P1/v4 的真实执行长度为 1702 个交易日，`Y=1702/252=6.753968` 年；`
 
 ## 5. ledger 与冻结
 
-- 两个完整配置、代码、D-34 和预注册清单必须在第一次运行前一起固定并提交；记录代码版本、task/bundle hash、共同 score/manifest/panel/b3 digest 与 dev 截止日。本次只交付设计，不替代该提交。
+- 两个完整配置、代码、D-34 和预注册清单必须在第一次运行前一起固定并提交；记录代码版本、task/bundle hash、共同 score/manifest/panel/b3 digest 与 dev 截止日。
 - 每配置只运行一次，顺序固定；预算按 `strategy_trial_count(scope="A", tier="dev")` 的 started 数，接受已有 N=13，不手工减旧计数。失败、abandoned、无效尝试均消费名额，修复后真实重跑也是新尝试，本轮没有此名额。
 - 全部真实研究走唯一 JSON CLI，先记 started，终态、诊断、成本和胜出理由随同一个 trial 写 artifact/ledger；不能直接改 registry/ledger。固定目标容量与分期属于该 trial，另开完整配置回测另计。`void` 仅处理重复结果行，不用于差结果或减少 started。
 - 看到结果后改尺度算法、回退值、窗口、设计规模、市值限制、cap 或任何其他参数均为新配置，不能替换剩余名额。工程阻塞先修 fixture；已 started 的工程失败仍计数，不绕预算。源/时间审计失败保留失败记录。

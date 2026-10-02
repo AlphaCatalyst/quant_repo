@@ -12,9 +12,10 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import yaml
 
 from alphasieve.artifacts import write_artifact
-from alphasieve.config import Settings, load_config
+from alphasieve.config import PACKAGE_CONFIG_DIR, Settings, load_config
 from alphasieve.contracts import TrialLedgerEntry
 from alphasieve.data.access import Panel, load_panel
 from alphasieve.errors import AlphaSieveError, validation_error
@@ -35,6 +36,40 @@ from alphasieve.util import canonical_json, code_version, pretty_json, sha256_he
 
 PANEL_OF = {"csi800": None, "csi500": None, "hs300": None, "ashare_all": "ashare_all", "ashare_2020": "ashare_2020",
             "hs300_2020": "hs300_2020", "etf_sector": "etf_sector"}
+COST_AWARE_TASKS = ("a_csi500_portfolio_cost_scale_v2", "a_csi500_portfolio_cost_capacity_v2")
+COST_AWARE_HASHES = ("de320dd0a27cdbf9", "7932b9f7c2a8008f")
+
+
+def _costs_hash(settings: Settings) -> str:
+    active = sha256_hex(canonical_json(load_config(settings, "costs").get("b3", {})))
+    fixed = yaml.safe_load((PACKAGE_CONFIG_DIR / "costs.yaml").read_text(encoding="utf-8")) or {}
+    if active != sha256_hex(canonical_json(fixed.get("b3", {}))):
+        raise validation_error("cost-aware B3 costs differ from the registered configuration")
+    return active
+
+
+def _check_cost_aware_registration(task: TrainingTask) -> None:
+    if task.task_id not in COST_AWARE_TASKS:
+        return
+    files = PACKAGE_CONFIG_DIR / "training_tasks"
+    preregistered = [parse_task(yaml.safe_load((files / f"{name}.yaml").read_text(encoding="utf-8")))
+                     for name in COST_AWARE_TASKS]
+    source = preregistered[0].score_source
+    if (task.config_hash != preregistered[COST_AWARE_TASKS.index(task.task_id)].config_hash
+            or tuple(item.config_hash for item in preregistered) != COST_AWARE_HASHES
+            or any(item.score_source != source for item in preregistered)):
+        raise validation_error("cost-aware task differs from the fixed C1/C2 registration")
+
+
+def _check_p1_source(settings: Settings, frozen: dict) -> None:
+    from alphasieve.training.score_source import source_dir
+
+    p1 = source_dir(settings, "a_csi500_portfolio_cost_v1", "S-05cc830d4f41")
+    manifest = json.loads((p1 / "manifest.json").read_text(encoding="utf-8"))
+    if (manifest.get("trial_id") != "S-05cc830d4f41" or manifest.get("config_hash") != "488b1f8c2b00ddfa"
+            or manifest.get("evidence_tier") != "dev"
+            or manifest.get("bundle", {}).get("features", {}).get("score_source") != frozen):
+        raise validation_error("cost-aware source differs from the locked P1 bundle")
 
 
 def resolve_features(conn: sqlite3.Connection, task: TrainingTask) -> list[dict]:
@@ -49,15 +84,23 @@ def resolve_features(conn: sqlite3.Connection, task: TrainingTask) -> list[dict]
 
 
 def make_bundle(task: TrainingTask, members: list[dict], trial_id: str, settings: Settings | None = None) -> dict:
+    _check_cost_aware_registration(task)
     if task.score_source is not None:
         from alphasieve.training.score_source import freeze_source as freeze_scores
 
         if settings is None:
             raise validation_error("freezing a score source needs the settings")
         features = {"score_source": freeze_scores(settings, task.score_source.task_id, task.score_source.trial_id)}
-        return {"task": task.model_dump(mode="json"), "features": features, "trial_id": trial_id,
-                "feature_version": sha256_hex(canonical_json(features))[:12], "config_hash": task.config_hash,
-                "code_version": code_version()}
+        if task.task_id in COST_AWARE_TASKS and features["score_source"]["config_hash"] != "18fc9302845d11b2":
+            raise validation_error("cost-aware score source is not the locked A v4 configuration")
+        if task.task_id in COST_AWARE_TASKS:
+            _check_p1_source(settings, features["score_source"])
+        bundle = {"task": task.model_dump(mode="json"), "features": features, "trial_id": trial_id,
+                  "feature_version": sha256_hex(canonical_json(features))[:12], "config_hash": task.config_hash,
+                  "code_version": code_version()}
+        if task.task_id in COST_AWARE_TASKS:
+            bundle["costs_sha256"] = _costs_hash(settings)
+        return bundle
     features = {"factors": members, "panel_fields": task.features.panel_fields}
     if task.features.derived_fields:
         features["derived_fields"] = task.features.derived_fields
@@ -187,6 +230,12 @@ def run_cross_sectional(settings: Settings, task: TrainingTask, bundle: dict, pa
 def execute(settings: Settings, bundle: dict, processes=None, threads=None, progress=None,
             tier: str = "dev") -> tuple[dict, dict]:
     task = parse_task(bundle["task"])
+    _check_cost_aware_registration(task)
+    if task.task_id in COST_AWARE_TASKS:
+        costs_hash = _costs_hash(settings)
+        if bundle.get("costs_sha256") != costs_hash or bundle.get("config_hash") != task.config_hash:
+            raise validation_error("cost-aware bundle or B3 costs changed since registration")
+        _check_p1_source(settings, bundle["features"]["score_source"])
     panel = load_panel(settings, tier, role="system", universe=panel_universe(task))
     if tier == "dev" and panel.tier != "dev":
         raise validation_error("training runs read the dev tier only")
@@ -205,6 +254,9 @@ def execute(settings: Settings, bundle: dict, processes=None, threads=None, prog
                           "window": [str(d.date()) for d in panel.window],
                           "code_version": bundle.get("code_version") or code_version(),
                           "seeds": task.search.seeds}
+    if task.task_id in COST_AWARE_TASKS:
+        result["manifest"]["costs_sha256"] = bundle["costs_sha256"]
+        result["manifest"]["bundle_sha256"] = sha256_hex(canonical_json(bundle))
     return result, outputs
 
 
@@ -267,10 +319,22 @@ def _headline_ratio(result: dict) -> tuple[float | None, int]:
 
 def start_trial(conn: sqlite3.Connection, settings: Settings, task: TrainingTask, trial_id: str,
                 check_budget: bool = True) -> None:
+    _check_cost_aware_registration(task)
     budget = mandates.STRATEGY_TRIAL_BUDGET[task.mandate]
-    if check_budget and strategy_trial_count(conn, task.mandate, "dev") >= budget:
+    used = strategy_trial_count(conn, task.mandate, "dev")
+    if check_budget and used >= budget:
         raise AlphaSieveError("BUDGET_EXHAUSTED", f"mandate {task.mandate} has used its {budget} approved"
                               " strategy trials; a larger budget needs a recorded decision")
+    if check_budget and task.task_id in COST_AWARE_TASKS and used != 13 + COST_AWARE_TASKS.index(task.task_id):
+        raise validation_error(f"{task.task_id} must run in its pre-registered A trial position")
+    if check_budget and task.mandate == "A" and used in (13, 14):
+        expected = COST_AWARE_TASKS[used - 13]
+        if task.task_id != expected:
+            raise validation_error(f"A trial {used + 1} is pre-registered as {expected}")
+        if conn.execute("SELECT 1 FROM trials WHERE record_kind='started' AND layer='strategy'"
+                        " AND scope='A' AND evidence_tier='dev' AND search_space_version=? LIMIT 1",
+                        (f"training_task:{task.task_id}",)).fetchone():
+            raise validation_error(f"{task.task_id} has already started once")
     append_trial(conn, TrialLedgerEntry(
         trial_id=trial_id, record_kind="started", candidate_hash=task.config_hash, evidence_tier="dev",
         search_space_version=f"training_task:{task.task_id}", created_by=settings.role, layer="strategy",

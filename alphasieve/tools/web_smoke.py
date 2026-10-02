@@ -36,7 +36,7 @@ def check(page):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('--url', default='http://127.0.0.1:8732')
-    p.add_argument('--shots', default='/tmp/as_shots/round2')
+    p.add_argument('--shots', default='/tmp/as_shots/round3')
     args = p.parse_args()
     out = Path(args.shots)
     out.mkdir(parents=True, exist_ok=True)
@@ -46,14 +46,21 @@ def main():
         page.goto(args.url + '/#/mandates')
         page.wait_for_selector('.card', timeout=30000)
         page.wait_for_timeout(1200)
-        strategy = page.locator('a[href^="#/strategy/S-"]:not([href$="-H"])').first.get_attribute('href')
+        strategy_links = page.locator('a[href^="#/strategy/S-"]:not([href$="-H"])')
+        strategies = list(dict.fromkeys(strategy_links.all_text_contents()))
+        strategy = strategy_links.first.get_attribute('href')
+        ids = [s.strip() for s in strategies if s.strip().startswith('S-')]
+        compare = f'#/compare?a={ids[0]}&b={ids[1]}' if len(ids) > 1 else None
         page.goto(args.url + '/#/factors')
         page.wait_for_selector('.card', timeout=30000)
         factor = page.locator('a[href^="#/factor/"]').first.get_attribute('href')
         page.goto(args.url + '/#/')
         page.wait_for_selector('.card', timeout=30000)
         campaign = page.locator('a[href^="#/campaign/"]').first.get_attribute('href')
-        routes = {'overview': '#/', 'mandates': '#/mandates', 'strategy': strategy,
+        routes = {'overview': '#/', 'mandates': '#/mandates',
+                  'mandates-list': '#/mandates?view=list', 'mandates-holdout': '#/mandates?view=holdout',
+                  'strategy': strategy,
+                  'compare': compare,
                   'factors': '#/factors', 'factor': factor, 'campaign': campaign,
                   'ledger': '#/ledger', 'data': '#/data'}
         report = []
@@ -65,6 +72,7 @@ def main():
                 for theme in ('light', 'dark'):
                     context = browser.new_context(viewport={'width': width, 'height': 900}, device_scale_factor=1)
                     context.add_init_script(f"localStorage.setItem('alphasieve-theme','{theme}')")
+                    context.add_init_script("localStorage.setItem('alphasieve-guide-seen','1')")
                     tab = context.new_page()
                     errors = []
                     tab.on('pageerror', lambda e: errors.append(str(e)))
@@ -78,6 +86,13 @@ def main():
                     report.append({'route': name, 'width': width, 'theme': theme, 'shot': str(path),
                                    'issues': issues, 'errors': errors})
                     context.close()
+        guide_context = browser.new_context(viewport={'width': 1024, 'height': 900})
+        guide = guide_context.new_page()
+        guide.goto(args.url + '/#/', wait_until='domcontentloaded')
+        guide.wait_for_selector('.intro-guide', timeout=30000)
+        guide.wait_for_selector('.metric-strip', timeout=30000)
+        guide.screenshot(path=str(out / 'first-visit-1024-light.png'), full_page=True, animations='disabled')
+        guide_context.close()
         browser.close()
     (out / 'report.json').write_text(json.dumps(report, ensure_ascii=False, indent=2))
     for row in report:

@@ -6,6 +6,8 @@ from fixtures.campaign import campaign_spec, start_campaign
 
 from alphasieve.contracts import FactorSpec
 from alphasieve.evaluation.evaluate import evaluate_spec
+from alphasieve.contracts.models import TrialLedgerEntry
+from alphasieve.ledger import append_trial
 from alphasieve.state import connect
 from alphasieve.web.app import _load_credentials, _trade_days_lag, create_app
 
@@ -109,3 +111,33 @@ def test_web_mandate_and_strategy_views(panel_settings, tmp_path, capsys):
     assert detail["detail"]["task"]["task_id"] == "t_small"
     assert client.get("/api/strategy/S-000000000000", auth=auth).status_code == 404
     assert client.get("/api/strategy/..%2Fetc", auth=auth).status_code in (400, 404)
+
+
+def test_strategy_description_and_approved_holdout_acceptance_are_visible(panel_settings):
+    task_id = "t_synthetic"
+    config = panel_settings.config_dir / "training_tasks" / f"{task_id}.yaml"
+    config.parent.mkdir(parents=True, exist_ok=True)
+    config.write_text("task_id: t_synthetic\ndescription: Synthetic task subtitle\n", encoding="utf-8")
+    artifact_id = "a" * 24
+    artifact = panel_settings.artifacts_dir / artifact_id / "metrics.json"
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact.write_text(json.dumps({"acceptance": {"passed": True, "checks": [
+        {"name": "synthetic_check", "passed": True, "actual": 1, "threshold": 1}]},
+        "bundle": {"task": {"task_id": task_id}}}), encoding="utf-8")
+    trial_id = "S-000000000001-H"
+    conn = connect(panel_settings.state_db)
+    append_trial(conn, TrialLedgerEntry(trial_id=trial_id, record_kind="started", evidence_tier="holdout",
+                                        created_by="human", layer="strategy", scope="A",
+                                        metrics={"task_id": task_id}))
+    append_trial(conn, TrialLedgerEntry(trial_id=trial_id, record_kind="completed", evidence_tier="holdout",
+                                        created_by="human", layer="strategy", scope="A", artifact_id=artifact_id,
+                                        outcome="holdout_pass"))
+    conn.close()
+    client = TestClient(create_app(panel_settings, require_auth=False))
+    mandate = next(m for m in client.get("/api/mandates").json()["mandates"] if m["mandate"] == "A")
+    row = mandate["trials"][0]
+    assert row["task_description"] == "Synthetic task subtitle"
+    assert row["acceptance"]["checks"][0]["name"] == "synthetic_check"
+    detail = client.get(f"/api/strategy/{trial_id}").json()
+    assert detail["task_description"] == "Synthetic task subtitle"
+    assert detail["detail"]["acceptance"]["passed"] is True

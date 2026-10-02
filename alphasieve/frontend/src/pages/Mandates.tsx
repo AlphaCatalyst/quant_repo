@@ -9,7 +9,7 @@ const TITLES: Record<string, string> = {
   D: "股指期货对冲（已降级为 A 的风险管理模块）",
 };
 
-const CHECK_LABEL: Record<string, string> = {
+export const CHECK_LABEL: Record<string, string> = {
   annual_excess: "年化净超额",
   information_ratio: "信息比率",
   max_drawdown_excess: "超额最大回撤",
@@ -34,7 +34,7 @@ const CHECK_LABEL: Record<string, string> = {
 
 const RATIO_KEYS = ["information_ratio", "sharpe", "rank_ic", "car_spread_t", "decile_monotonicity", "ir"];
 
-function fmtCheck(name: string, v: unknown): string {
+export function fmtCheck(name: string, v: unknown): string {
   if (typeof v !== "number") return String(v ?? "—");
   if (RATIO_KEYS.some((k) => name.includes(k)) || name.endsWith("_positive")) return fmtNum(v, 3);
   return fmtPct(v, 2);
@@ -49,6 +49,7 @@ function headline(m: Json): { excess?: number; ratio?: number; ratioLabel: strin
 export function Mandates() {
   const { data, error } = useApi<Json>("/api/mandates", 30000);
   const [filters, setFilters] = useState(() => new URLSearchParams(window.location.hash.split("?")[1] ?? ""));
+  const [selected, setSelected] = useState<string[]>([]);
   useEffect(() => {
     const update = () => setFilters(new URLSearchParams(window.location.hash.split("?")[1] ?? ""));
     window.addEventListener("hashchange", update);
@@ -63,7 +64,9 @@ export function Mandates() {
   if (!data) return <Loading error={error} />;
   const selectedMandate = filters.get("mandate") ?? "";
   const selectedResult = filters.get("result") ?? "";
+  const view = ["matrix", "list", "holdout"].includes(filters.get("view") ?? "") ? filters.get("view") : "matrix";
   const visible = data.mandates.filter((m: Json) => !selectedMandate || m.mandate === selectedMandate);
+  const toggle = (id: string) => setSelected((ids) => ids.includes(id) ? ids.filter((x) => x !== id) : [...ids.slice(-1), id]);
   return (
     <div className="page">
       <div className="filters">
@@ -75,19 +78,28 @@ export function Mandates() {
           <option value="">全部</option><option value="passed">验收通过</option><option value="failed">验收未通过</option><option value="open">未有验收</option>
         </select></label>
       </div>
+      <div className="subnav" aria-label="策略视图">
+        {[["matrix", "验收矩阵"], ["list", "指标列表"], ["holdout", "holdout 申请"]].map(([key, label]) =>
+          <button key={key} aria-current={view === key ? "page" : undefined} style={{ fontWeight: view === key ? 700 : 400 }} onClick={() => setFilter("view", key)}>{label}</button>)}
+        {view !== "holdout" && <span className="muted small" style={{ marginLeft: "auto" }}>
+          {selected.length ? `已选 ${selected.length}/2` : "勾选两个 trial 可对比"}
+          {selected.length === 2 && <> · <a href={link(`/compare?a=${encodeURIComponent(selected[0])}&b=${encodeURIComponent(selected[1])}`)}>并排对比 →</a></>}
+        </span>}
+      </div>
       {visible.map((m: Json) => (
         <Card key={m.mandate} title={`${m.mandate} · ${TITLES[m.mandate] ?? ""}`}>
           <div className="two-col">
             <Progress label="dev 策略 trial 预算" used={m.dev_trials} budget={m.budget} />
             <Progress label="holdout 读取（人工批准）" used={m.holdout_reads.used} budget={m.holdout_reads.budget} />
           </div>
-          <TrialMatrix trials={m.trials.filter((t: Json) => t.tier !== "holdout" && !t.trial_id.endsWith("-H"))} result={selectedResult} />
-          {m.trials.length === 0 ? <Empty /> : <DataTable rows={m.trials.filter((t: Json) => matchesResult(t, selectedResult))}
+          {view === "matrix" && <TrialMatrix trials={m.trials} result={selectedResult} selected={selected} toggle={toggle} />}
+          {view === "list" && (m.trials.length === 0 ? <Empty /> : <DataTable rows={m.trials.filter((t: Json) => matchesResult(t, selectedResult))}
             filename={`mandate-${m.mandate}-trials.csv`} searchPlaceholder="搜索 trial、配置"
             filters={[{ label: "证据", value: (t: Json) => t.tier ?? "", options: [{ value: "dev", label: "开发" }, { value: "holdout", label: "留出集" }] }]}
             columns={[
+              { key: "select", label: "对比", value: (t: Json) => t.trial_id, sortable: false, render: (t: Json) => <input type="checkbox" aria-label={`选择 ${t.trial_id} 对比`} checked={selected.includes(t.trial_id)} onChange={() => toggle(t.trial_id)} /> },
               { key: "id", label: "trial", value: (t: Json) => t.trial_id, render: (t: Json) => <a className="mono nowrap" href={link(`/strategy/${t.trial_id}`)}>{t.trial_id}</a> },
-              { key: "config", label: "配置", value: (t: Json) => t.config_label ?? t.task_id },
+              { key: "config", label: "配置", value: (t: Json) => t.config_label ?? t.task_id, render: (t: Json) => <span title={t.task_description ?? t.task_id}>{t.config_label ?? t.task_id ?? "—"}</span> },
               { key: "tier", label: "证据", value: (t: Json) => t.tier, render: (t: Json) => <span className="tag">{t.tier ?? "—"}</span> },
               { key: "outcome", label: "结果", value: (t: Json) => t.outcome ?? t.status, render: (t: Json) => <Badge value={t.outcome ?? t.status} /> },
               { key: "excess", label: "净超额", value: (t: Json) => t.metrics?.annual_excess ?? t.metrics?.annual_return, render: (t: Json) => fmtPct(headline(t.metrics).excess, 2) },
@@ -97,9 +109,10 @@ export function Mandates() {
               { key: "discount", label: "折扣后", value: (t: Json) => t.metrics?.search_discount?.deflated_ratio, render: (t: Json) => fmtNum(t.metrics?.search_discount?.deflated_ratio, 2) },
               { key: "n", label: "N", value: (t: Json) => t.metrics?.search_discount?.trials },
               { key: "time", label: "完成时间", value: (t: Json) => t.finished_at, render: (t: Json) => fmtTime(t.finished_at) },
-            ]} />}
-          <p className="muted small">矩阵颜色来自各 trial 原始验收判定。折扣后 = 观测 IR / 夏普减去 N 次零假设试验的期望最大值；N 为该 trial 完成时 mandate 的累计 trial 数。</p>
-          <HoldoutRequests rows={m.holdout_requests} />
+            ]} />)}
+          {view === "matrix" && <p className="muted small">颜色来自逐项验收判定。门槛按原始验收口径显示。</p>}
+          {view === "list" && <p className="muted small">折扣后 = 观测 IR / 夏普减去 N 次零假设试验的期望最大值；N 为该 trial 完成时 mandate 的累计 trial 数。</p>}
+          {view === "holdout" && <HoldoutRequests rows={m.holdout_requests} />}
         </Card>
       ))}
     </div>
@@ -112,33 +125,47 @@ function matchesResult(t: Json, result: string) {
   return t.acceptance?.passed === (result === "passed");
 }
 
-function TrialMatrix({ trials, result }: { trials: Json[]; result: string }) {
+export function thresholdText(name: string, value: unknown, threshold: unknown): string {
+  if (name === "positive_years" && typeof value === "string" && typeof threshold === "number") {
+    const denominator = Number(value.split("/")[1]);
+    return denominator > 0 ? `${Math.ceil(threshold * denominator - 1e-9)}/${denominator}` : `${fmtPct(threshold, 0)}（年份占比）`;
+  }
+  if (name === "sub_periods_positive" && typeof value === "string") return `${threshold}/${value.split("/")[1]}`;
+  return fmtCheck(name, threshold);
+}
+
+export function checkDirection(name: string): string {
+  return ["capacity_drop_at_aum", "annual_vol", "no_impact_minus_2e9"].includes(name) ? "≤" : "≥";
+}
+
+function TrialMatrix({ trials, result, selected, toggle }: { trials: Json[]; result: string; selected: string[]; toggle: (id: string) => void }) {
   const rows = trials.filter((t: Json) => matchesResult(t, result));
   const metrics = Array.from(new Set(rows.flatMap((t: Json) => Object.keys(t.acceptance?.checks ?? {})))) as string[];
-  if (!rows.length) return <Empty text="没有符合筛选条件的 dev trial" />;
+  if (!rows.length) return <Empty text="没有符合筛选条件的 trial" />;
   if (!metrics.length) return <p className="muted small">尚无逐项验收数据。</p>;
   const best = rows.filter((t: Json) => t.tier === "dev" && typeof t.metrics?.search_discount?.deflated_ratio === "number")
     .sort((a: Json, b: Json) => b.metrics.search_discount.deflated_ratio - a.metrics.search_discount.deflated_ratio)[0]?.trial_id;
   return <div className="table-scroll matrix-scroll">
     <h4>trial × 验收指标</h4>
     <table className="table compact">
-      <thead><tr><th>trial</th><th>配置</th><th>总验收</th>{metrics.map((k) => {
+      <thead><tr><th>对比</th><th>trial</th><th>配置</th><th>证据</th><th>总验收</th>{metrics.map((k) => {
         const checks = rows.map((t: Json) => t.acceptance?.checks?.[k]).filter(Boolean);
         const threshold = checks[0]?.[1];
-        const direction = checks.find((c: Json) => typeof c[0] === "number" && typeof c[1] === "number" && c[0] !== c[1] && c[2] != null);
-        const op = direction ? ((direction[0] > direction[1]) === direction[2] ? "≥" : "≤") : "门槛 ";
-        return <th key={k} title={k}>{CHECK_LABEL[k] ?? k}<span className="threshold">{threshold != null ? `${op} ${fmtCheck(k, threshold)}` : ""}</span></th>;
+        const value = checks[0]?.[0];
+        return <th key={k} title={k}>{CHECK_LABEL[k] ?? k}<span className="threshold">{threshold != null ? `${checkDirection(k)} ${thresholdText(k, value, threshold)}` : ""}</span></th>;
       })}</tr></thead>
       <tbody>{rows.map((t: Json) => <tr key={t.trial_id} className={t.trial_id === best ? "best-row" : ""}>
+        <td><input type="checkbox" aria-label={`选择 ${t.trial_id} 对比`} checked={selected.includes(t.trial_id)} onChange={() => toggle(t.trial_id)} /></td>
         <td className="small mono nowrap"><a href={link(`/strategy/${t.trial_id}`)}>{t.trial_id}</a>{t.trial_id === best && <span className="tag">折扣后最佳</span>}</td>
-        <td className="small nowrap" title={t.task_id}>{t.config_label ?? t.task_id ?? "—"}</td>
+        <td className="small nowrap" title={t.task_description ?? t.task_id}>{t.config_label ?? t.task_id ?? "—"}</td>
+        <td className="small">{t.tier === "holdout" ? "留出集" : t.tier === "dev" ? "开发" : "—"}</td>
         <td><span className={`badge ${t.acceptance?.passed == null ? "grey" : t.acceptance.passed ? "green" : "red"}`}>{t.acceptance?.passed == null ? "—" : t.acceptance.passed ? "通过" : "未通过"}</span></td>
         {metrics.map((k) => {
           const check = t.acceptance?.checks?.[k];
           const value = check?.[0];
           const threshold = check?.[1];
           const passed = check?.[2];
-          return <td key={k} title={check ? `门槛 ${fmtCheck(k, threshold)}` : "无数据"}>
+          return <td key={k} title={check ? `门槛 ${checkDirection(k)} ${thresholdText(k, value, threshold)}` : "无数据"}>
             <span className={`badge ${passed == null ? "grey" : passed ? "green" : "red"}`}>{check ? fmtCheck(k, value) : "—"}</span>
           </td>;
         })}
@@ -177,7 +204,7 @@ function Checks({ checks }: { checks: Record<string, [unknown, unknown, boolean]
       <tbody>
         {items.map(([k, [v, thr, ok]]) => (
           <tr key={k}>
-            <td>{CHECK_LABEL[k] ?? k}</td><td>{fmtCheck(k, v)}</td><td>{fmtCheck(k, thr)}</td>
+            <td>{CHECK_LABEL[k] ?? k}</td><td>{fmtCheck(k, v)}</td><td>{checkDirection(k)} {thresholdText(k, v, thr)}</td>
             <td><span className={`badge ${ok ? "green" : "red"}`}>{ok ? "通过" : "未通过"}</span></td>
           </tr>
         ))}
@@ -283,7 +310,7 @@ export function Strategy({ id }: { id: string }) {
         <table className="kv">
           <tbody>
             <tr><td>mandate</td><td>{started?.scope} · {TITLES[started?.scope] ?? ""}</td></tr>
-            <tr><td>配置</td><td>{started?.metrics?.task_id} · 哈希 <span className="mono">{started?.candidate_hash}</span></td></tr>
+            <tr><td>配置</td><td><span title={data.task_description ?? undefined}>{started?.metrics?.task_id}</span>{data.task_description && <div className="muted small" style={{ maxWidth: 720 }}>{data.task_description}</div>}哈希 <span className="mono">{started?.candidate_hash}</span></td></tr>
             <tr><td>tier</td><td><span className="tag">{result?.evidence_tier ?? "未完成"}</span> {result?.data_window ?? ""}</td></tr>
             <tr><td>结果</td><td>{result ? <Badge value={result.outcome} /> : <Badge value="open" />} {result?.metrics?.error ?? ""}</td></tr>
             <tr><td>搜索折扣</td><td>N = {sd.trials ?? "—"}，零假设期望最大 {fmtNum(sd.null_expected_max_ratio, 3)}，折扣后 {fmtNum(sd.deflated_ratio, 3)}</td></tr>

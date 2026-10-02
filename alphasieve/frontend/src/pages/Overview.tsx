@@ -2,6 +2,25 @@ import { useApi, type Json } from "../api";
 import { Badge, Card, DataTable, Empty, fmtNum, fmtPct, fmtTime, link, Loading, Progress } from "../components";
 
 const TITLES: Record<string, string> = { A: "中证 500 增强", B: "行业 ETF 轮动", C: "业绩超预期漂移", D: "股指期货对冲" };
+const FAILURE_LABELS: Record<string, string> = {
+  "l0.structure": "L0 · 结构检查未通过",
+  "l0.campaign_horizon": "L0 · 预测周期不符",
+  "l1.coverage": "L1 · 覆盖率不足",
+  "l1.valid_dates": "L1 · 有效交易日不足",
+  "l1.ic_mean": "L1 · RankIC 不足",
+  "l1.icir": "L1 · ICIR 不足",
+  "l1.library_corr": "L1 · 与因子库相关过高",
+  "l2.subwindows_same_sign": "L2 · 子窗口方向不稳定",
+  "l2.neutral_ratio": "L2 · 中性化后信号不足",
+  "l2.cost_adjusted_excess": "L2 · 成本后超额不足",
+  "l2.marginal_ic": "L2 · 边际 IC 不足",
+  "l2.neighborhood_trials": "L2 · 邻域试验数超限",
+  "l3.dsr": "L3 · 搜索折扣未通过",
+};
+
+export function failureLabel(code: string): string {
+  return FAILURE_LABELS[code] ?? `${code.split(".")[0]?.toUpperCase() || "检查"} · 其他检查未通过`;
+}
 
 export default function Overview() {
   const { data, error } = useApi<Json>("/api/overview", 30000);
@@ -95,7 +114,7 @@ function Stat({ label, value, tone }: { label: string; value: number; tone?: str
   );
 }
 
-export function FailureList({ reasons }: { reasons: Record<string, number> | undefined }) {
+export function FailureList({ reasons, level = "" }: { reasons: Record<string, number> | undefined; level?: string }) {
   const items = Object.entries(reasons ?? {}).sort((a, b) => b[1] - a[1]).slice(0, 8);
   if (!items.length) return <Empty />;
   const max = items[0][1];
@@ -103,7 +122,7 @@ export function FailureList({ reasons }: { reasons: Record<string, number> | und
     <div className="bars">
       {items.map(([k, v]) => (
         <div key={k} className="bar-row">
-          <span className="bar-label">{k}</span>
+          <span className="bar-label" title={level ? `${level}.${k}` : k}>{failureLabel(level ? `${level}.${k}` : k)}</span>
           <span className="bar-track"><span className="bar-fill" style={{ width: `${(v / max) * 100}%` }} /></span>
           <span className="bar-value">{v}</span>
         </div>

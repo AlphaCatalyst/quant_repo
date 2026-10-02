@@ -19,15 +19,15 @@ export function Factors() {
     {rows.length < data.count && <div className="alert-banner">筛选与矩阵当前只覆盖已载入项。
       <button className="btn small" disabled={loadingMore} onClick={loadMore}>{loadingMore ? "载入中…" : "载入后续 5000 项"}</button></div>}
     <FactorMatrix rows={rows} />
-    <DataTable rows={rows} filename="factors.csv" searchPlaceholder="搜索因子、表达式"
+    <div className="factor-table"><DataTable rows={rows} filename="factors.csv" searchPlaceholder="搜索因子、表达式"
       filters={[
         { label: "状态", value: (f: Json) => f.state, options: states.map((v) => ({ value: v, label: STATUS_LABEL[v] ?? v })) },
         { label: "研究", value: (f: Json) => f.campaign_id ?? "", options: campaigns.map((v) => ({ value: v, label: v })) },
       ]}
       columns={[
-        { key: "id", label: "ID", value: (f: Json) => `${f.factor_id}@${f.version}`, render: (f: Json) => <a href={link(`/factor/${f.factor_id}`)}>{f.factor_id}@{f.version}</a> },
-        { key: "name", label: "名称", value: (f: Json) => f.name, render: (f: Json) => <>{f.name}{f.in_library && <span className="tag">库</span>}</> },
-        { key: "expr", label: "表达式", value: (f: Json) => f.canonical_expression, render: (f: Json) => <code>{f.canonical_expression}</code> },
+        { key: "id", label: "ID", value: (f: Json) => `${f.factor_id}@${f.version}`, render: (f: Json) => <a href={link(`/factor/${f.factor_id}`)} title={`${f.factor_id}@${f.version}`}>{f.factor_id}@{f.version}</a> },
+        { key: "name", label: "名称", value: (f: Json) => f.name, render: (f: Json) => <span title={f.name}>{f.name}{f.in_library && <span className="tag">库</span>}</span> },
+        { key: "expr", label: "表达式", value: (f: Json) => f.canonical_expression, render: (f: Json) => <code className="factor-expression" title={f.canonical_expression}>{f.canonical_expression}</code> },
         { key: "direction", label: "方向", value: (f: Json) => f.direction },
         { key: "cell", label: "格子", value: (f: Json) => f.cell ? `${f.cell.domain}/${f.cell.form}/${f.cell.scale}` : "—" },
         { key: "state", label: "状态", value: (f: Json) => f.state, render: (f: Json) => <Badge value={f.state} /> },
@@ -37,7 +37,7 @@ export function Factors() {
         { key: "corr", label: "库相关", value: (f: Json) => f.metrics?.library_max_abs_corr, render: (f: Json) => fmtNum(f.metrics?.library_max_abs_corr, 2) },
         { key: "campaign", label: "研究", value: (f: Json) => f.campaign_id },
         { key: "created", label: "创建", value: (f: Json) => f.created_at, render: (f: Json) => fmtTime(f.created_at) },
-      ]} />
+      ]} /></div>
   </Card></div>;
 }
 
@@ -51,20 +51,31 @@ const FACTOR_METRICS: [string, string, (v: unknown) => string][] = [
 function FactorMatrix({ rows }: { rows: Json[] }) {
   if (!rows.length) return null;
   const shown = rows;
-  const values = FACTOR_METRICS.map(([key]) => shown.map((f: Json) => f.metrics?.[key]).filter((v: unknown): v is number => typeof v === "number" && Number.isFinite(v)));
+  const ranks = FACTOR_METRICS.map(([key]) => {
+    const signed = key === "ic_mean" || key === "icir";
+    const values = shown.map((f: Json) => f.metrics?.[key]).filter((v: unknown): v is number => typeof v === "number" && Number.isFinite(v));
+    const groups = signed ? [values.filter((v) => v < 0), values.filter((v) => v > 0)] : [values];
+    const rank = new Map<number, number>();
+    groups.forEach((group) => {
+      const sorted = [...new Set(group.map((v) => signed ? Math.abs(v) : v))].sort((a, b) => a - b);
+      sorted.forEach((v, i) => rank.set(signed && group[0] < 0 ? -v : v, sorted.length === 1 ? 0.5 : i / (sorted.length - 1)));
+    });
+    if (signed && values.includes(0)) rank.set(0, 0);
+    return rank;
+  });
   return <div className="table-scroll matrix-scroll" style={{ maxHeight: 420 }}>
-    <h4>因子 × dev 指标（共 {shown.length} 项；颜色表示相对高低，不代表过关）</h4>
+    <h4>因子 × dev 指标（共 {shown.length} 项）</h4>
+    <div className="factor-heat-legend">按列分位着色：颜色越深，绝对值或指标值越高；IC / ICIR <span className="factor-legend-positive">蓝色为正</span>、<span className="factor-legend-negative">橙色为负</span>。空值无色，颜色不代表过关。</div>
     <table className="table compact">
       <thead><tr><th>因子</th>{FACTOR_METRICS.map(([, label]) => <th key={label}>{label}</th>)}</tr></thead>
       <tbody>{shown.map((f: Json) => <tr key={`${f.factor_id}@${f.version}`}>
         <td className="small"><a href={link(`/factor/${f.factor_id}`)}>{f.name || f.factor_id}</a></td>
         {FACTOR_METRICS.map(([key, , format], i) => {
           const v = f.metrics?.[key];
-          const min = Math.min(...values[i]);
-          const max = Math.max(...values[i]);
-          const fraction = typeof v === "number" && max > min ? (v - min) / (max - min) : 0.5;
-          const strength = typeof v === "number" ? 0.08 + fraction * 0.3 : 0;
-          return <td key={key} style={{ background: `rgba(37, 99, 235, ${strength})` }} title={key}>{format(v)}</td>;
+          const fraction = typeof v === "number" && Number.isFinite(v) ? ranks[i].get(v) : undefined;
+          const color = v < 0 && (key === "ic_mean" || key === "icir") ? "var(--factor-heat-negative)" : "var(--factor-heat-positive)";
+          const strength = fraction === undefined ? 0 : Math.round(10 + fraction * 32);
+          return <td key={key} style={strength ? { background: `color-mix(in srgb, ${color} ${strength}%, var(--card))` } : undefined} title={key}>{format(v)}</td>;
         })}
       </tr>)}</tbody>
     </table>
@@ -78,6 +89,10 @@ export function Factor({ id }: { id: string }) {
   const spec = data.spec;
   return (
     <div className="page">
+      <div className="subnav"><a href="#/factors">← 因子列表</a>
+        <button onClick={() => document.getElementById("factor-evaluation")?.scrollIntoView({ behavior: "smooth" })}>评估记录</button>
+        <button onClick={() => document.getElementById("factor-history")?.scrollIntoView({ behavior: "smooth" })}>状态变迁</button>
+      </div>
       <div className="page-head">
         <div>
           <h2>{data.name} <span className="muted">{data.factor_id}@{data.version}</span> <Badge value={data.state} /></h2>
@@ -88,7 +103,7 @@ export function Factor({ id }: { id: string }) {
           </div>
         </div>
       </div>
-      <Card title="评估记录">
+      <div id="factor-evaluation"><Card title="评估记录">
         {data.trials.length === 0 ? <Empty /> : data.trials.map((t: Json) => (
           <div key={t.trial_id} className="trial">
             <div className="trial-head">
@@ -109,14 +124,14 @@ export function Factor({ id }: { id: string }) {
             </table>
           </div>
         ))}
-      </Card>
-      <Card title="状态变迁">
+      </Card></div>
+      <div id="factor-history"><Card title="状态变迁">
         <ul className="list">
           {data.state_history.map((e: Json, i: number) => (
             <li key={i}>{fmtTime(e.ts)} · {STATUS_LABEL[e.from] ?? e.from} → <b>{STATUS_LABEL[e.to] ?? e.to}</b> <span className="muted small">({e.role}{e.reason ? `，${e.reason}` : ""})</span></li>
           ))}
         </ul>
-      </Card>
+      </Card></div>
       {report !== null && (
         <div className="drawer" onClick={() => setReport(null)}>
           <div className="drawer-body" onClick={(e) => e.stopPropagation()}>

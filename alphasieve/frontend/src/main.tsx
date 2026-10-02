@@ -7,6 +7,7 @@ import Campaign from "./pages/Campaign";
 import { Factor, Factors } from "./pages/Factors";
 import { Data, Ledger } from "./pages/Ledger";
 import { Mandates, Strategy } from "./pages/Mandates";
+import Compare from "./pages/Compare";
 import { Glossary } from "./components";
 
 function useHashPath(): string {
@@ -38,6 +39,7 @@ function App() {
   const paused = useRefreshPaused();
   const [now, setNow] = useState(Date.now());
   const [theme, setTheme] = useState(() => localStorage.getItem("alphasieve-theme") || "light");
+  const [showGuide, setShowGuide] = useState(() => localStorage.getItem("alphasieve-guide-seen") !== "1");
   useEffect(() => { document.documentElement.dataset.theme = theme; localStorage.setItem("alphasieve-theme", theme); }, [theme]);
   useEffect(() => { const id = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(id); }, []);
   const parts = path.split("?")[0].split("/").filter(Boolean);
@@ -45,15 +47,16 @@ function App() {
   if (parts[0] === "campaign" && parts[1]) page = <Campaign id={parts[1]} key={parts[1]} />;
   else if (parts[0] === "factor" && parts[1]) page = <Factor id={parts[1]} key={parts[1]} />;
   else if (parts[0] === "strategy" && parts[1]) page = <Strategy id={parts[1]} key={parts[1]} />;
+  else if (parts[0] === "compare") page = <Compare query={path.split("?")[1] ?? ""} />;
   else if (parts[0] === "mandates") page = <Mandates />;
   else if (parts[0] === "factors") page = <Factors />;
   else if (parts[0] === "ledger") page = <Ledger />;
   else if (parts[0] === "data") page = <Data />;
   else page = <Overview />;
   const active = "/" + (parts[0] === "campaign" ? "" : parts[0] === "factor" ? "factors"
-    : parts[0] === "strategy" ? "mandates" : parts[0] ?? "");
+    : parts[0] === "strategy" || parts[0] === "compare" ? "mandates" : parts[0] ?? "");
   const counts: Record<string, number | undefined> = {
-    "/mandates": mandateSummary?.mandates?.reduce((n: number, m: Json) => n + m.dev_trials, 0), "/factors": overview?.library_size,
+    "/mandates": mandateSummary?.mandates?.length, "/factors": overview?.library_size,
     "/ledger": overview?.ledger?.completed_trials,
   };
   const notices: [string, string][] = [];
@@ -70,7 +73,7 @@ function App() {
       <nav className="nav">
         <a className="brand" href="#/">AlphaSieve</a>
         {NAV.map(([p, label]) => (
-          <a key={p} href={`#${p}`} className={active === p ? "active" : ""}>{label}{counts[p] != null && <span className="nav-count">{counts[p]}</span>}</a>
+          <a key={p} href={`#${p}`} className={active === p ? "active" : ""}>{label}{counts[p] != null && <span className="nav-count" title={p === "/mandates" ? "任务书数量" : p === "/factors" ? "因子库数量" : "已完成试验数"}>{counts[p]}</span>}</a>
         ))}
         <span className="nav-note top-chip">{paused ? "已暂停" : statusError ? "刷新失败" : `实时 · ${age(updatedAt, now)}`}</span>
         <span className="nav-meta" title="运行中的研究">运行中 {status?.running_campaigns ?? "—"}</span>
@@ -80,7 +83,14 @@ function App() {
         <button className="nav-button theme-button" title={theme === "dark" ? "切换浅色" : "切换深色"} aria-label="切换主题" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>◐</button>
         <Glossary />
       </nav>
-      <main>{notices.length > 0 && <div className="alert-banner"><strong>需要处理</strong>{notices.map(([label, href]) => <a key={label} href={`#${href}`}>{label} →</a>)}</div>}{page}</main>
+      <main>
+        {showGuide && <section className="card intro-guide" aria-label="看板怎么读">
+          <div className="intro-head"><h3>第一次看？这样读看板</h3><button className="btn small" onClick={() => { localStorage.setItem("alphasieve-guide-seen", "1"); setShowGuide(false); }}>知道了</button></div>
+          <p>四个任务：A 中证 500 增强、B 行业 ETF 轮动、C 业绩超预期漂移、D 股指期货对冲。每个任务都有自己的验收条件和试验预算。</p>
+          <p><b>dev</b> 用于开发和比较；<b>holdout</b> 是锁定配置后的留出验证。多次尝试中挑最好的一次会高估表现，“搜索折扣”用于校正这种偏差。holdout 读取次数有限，必须由人审批，避免反复试探留出集。</p>
+        </section>}
+        {notices.length > 0 && <div className="alert-banner"><strong>需要处理</strong>{notices.map(([label, href]) => <a key={label} href={`#${href}`}>{label} →</a>)}</div>}{page}
+      </main>
     </>
   );
 }

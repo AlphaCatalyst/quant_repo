@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import type { EChartsOption } from "echarts";
 import { getText, useApi, type Json } from "../api";
 import { Badge, Card, Chart, duration, Empty, fmtNum, fmtPct, fmtTime, link, Loading, Progress } from "../components";
-import { FailureList } from "./Overview";
+import { FailureList, failureLabel } from "./Overview";
 
 const FUNNEL: [string, string][] = [
   ["submitted", "提交"],
@@ -55,6 +55,11 @@ export default function Campaign({ id }: { id: string }) {
 
   return (
     <div className="page">
+      <div className="subnav"><a href="#/">← 研究列表</a>
+        <button onClick={() => document.getElementById("campaign-progress")?.scrollIntoView({ behavior: "smooth" })}>进展与失败</button>
+        <button onClick={() => document.getElementById("campaign-trials")?.scrollIntoView({ behavior: "smooth" })}>轮次与评估</button>
+        <button onClick={() => document.getElementById("campaign-holdout")?.scrollIntoView({ behavior: "smooth" })}>候选与留出集</button>
+      </div>
       <div className="page-head">
         <div>
           <h2>{c.campaign_id} <Badge value={c.status} /></h2>
@@ -80,7 +85,7 @@ export default function Campaign({ id }: { id: string }) {
         </button>
       </div>
 
-      <div className="two-col">
+      <div className="two-col" id="campaign-progress">
         <Card title="预算与停止条件">
           <Progress label="trial" used={b.trials.used} budget={b.trials.budget} />
           <Progress label="turn" used={b.turns.used} budget={b.turns.budget} />
@@ -107,13 +112,13 @@ export default function Campaign({ id }: { id: string }) {
           {Object.entries(data.funnel.failure_reasons).map(([lvl, reasons]) => (
             <div key={lvl}>
               <h4>{lvl.toUpperCase()}</h4>
-              <FailureList reasons={reasons as Record<string, number>} />
+              <FailureList reasons={reasons as Record<string, number>} level={lvl} />
             </div>
           ))}
         </Card>
       </div>
 
-      <Card title={`研究轮次（${data.turns.length}）`}>
+      <div id="campaign-trials"><Card title={`研究轮次（${data.turns.length}）`}>
         {data.turns.length === 0 ? <Empty /> : (
           <table className="table">
             <thead>
@@ -137,7 +142,7 @@ export default function Campaign({ id }: { id: string }) {
             </tbody>
           </table>
         )}
-      </Card>
+      </Card></div>
 
       <Card title="最近评估">
         <RecentTable rows={data.recent} />
@@ -172,7 +177,7 @@ export default function Campaign({ id }: { id: string }) {
         </Card>
       </div>
 
-      <div className="two-col">
+      <div className="two-col" id="campaign-holdout">
         <Card title="指令与研究请求">
           <h4>指令（用 CLI `alphasieve directive add` 添加）</h4>
           {data.directives.length ? (
@@ -228,7 +233,7 @@ export function RecentTable({ rows }: { rows: Json[] }) {
             <td>{fmtNum(r.ic_mean, 4)}</td>
             <td>{fmtNum(r.icir)}</td>
             <td>{fmtNum(r.library_max_abs_corr, 2)}</td>
-            <td className="small">{r.failed.join(", ")}</td>
+            <td className="small" title={r.failed.join(", ")}>{r.failed.map((code: string) => failureLabel(code)).join("、")}</td>
           </tr>
         ))}
       </tbody>

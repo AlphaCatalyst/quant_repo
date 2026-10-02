@@ -6,6 +6,7 @@ import os
 import re
 import secrets
 import sqlite3
+import yaml
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -80,6 +81,20 @@ def _ro_connect(settings: Settings) -> sqlite3.Connection:
 
 def _loads(value, default=None):
     return json.loads(value) if value else default
+
+
+def _task_description(settings: Settings, task_id: str | None) -> str | None:
+    if not task_id or not re.fullmatch(r"[a-z0-9_-]{3,64}", task_id):
+        return None
+    path = settings.config_dir / "training_tasks" / f"{task_id}.yaml"
+    try:
+        task = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return None
+    if not isinstance(task, dict) or task.get("task_id") != task_id:
+        return None
+    description = task.get("description")
+    return description.strip() or None if isinstance(description, str) else None
 
 
 def _transcript_events(path: Path, limit: int = 400) -> list[dict]:
@@ -357,18 +372,22 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
         from alphasieve.training.mandates import STRATEGY_TRIAL_BUDGET
 
         trials: dict[str, dict] = {}
+        descriptions: dict[str, str | None] = {}
         for r in conn.execute("SELECT * FROM trials WHERE layer = 'strategy' AND record_kind != 'void' ORDER BY seq"):
             metrics = _loads(r["metrics_json"], {})
             t = trials.setdefault(r["trial_id"], {"trial_id": r["trial_id"], "mandate": r["scope"],
                                                   "config_hash": r["candidate_hash"], "status": "open"})
             if r["record_kind"] == "started":
+                task_id = metrics.get("task_id")
+                if isinstance(task_id, str) and task_id not in descriptions:
+                    descriptions[task_id] = _task_description(settings, task_id)
                 t.update(task_id=metrics.get("task_id"), config_label=metrics.get("task_id"),
+                         task_description=descriptions.get(task_id),
                          started_at=r["created_at"])
             else:
                 t.update(status=r["record_kind"], tier=r["evidence_tier"], outcome=r["outcome"],
                          artifact_id=r["artifact_id"], finished_at=r["created_at"], metrics=metrics)
-                if (r["evidence_tier"] == "dev" and not r["trial_id"].endswith("-H")
-                        and r["artifact_id"] and r["record_kind"] == "completed"):
+                if r["artifact_id"] and r["record_kind"] == "completed":
                     artifact = settings.artifacts_dir / r["artifact_id"] / "metrics.json"
                     if artifact.is_file():
                         detail = json.loads(artifact.read_text(encoding="utf-8"))
@@ -398,6 +417,7 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
         for r in rows:
             r["metrics"] = _loads(r.pop("metrics_json"), {})
             r["gates"] = _loads(r.pop("gate_results_json"), {})
+        task_id = next((r["metrics"].get("task_id") for r in rows if r["record_kind"] == "started"), None)
         result = next((r for r in rows if r["record_kind"] in ("completed", "failed")), None)
         detail = None
         if result and result.get("artifact_id"):
@@ -406,13 +426,22 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
                 detail = json.loads(path.read_text(encoding="utf-8"))
                 bundle = detail.pop("bundle", None) or {}
                 detail["task"] = bundle.get("task")
+                task = detail["task"] or {}
+                description = task.get("description") if isinstance(task, dict) else None
+                if isinstance(description, str) and description.strip():
+                    task_description = description.strip()
+                else:
+                    task_description = _task_description(settings, task_id)
                 detail["feature_summary"] = {k: (len(v) if isinstance(v, list) else v)
                                              for k, v in (bundle.get("features") or {}).items()}
+        if not detail:
+            task_description = _task_description(settings, task_id)
         requests = [dict(r) for r in conn.execute("SELECT * FROM strategy_holdout_requests WHERE trial_id = ?",
                                                   (trial_id.removesuffix("-H"),))]
         for q in requests:
             q["result"] = _loads(q.pop("result_json"))
-        return {"trial_id": trial_id, "records": rows, "detail": detail, "holdout_requests": requests}
+        return {"trial_id": trial_id, "records": rows, "detail": detail,
+                "task_description": task_description, "holdout_requests": requests}
 
     @app.get("/api/artifacts/{artifact_id}/report", response_class=PlainTextResponse)
     def artifact_report(artifact_id: str, user: str = Depends(auth)):

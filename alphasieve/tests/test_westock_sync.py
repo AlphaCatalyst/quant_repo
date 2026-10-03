@@ -2,6 +2,7 @@ import json
 import sqlite3
 
 import pandas as pd
+import pytest
 
 from alphasieve.data import sync
 from alphasieve.data.providers import westock
@@ -77,6 +78,19 @@ def test_sector_and_return_kline_resume_without_changing_old_rows(settings, monk
     assert frame.iloc[0]["last"] == 1
     sync.sync_westock_index_kline(settings, conn, "2024-05-08", "return_index_daily", workers=1)
     assert {c for c, _, _ in calls[-2:]} == set(sync.WESTOCK_NET_INDICES)
+
+
+def test_kline_retries_throttled_answers(monkeypatch):
+    answers = iter([{"success": False, "error": {"code": "NO_OUTPUT"}}, [{"date": "2026-09-30", "last": 1.0}]])
+    monkeypatch.setattr(westock, "_call", lambda args: next(answers))
+    monkeypatch.setattr(westock, "KLINE_GAP_S", 0)
+    monkeypatch.setattr(westock, "KLINE_BACKOFF_S", 0)
+    frame = westock.kline(["pt01801010"], "2026-09-01", "2026-09-30")
+    assert frame[["code", "date", "last"]].values.tolist() == [["pt01801010", "2026-09-30", 1.0]]
+
+    monkeypatch.setattr(westock, "_call", lambda args: {"success": False})
+    with pytest.raises(westock.WestockError):
+        westock.kline(["pt01801010"], "2026-09-01", "2026-09-30")
 
 
 def test_provider_filters_media_and_retries_consensus_missing_sections(monkeypatch):

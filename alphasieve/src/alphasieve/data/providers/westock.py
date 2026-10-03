@@ -15,6 +15,9 @@ import pandas as pd
 
 CLI = os.environ.get("ALPHASIEVE_WESTOCK_CLI", "/usr/local/bin/westock-data")
 CALL_TIMEOUT_S = 300
+KLINE_RETRIES = 6
+KLINE_GAP_S = 1.5
+KLINE_BACKOFF_S = 20
 STATEMENTS = ("lrb", "zcfz", "xjll")
 FLOW_FIELDS = ("MainNetFlow", "JumboNetFlow", "BlockNetFlow", "MidNetFlow", "SmallNetFlow",
                "MainInFlow", "MainOutFlow", "RetailInFlow", "RetailOutFlow")
@@ -143,7 +146,15 @@ def kline(codes: list[str], start: str, end: str) -> pd.DataFrame:
         # Kline rows contain no symbol, so retain the code by requesting each series separately.
         if len(batch) > 1:
             return pd.concat([fetch([c]) for c in batch], ignore_index=True)
-        rows = _call(["kline", batch[0], "--period", "day", "--start", start, "--end", end]) or []
+        for attempt in range(KLINE_RETRIES):
+            time.sleep(KLINE_GAP_S)
+            rows = _call(["kline", batch[0], "--period", "day", "--start", start, "--end", end]) or []
+            # a throttled call answers {"success": false, ...} instead of a list
+            if isinstance(rows, list):
+                break
+            time.sleep(KLINE_BACKOFF_S * (attempt + 1))
+        else:
+            raise WestockError(f"kline {batch[0]} {start}..{end}: still throttled after {KLINE_RETRIES} attempts")
         return pd.DataFrame([{"code": batch[0], **r} for r in rows], columns=["code", "date", "open",
                             "last", "high", "low", "volume", "amount", "exchange"])
 

@@ -591,7 +591,7 @@ def sync_westock_sw_industry(settings: Settings, conn: sqlite3.Connection, day: 
 
 
 def sync_westock_index_kline(settings: Settings, conn: sqlite3.Connection, end: str, kind: str,
-                             workers: int = 4, progress=None) -> dict:
+                             workers: int = 1, progress=None) -> dict:
     from alphasieve.data.providers import westock
 
     if kind not in ("sector_index_daily", "return_index_daily"):

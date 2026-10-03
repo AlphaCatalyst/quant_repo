@@ -40,8 +40,8 @@ def sync_gpcw(settings: Settings, conn: sqlite3.Connection, end: str, *, daily: 
             changed = not zip_path.exists() or _md5(zip_path) != item["hash"]
             if changed:
                 gpcw.fetch(name, zips, item["hash"])
-            if changed or not parquet_path.exists():
-                frame = gpcw.parse(zip_path)
+            frame = gpcw.parse(zip_path) if changed or not parquet_path.exists() else None
+            if frame is not None and not frame.empty:
                 _write_parquet(frame, parquet_path)
                 snapshot = record_snapshot(conn, "gpcw:quarterly", {"quarter": item["quarter"],
                                            "vendor_md5": item["hash"]}, [zip_path, parquet_path], len(frame), "tdx")

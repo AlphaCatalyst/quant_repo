@@ -81,3 +81,10 @@ def test_hash_mismatch_does_not_replace_existing_archive(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match="hash mismatch"):
         gpcw.fetch(old.name, root, "0" * 32)
     assert old.read_bytes() == original
+
+
+def test_empty_archive_with_garbage_record_size_parses_to_empty(tmp_path):
+    path = tmp_path / "gpcw19881231.zip"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("gpcw19881231.dat", struct.pack("<hIHIII", 1, 19881231, 0, 720896, 2**32 - 4, 0))
+    assert gpcw.parse(path).empty

@@ -14,6 +14,8 @@ from alphasieve.data.providers.gpcw_columns import columns
 NAME = re.compile(r"gpcw(\d{8})\.zip\Z")
 HEADER = struct.Struct("<hIHIII")
 ITEM = struct.Struct("<6scI")
+# Empty early archives carry a garbage record size (e.g. 2**32 - 4); real ones are under 600 floats.
+MAX_RECORD_BYTES = 4 * 4096
 
 # These names are copied from mootdx 0.11.7 (MIT). Duplicate source labels get
 # a position suffix when written to Parquet, which requires unique columns.
@@ -83,7 +85,11 @@ def parse(path: Path) -> pd.DataFrame:
     if len(data) < HEADER.size:
         raise ValueError("short gpcw header")
     _, report_date, count, _, report_size, _ = HEADER.unpack_from(data)
-    if str(report_date) != match[1] or report_size % 4 or report_size <= 0:
+    if str(report_date) != match[1]:
+        raise ValueError("invalid gpcw report date")
+    if count == 0:
+        return pd.DataFrame(columns=["code", "report_date"])
+    if report_size % 4 or not 0 < report_size <= MAX_RECORD_BYTES:
         raise ValueError("invalid gpcw report date or record size")
     if HEADER.size + count * ITEM.size > len(data):
         raise ValueError("short gpcw stock index")

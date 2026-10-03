@@ -206,8 +206,19 @@ def run_cross_sectional(settings: Settings, task: TrainingTask, bundle: dict, pa
     costs = load_config(settings, "costs").get("b3", {})
     outputs = {"scores": score_df}
     if task.portfolio.kind in ("index_enhancement", "futures_hedged"):
+        official_weights = None
+        if task.portfolio.benchmark_basis == "official_weights":
+            index_code = {"zz500": "000905.SH", "hs300": "399300.SZ", "csi800": "000906.SH",
+                          "zz1000": "000852.SH"}.get(bench_name)
+            if index_code is None:
+                raise validation_error(f"no official historical weights for benchmark {bench_name}")
+            path = settings.raw_dir / "dolthub" / "index_weights" / f"{index_code}.parquet"
+            if not path.exists():
+                raise validation_error("official historical weights have not been synced", path=str(path))
+            official_weights = pd.read_parquet(
+                path, filters=[("trade_date", "<=", str(panel.dates[-1].date()))])
         pf = mandates.index_enhancement(panel, score_df, predict_mask, beta, task.portfolio, costs, bench_name,
-                                        index_ret)
+                                        index_ret, official_weights=official_weights)
         outputs["weights"] = pf.pop("weights")
         daily = pf.pop("_daily")
         nav, excess = pf.pop("_nav"), pf.pop("_excess_nav")

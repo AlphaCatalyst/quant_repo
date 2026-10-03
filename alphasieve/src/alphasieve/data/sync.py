@@ -275,9 +275,11 @@ def mirror_to_store(settings: Settings, universe: str | None = None) -> dict:
 
 def mirror_free_to_store(settings: Settings) -> dict:
     copied = 0
-    for name in ("csindex", "exchange", "eastmoney"):
+    for name in ("csindex", "exchange", "eastmoney", "dolthub", "gpcw"):
         src_root = settings.raw_dir / name
-        for src in src_root.rglob("*.parquet"):
+        for src in src_root.rglob("*"):
+            if not src.is_file() or src.suffix not in ({".parquet", ".zip"} if name == "gpcw" else {".parquet"}):
+                continue
             dst = settings.raw_store_dir / name / src.relative_to(src_root)
             if dst.exists() and dst.stat().st_size == src.stat().st_size and dst.stat().st_mtime >= src.stat().st_mtime:
                 continue
@@ -381,6 +383,46 @@ def sync_csindex_weights(settings: Settings, conn: sqlite3.Connection) -> dict:
         except Exception as exc:
             errors.append({"symbol": symbol, "error": str(exc)[:200]})
     return {"symbols": out, "errors": errors}
+
+
+def sync_dolthub_weights(settings: Settings, conn: sqlite3.Connection, end: str) -> dict:
+    from alphasieve.data.providers import dolthub
+
+    commit = dolthub.master_hash()
+    root = settings.raw_dir / "dolthub" / "index_weights"
+    out, errors = {}, []
+    end_year = int(end[:4])
+    for symbol, start_year in dolthub.INDEX_START.items():
+        if end_year < start_year:
+            continue
+        try:
+            parts = []
+            cache = settings.cache_dir / "dolthub" / "index_weights" / commit / symbol
+            for year in range(start_year, end_year + 1):
+                part_path = cache / f"{year}.parquet"
+                if part_path.exists():
+                    part = pd.read_parquet(part_path)
+                else:
+                    part = dolthub.fetch_index_weights(symbol, year, year, commit)
+                if not part.empty:
+                    sums = part.groupby("trade_date")["weight"].sum()
+                    if ((sums < 98) | (sums > 102)).any():
+                        raise ValueError(f"weight sum outside 98-102 percent for {symbol} {year}")
+                if not part_path.exists():
+                    _write_parquet(part, part_path)
+                parts.append(part)
+            df = pd.concat(parts, ignore_index=True)
+            if df.empty:
+                raise ValueError("empty historical index weights")
+            path = root / f"{symbol}.parquet"
+            _write_parquet(df, path)
+            snap = record_snapshot(conn, "dolthub:index_weights",
+                                   {"symbol": symbol, "start_year": start_year, "end_year": end_year,
+                                    "commit": commit, "weight_unit": "percent"}, [path], len(df), "dolthub")
+            out[symbol] = {"rows": len(df), "snapshot": snap}
+        except Exception as exc:
+            errors.append({"symbol": symbol, "error": str(exc)[:200]})
+    return {"commit": commit, "symbols": out, "errors": errors}
 
 
 def _events_job(code: str, start: str, end: str, root: str) -> dict:

@@ -121,7 +121,13 @@ def robustness(main: dict, large: dict, base: dict) -> dict:
 
 
 def index_enhancement(panel: Panel, score: pd.DataFrame, members: np.ndarray, beta: np.ndarray, cfg, costs: dict,
-                      benchmark: str, index_returns: np.ndarray | None) -> dict:
+                      benchmark: str, index_returns: np.ndarray | None,
+                      official_weights: pd.DataFrame | None = None) -> dict:
+    reference = None
+    if official_weights is not None:
+        from alphasieve.strategy.official_weights import daily_weights
+
+        reference = daily_weights(panel, official_weights)
     score = neutral_score(panel, score, members, list(cfg.neutralize_score))
     if cfg.score_ema_half_life is not None:
         score = ema_scores(score, cfg.score_ema_half_life)
@@ -130,20 +136,20 @@ def index_enhancement(panel: Panel, score: pd.DataFrame, members: np.ndarray, be
 
         weights, lp_info = build_weights_lp(score, panel, members, cfg.rebalance_every, cfg.industry_dev, cfg.name_cap,
                                             cfg.turnover_cap, cfg.size_limit, beta, tuple(cfg.beta_range), cfg=cfg,
-                                            costs=costs)
+                                            costs=costs, benchmark_weights=reference)
     else:
         weights = build_weights(score, panel, cfg.rebalance_every, cfg.industry_dev, cfg.name_cap, cfg.turnover_cap,
                                 cfg.size_limit, universe_mask=members, beta=beta, beta_range=tuple(cfg.beta_range),
-                                active_scale=cfg.active_scale)
+                                active_scale=cfg.active_scale, benchmark_weights=reference)
         lp_info = {"construction": "heuristic"}
-    diag = weight_diagnostics(weights, panel, cfg.turnover_cap, universe_mask=members, beta=beta) | lp_info
-    # Portfolio returns use adjusted (total-return) prices while the index is a price index, so acceptance is
-    # judged against the total-return member proxy; the price-index comparison is reported alongside.
-    base = simulate(weights, panel, costs, None, universe_mask=members)
+    diag = weight_diagnostics(weights, panel, cfg.turnover_cap, universe_mask=members, beta=beta,
+                              benchmark_weights=reference) | lp_info
+    # Portfolio returns use adjusted prices; acceptance uses the selected total-return benchmark.
+    base = simulate(weights, panel, costs, None, universe_mask=members, official_weights=official_weights)
     runs = {f"{aum:.0e}": simulate(weights, panel, costs, None, aum=aum, max_participation=cfg.max_participation,
-                                   universe_mask=members) for aum in CAPACITY_AUMS}
+                                   universe_mask=members, official_weights=official_weights) for aum in CAPACITY_AUMS}
     main = simulate(weights, panel, costs, None, aum=cfg.aum, max_participation=cfg.max_participation,
-                    universe_mask=members)
+                    universe_mask=members, official_weights=official_weights)
     vs_index = simulate(weights, panel, costs, benchmark, aum=cfg.aum, max_participation=cfg.max_participation,
                         universe_mask=members)
     capacity = {k: {"annual_excess": v["annual_excess"], "information_ratio": v["information_ratio"],
@@ -168,7 +174,9 @@ def index_enhancement(panel: Panel, score: pd.DataFrame, members: np.ndarray, be
     }
     te = main["tracking_error"]
     diag["tracking_error_target"] = {"value": te, "range": TE_TARGET, "inside": TE_TARGET[0] <= te <= TE_TARGET[1]}
-    return {"weights": weights, "portfolio": diag, "benchmark_basis": "total-return member proxy (cap-weighted)",
+    basis = "official-weight total return (price drift)" if official_weights is not None else \
+        "total-return member proxy (cap-weighted)"
+    return {"weights": weights, "portfolio": diag, "benchmark_basis": basis,
             "execution": _clean(main), "execution_vs_price_index": _clean(vs_index),
             "execution_no_impact": _clean(base),
             "capacity": capacity, "benchmark_proxy": proxy_tracking(panel, members, index_returns),

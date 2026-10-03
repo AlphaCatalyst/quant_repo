@@ -50,7 +50,8 @@ def compare_returns(proxy: pd.Series, official_close: pd.Series) -> dict:
 
 
 def _stock_values(path: Path, dates: pd.DatetimeIndex) -> tuple[np.ndarray, np.ndarray]:
-    stock = pd.read_parquet(path, columns=["date", "close", "volume", "turn"])
+    stock = pd.read_parquet(path, columns=["date", "close", "volume", "turn"],
+                            filters=[("date", ">=", "2011-01-01"), ("date", "<=", DEV_END)])
     stock = stock[(stock["date"] >= "2011-01-01") & (stock["date"] <= DEV_END)]
     if stock.empty:
         nan = np.full(len(dates), np.nan)
@@ -64,7 +65,8 @@ def _stock_values(path: Path, dates: pd.DatetimeIndex) -> tuple[np.ndarray, np.n
     cap = (close * shares).reindex(dates).to_numpy(dtype=float)
     adj_path = path.parent.parent / "adj" / path.name
     if adj_path.exists():
-        adj = pd.read_parquet(adj_path, columns=["dividOperateDate", "backAdjustFactor"])
+        adj = pd.read_parquet(adj_path, columns=["dividOperateDate", "backAdjustFactor"],
+                              filters=[("dividOperateDate", "<=", DEV_END)])
         adj = adj[(adj["dividOperateDate"] <= DEV_END)].dropna(subset=["backAdjustFactor"])
         adj = adj.sort_values("dividOperateDate")
         if not adj.empty:
@@ -77,11 +79,13 @@ def _stock_values(path: Path, dates: pd.DatetimeIndex) -> tuple[np.ndarray, np.n
 def proxy_returns_from_raw(raw_root: Path) -> pd.Series:
     """Reproduce training.mandates.proxy_tracking from baostock raw inputs."""
     root = raw_root / "baostock"
-    members = pd.read_parquet(root / "members.parquet", columns=["snapshot_date", "index", "code"])
+    members = pd.read_parquet(root / "members.parquet", columns=["snapshot_date", "index", "code"],
+                              filters=[("snapshot_date", "<=", DEV_END)])
     members = members[(members["index"] == "zz500") & (members["snapshot_date"] <= DEV_END)]
     if members.empty:
         raise ValueError("no CSI 500 member snapshots through dev end")
-    calendar = pd.read_parquet(root / "trade_dates.parquet", columns=["calendar_date", "is_trading_day"])
+    calendar = pd.read_parquet(root / "trade_dates.parquet", columns=["calendar_date", "is_trading_day"],
+                               filters=[("calendar_date", "<=", DEV_END)])
     calendar = calendar[(calendar["is_trading_day"] == 1) &
                         (calendar["calendar_date"] >= "2011-01-01") &
                         (calendar["calendar_date"] <= DEV_END)]
@@ -110,10 +114,88 @@ def proxy_returns_from_raw(raw_root: Path) -> pd.Series:
     return pd.Series(out, index=dates, name="proxy").loc[DEV_START:DEV_END]
 
 
+def official_weight_returns_from_raw(raw_root: Path) -> pd.Series:
+    """Rebuild CSI 500 total returns from published month-end weights and adjusted closes.
+
+    A weight dated T first applies to the close-to-close return on the next trading
+    day. Between snapshots, constituent weights drift with adjusted prices.
+    """
+    root = raw_root / "baostock"
+    weights = pd.read_parquet(raw_root / "dolthub" / "index_weights" / "000905.SH.parquet",
+                              filters=[("trade_date", "<=", DEV_END)])
+    weights = weights[weights["trade_date"] <= DEV_END].copy()
+    if weights.empty:
+        raise ValueError("no CSI 500 historical weights through dev end")
+    weights["trade_date"] = pd.to_datetime(weights["trade_date"])
+    if "code" not in weights:
+        suffix = weights["stock_code"].str[-2:].str.upper().map({"SH": "sh", "SZ": "sz"})
+        weights["code"] = suffix + "." + weights["stock_code"].str[:6]
+    calendar = pd.read_parquet(root / "trade_dates.parquet", columns=["calendar_date", "is_trading_day"],
+                               filters=[("calendar_date", "<=", DEV_END)])
+    calendar = calendar[(calendar["is_trading_day"] == 1) &
+                        (calendar["calendar_date"] >= "2011-01-01") &
+                        (calendar["calendar_date"] <= DEV_END)]
+    dates = pd.DatetimeIndex(pd.to_datetime(calendar["calendar_date"].drop_duplicates().sort_values()))
+    codes = sorted(weights["code"].unique())
+    close = np.column_stack([_stock_values(root / "daily" / f"{code}.parquet", dates)[0]
+                             if (root / "daily" / f"{code}.parquet").exists()
+                             else np.full(len(dates), np.nan) for code in codes])
+    daily = np.full_like(close, np.nan)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        daily[1:] = close[1:] / close[:-1] - 1
+    snapshot = weights.pivot_table(index="trade_date", columns="code", values="weight", aggfunc="last")
+    snapshot = snapshot.reindex(columns=codes).fillna(0.0).sort_index() / 100.0
+    if not snapshot.sum(axis=1).between(0.99, 1.01).all():
+        raise ValueError("CSI 500 monthly weights do not sum to approximately 100 percent")
+    snapshot_dates = snapshot.index.to_numpy()
+    snapshot_values = snapshot.to_numpy(dtype=float)
+    out = np.full(len(dates), np.nan)
+    held = None
+    last_snapshot = -1
+    for i in range(1, len(dates)):
+        snap = np.searchsorted(snapshot_dates, dates[i].to_datetime64(), side="left") - 1
+        if snap < 0:
+            continue
+        if snap != last_snapshot:
+            held = snapshot_values[snap].copy()
+            last_snapshot = snap
+        if held is None:
+            continue
+        active = held > 0
+        if not active.any() or not np.isfinite(daily[i, active]).all():
+            held = None
+            continue
+        out[i] = float(np.dot(held, daily[i]) if np.isfinite(daily[i]).all()
+                       else np.dot(held[active], daily[i, active]))
+        held *= np.where(active, 1 + np.nan_to_num(daily[i], nan=0.0), 1.0)
+        held /= held.sum()
+    return pd.Series(out, index=dates, name="official_weights").loc[DEV_START:DEV_END]
+
+
+def compare_three_raw(raw_root: Path) -> dict:
+    raw_root = Path(raw_root)
+    official = pd.read_parquet(raw_root / "csindex" / "total_return" / "H00905.parquet",
+                               columns=["date", "close"], filters=[("date", "<=", DEV_END)])
+    official = official[official["date"] <= DEV_END].drop_duplicates("date", keep="last")
+    close = pd.Series(pd.to_numeric(official["close"], errors="coerce").to_numpy(),
+                      index=pd.to_datetime(official["date"]))
+    reference = close.sort_index().pct_change(fill_method=None).loc[DEV_START:DEV_END]
+    weighted = official_weight_returns_from_raw(raw_root)
+    proxy = proxy_returns_from_raw(raw_root)
+    paired = pd.concat([weighted, reference.rename("H00905"), proxy], axis=1).dropna()
+    if paired.empty:
+        raise ValueError("no common dev daily returns for three-way comparison")
+    return {"window": {"start": DEV_START, "end": DEV_END},
+            "common_days": len(paired),
+            "official_weights_vs_H00905": _annual_stats(paired["official_weights"], paired["H00905"]),
+            "D31_proxy_vs_H00905": _annual_stats(paired["proxy"], paired["H00905"]),
+            "official_weights_vs_D31_proxy": _annual_stats(paired["official_weights"], paired["proxy"])}
+
+
 def compare_raw(raw_root: Path) -> dict:
     raw_root = Path(raw_root)
     official_path = raw_root / "csindex" / "total_return" / "H00905.parquet"
-    official = pd.read_parquet(official_path, columns=["date", "close"])
+    official = pd.read_parquet(official_path, columns=["date", "close"], filters=[("date", "<=", DEV_END)])
     official = official[(official["date"] <= DEV_END)].drop_duplicates("date", keep="last")
     close = pd.Series(pd.to_numeric(official["close"], errors="coerce").to_numpy(),
                       index=pd.to_datetime(official["date"]))
@@ -123,5 +205,7 @@ def compare_raw(raw_root: Path) -> dict:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--raw-root", type=Path, required=True, help="hot-root/raw directory")
+    parser.add_argument("--three-way", action="store_true", help="include DoltHub historical CSI 500 weights")
     args = parser.parse_args()
-    print(json.dumps(compare_raw(args.raw_root), ensure_ascii=False, indent=2, allow_nan=False))
+    result = compare_three_raw(args.raw_root) if args.three_way else compare_raw(args.raw_root)
+    print(json.dumps(result, ensure_ascii=False, indent=2, allow_nan=False))

@@ -15,7 +15,7 @@ SYNC_DATASETS = ("reference", "members", "daily", "financials", "events", "intra
                  "ws_financials", "fund_flow", "margin", "margin_history", "etf", "futures",
                  "ws_reports", "ws_consensus", "ws_index_members", "ws_sw_industry",
                  "ws_sector_index_daily", "ws_return_index_daily", "free_returns", "exchange_margin",
-                 "em_holders", "cs_weights")
+                 "em_holders", "cs_weights", "dolthub_weights", "gpcw")
 
 
 def _universe_arg(p):
@@ -116,14 +116,21 @@ def cmd_data_sync(args, ctx) -> CommandResult:
                                                         _progress("em_holders"))
     if "cs_weights" in datasets:
         out["cs_weights"] = sync.sync_csindex_weights(settings, conn)
+    if "dolthub_weights" in datasets:
+        out["dolthub_weights"] = sync.sync_dolthub_weights(settings, conn, end)
+    if "gpcw" in datasets:
+        from alphasieve.data.gpcw_sync import sync_gpcw
+
+        out["gpcw"] = sync_gpcw(settings, conn, end, daily=False)
     if "mirror" in datasets or ("financials" in datasets and u in (None, "csi800")):
         out["mirror"] = sync.mirror_to_store(settings, u)
-    if any(k in datasets for k in ("free_returns", "exchange_margin", "em_holders", "cs_weights")):
+    if any(k in datasets for k in ("free_returns", "exchange_margin", "em_holders", "cs_weights",
+                                    "dolthub_weights", "gpcw")):
         out["free_mirror"] = sync.mirror_free_to_store(settings)
     warnings = []
     for key in ("daily", "financials", "events", "intraday", "ws_financials", "fund_flow", "margin", "margin_history",
                 "futures", "ws_reports", "ws_sector_index_daily", "ws_return_index_daily", "free_returns",
-                "exchange_margin", "em_holders", "cs_weights"):
+                "exchange_margin", "em_holders", "cs_weights", "dolthub_weights", "gpcw"):
         if out.get(key, {}).get("errors"):
             warnings.append(f"{key}: {len(out[key]['errors'])} items failed; rerun to resume")
     return CommandResult(data=out, warnings=warnings)
@@ -293,9 +300,12 @@ def cmd_data_daily_update(args, ctx) -> CommandResult:
     out["ws_sector_index_daily"] = sync.sync_westock_index_kline(settings, conn, end, "sector_index_daily")
     out["ws_return_index_daily"] = sync.sync_westock_index_kline(settings, conn, end, "return_index_daily")
     warnings = []
+    from alphasieve.data.gpcw_sync import sync_gpcw
+
     for key, fetch in (("free_returns", lambda: sync.sync_csindex_returns(settings, conn)),
                        ("exchange_margin", lambda: sync.sync_exchange_margin(
-                           settings, conn, (pd.Timestamp(end) - pd.Timedelta(days=14)).strftime("%Y-%m-%d"), end))):
+                           settings, conn, (pd.Timestamp(end) - pd.Timedelta(days=14)).strftime("%Y-%m-%d"), end)),
+                       ("gpcw", lambda: sync_gpcw(settings, conn, end, daily=True))):
         try:
             out[key] = fetch()
         except Exception as exc:
@@ -309,7 +319,7 @@ def cmd_data_daily_update(args, ctx) -> CommandResult:
     except Exception as exc:
         warnings.append(f"free_mirror: {str(exc)[:200]}")
     keys = ("daily", "financials", "fund_flow", "margin", "ws_financials", "ws_reports",
-            "ws_sector_index_daily", "ws_return_index_daily", "free_returns", "exchange_margin")
+            "ws_sector_index_daily", "ws_return_index_daily", "free_returns", "exchange_margin", "gpcw")
     warnings += [f"{k}: {len(out[k]['errors'])} items failed; rerun to resume"
                  for k in keys if out.get(k, {}).get("errors")]
     return CommandResult(data=out, warnings=warnings)

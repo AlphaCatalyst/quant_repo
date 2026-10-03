@@ -37,13 +37,24 @@ def _fill_industry(weight: float, scores: np.ndarray, cap: float) -> np.ndarray:
     return w
 
 
+def reference_weights(ok: np.ndarray, cap: np.ndarray, reference: np.ndarray | None = None) -> np.ndarray:
+    """Benchmark weights over ``ok``: cap-weighted members, or published index weights when given. The default
+    expression is kept as is so that results without published weights stay bit-identical."""
+    if reference is None:
+        return np.where(ok, cap, 0.0) / cap[ok].sum()
+    raw = np.where(ok, reference, 0.0)
+    return raw / raw.sum() if raw.sum() > 0 else np.zeros(len(raw))
+
+
 def target_weights(score: np.ndarray, cap_mv: np.ndarray, groups: np.ndarray, eligible: np.ndarray,
-                   industry_dev: float, name_cap: float) -> np.ndarray:
+                   industry_dev: float, name_cap: float, benchmark_weights: np.ndarray | None = None) -> np.ndarray:
     w = np.zeros(len(score))
     ok = eligible & np.isfinite(score) & np.isfinite(cap_mv) & (cap_mv > 0)
     if ok.sum() == 0:
         return w
-    bench = np.where(ok, cap_mv, 0.0) / cap_mv[ok].sum()
+    bench = reference_weights(ok, cap_mv, benchmark_weights)
+    if not bench.any():
+        return w
     labels = np.unique(groups[ok])
     rank = pd.Series(score[ok]).rank(pct=True).to_numpy() - 0.5
     rank_full = np.zeros(len(score))
@@ -133,7 +144,8 @@ def enforce_beta(w: np.ndarray, bench: np.ndarray, beta: np.ndarray, lo: float, 
 def build_weights(scores: pd.DataFrame, panel: Panel, rebalance_every: int = 5, industry_dev: float = 0.03,
                   name_cap: float = 0.02, turnover_cap: float = 0.30, size_limit: float = 0.3,
                   universe_mask: np.ndarray | None = None, beta: np.ndarray | None = None,
-                  beta_range: tuple[float, float] | None = None, active_scale: float = 1.0) -> pd.DataFrame:
+                  beta_range: tuple[float, float] | None = None, active_scale: float = 1.0,
+                  benchmark_weights: np.ndarray | None = None) -> pd.DataFrame:
     """``universe_mask`` defines both the benchmark proxy (cap-weighted members) and the investable names."""
     dates, codes = panel.dates, panel.codes
     s = scores.reindex(index=dates, columns=codes).to_numpy(dtype=float)
@@ -145,11 +157,12 @@ def build_weights(scores: pd.DataFrame, panel: Panel, rebalance_every: int = 5, 
     prev = np.zeros(len(codes))
     rows = {}
     for t in rebal:
-        target = target_weights(s[t], cap[t], groups, universe[t], industry_dev, name_cap)
+        reference = benchmark_weights[t] if benchmark_weights is not None else None
+        target = target_weights(s[t], cap[t], groups, universe[t], industry_dev, name_cap, reference)
         if target.sum() == 0:
             continue
         ok = universe[t] & np.isfinite(cap[t]) & (cap[t] > 0)
-        bench = np.where(ok, cap[t], 0.0) / cap[t][ok].sum()
+        bench = reference_weights(ok, cap[t], reference)
         z = _size_z(cap[t], ok)
         target = enforce_size(target, bench, z, size_limit)
         if active_scale < 1.0:
@@ -175,7 +188,8 @@ def build_weights(scores: pd.DataFrame, panel: Panel, rebalance_every: int = 5, 
 
 
 def weight_diagnostics(weights: pd.DataFrame, panel: Panel, turnover_cap: float = 0.30,
-                       universe_mask: np.ndarray | None = None, beta: np.ndarray | None = None) -> dict:
+                       universe_mask: np.ndarray | None = None, beta: np.ndarray | None = None,
+                       benchmark_weights: np.ndarray | None = None) -> dict:
     if weights.empty:
         return {"rebalances": 0}
     groups = panel.industry().reindex(weights.columns).fillna("unknown")
@@ -183,7 +197,9 @@ def weight_diagnostics(weights: pd.DataFrame, panel: Panel, turnover_cap: float 
     uni_full = panel.mask("in_universe") if universe_mask is None else pd.DataFrame(
         universe_mask, index=panel.dates, columns=panel.codes)
     uni = uni_full.reindex(index=weights.index, columns=weights.columns).fillna(False).astype(bool)
-    bench = cap.where(uni).div(cap.where(uni).sum(axis=1), axis=0).fillna(0.0)
+    reference = cap if benchmark_weights is None else pd.DataFrame(
+        benchmark_weights, index=panel.dates, columns=panel.codes).reindex(index=weights.index, columns=weights.columns)
+    bench = reference.where(uni).div(reference.where(uni).sum(axis=1), axis=0).fillna(0.0)
     ind_dev = (weights.T.groupby(groups).sum() - bench.T.groupby(groups).sum()).abs().max().max()
     turnover = 0.5 * weights.diff().abs().sum(axis=1).iloc[1:]
     size = np.log(cap.where(cap > 0))

@@ -28,7 +28,9 @@
 | 中证指数官网 | 全收益指数日线；成分权重仅为最新月末，按月积累 | `H00905`、`H00300`、`H00906` 从 2010 年起；权重不得回填到首次抓取前 |
 | 上交所、深交所 | 2010 年起按交易日公布的两融明细 | 融资余额、买入额均为元；深市缺偿还额，沪市缺金额口径的融券余额，见 §1.5 |
 | 东方财富 | 单股历史股东户数 | 保留统计截止日和公告日；公告日后首个交易日才可用，暂不进 panel |
-| Tushare Pro / 商业数据 | 可选升级 | 需要中证 1000 历史成分、申万 PIT 行业、交易所涨跌停价、2020 年以前的分钟线或首次抓取前的官方历史权重时再评估；渠道与价格见 [17-data-vendors.md](17-data-vendors.md) |
+| DoltHub `investment_data` | Tushare `index_weight` 镜像的历史月末成分权重 | 按指数与年份回补；官方权重基准为显式选项，D-31 默认代理不变；镜像许可须人工确认 |
+| 通达信专业财务包 | 公开季度 zip，含公告日、股东与机构持仓等字段 | 原包与中文字段解析结果只入 raw，暂不进 panel 或搜索空间；历史修订风险见 D-39 |
+| Tushare Pro / 商业数据 | 可选升级 | 需要中证 1000 历史成分、申万 PIT 行业、交易所涨跌停价或 2020 年以前的分钟线时再评估；历史权重先核对 DoltHub 镜像与许可，渠道与价格见 [17-data-vendors.md](17-data-vendors.md) |
 
 原则：同一字段只有一个权威源；其他来源只做对账（见 [12-testing.md](12-testing.md) T3）。
 
@@ -50,6 +52,8 @@
 ### 1.5 免费源原始数据（D-38）
 
 `--dataset free_returns` 全量刷新中证官网全收益指数，存于 `data/raw/csindex/total_return/`；`--dataset cs_weights` 只追加最新月末权重，存于 `data/raw/csindex/weights/`。`--dataset exchange_margin --start 2010-01-01` 按交易日保存全市场两融明细，单日失败可重试；`--dataset em_holders --universe ashare_all` 按股票保存股东户数全历史。各目录均镜像到 store 的 `raw/` 同名目录，写入 `data_snapshots`。真实历史回补须由人审查后运行。
+
+`--dataset dolthub_weights` 按指数和年份取得历史月末权重，每个指数一个 parquet，记录 DoltHub master 提交哈希；`--dataset gpcw` 保存通达信季度原始 zip 和逐季度中文字段 parquet。财务包的 `财报公告日期` 缺失时整行不得用于特征，有效值从公告日之后首个交易日起可用。两类数据当前都不加入 panel；回补、许可与财务修订核对见 [17-data-vendors.md](17-data-vendors.md) §7.6–7.7。
 
 交易所两融映射到既有 `FinanceValue`、`FinanceBuyValue`：两市均为元。深市的 `SecurityValue` 和 `TradingValue` 为元，缺 `FinanceRefundValue`；沪市有 `FinanceRefundValue`（元），但融券余量、卖出量、偿还量单位为股，不能填入金额字段 `SecurityValue`，`TradingValue` 也缺。缺失值保持空。panel 对各源分别计算两融特征；每只股票从首个 westock 快照日起只用 westock，已有取值及快照间沿用值不变；更早日期按可用字段得到部分特征。2019-10-11 与 2022-01-07 的重叠抽样字段逐项一致，全时段口径仍须回补后审计。交易所日期 T 的两融数据从下一交易日起可用。股东户数仅保存与解析，公告日 T 的数据从下一交易日起可用，尚未加入 panel 或搜索空间。
 

@@ -152,7 +152,8 @@ def trailing_liquidity(panel: Panel) -> tuple[np.ndarray, np.ndarray]:
 
 def simulate(weights: pd.DataFrame, panel: Panel, costs: dict | None = None, benchmark: str | None = None,
              aum: float | None = None, max_participation: float = 0.10,
-             universe_mask: np.ndarray | None = None, hold_unchanged: bool = False) -> dict:
+             universe_mask: np.ndarray | None = None, hold_unchanged: bool = False,
+             official_weights: pd.DataFrame | None = None) -> dict:
     """``hold_unchanged``: on a target day, names whose target equals their previous target are not traded (their
     weight drifts), which is how an event book is run; ``benchmark="equal_weight"`` uses the equal-weighted
     universe (total return) instead of a named index."""
@@ -175,6 +176,11 @@ def simulate(weights: pd.DataFrame, panel: Panel, costs: dict | None = None, ben
     state = initial_state(codes)
     rows = []
     bench_close = None
+    official_returns = None
+    if official_weights is not None:
+        from alphasieve.strategy.official_weights import daily_returns
+
+        official_returns = daily_returns(panel, official_weights)
     equal_weight = benchmark == "equal_weight"
     named = benchmark and not equal_weight and panel.benchmark is not None
     if named and f"{benchmark}_close" in panel.benchmark.columns:
@@ -193,7 +199,11 @@ def simulate(weights: pd.DataFrame, panel: Panel, costs: dict | None = None, ben
         traded_total += detail["actual_turnover"]
         capped_trades += detail["capped_trades"]
         trades_total += detail["trades"]
-        if bench_close is not None and np.isfinite(bench_close[t]) and np.isfinite(bench_close[t - 1]):
+        if official_returns is not None:
+            bench_ret = official_returns[t]
+            if not np.isfinite(bench_ret):
+                raise ValueError(f"official index weights unavailable on {dates[t].date()}")
+        elif bench_close is not None and np.isfinite(bench_close[t]) and np.isfinite(bench_close[t - 1]):
             bench_ret = bench_close[t] / bench_close[t - 1] - 1
         else:
             ok = universe[t - 1] & np.isfinite(cap[t - 1]) & (cap[t - 1] > 0)
@@ -222,8 +232,9 @@ def simulate(weights: pd.DataFrame, panel: Panel, costs: dict | None = None, ben
         "annual_cost": float(df["cost"].sum() * ann / len(df)),
         "invested_mean": float(df["invested"].mean()),
         "excess_by_year": {str(k): v for k, v in by_year.items()},
-        "benchmark": benchmark if bench_close is not None else ("equal_weight_universe" if equal_weight
-                                                                else "cap_weighted_universe"),
+        "benchmark": "official_weight_total_return" if official_returns is not None else (
+                     benchmark if bench_close is not None else ("equal_weight_universe" if equal_weight
+                                                                else "cap_weighted_universe")),
         "aum": aum, "annual_impact_cost": float(impact_total * ann / len(df)),
         "annual_turnover": float(traded_total * ann / len(df)),
         "capped_trade_share": float(capped_trades / trades_total) if trades_total else 0.0,

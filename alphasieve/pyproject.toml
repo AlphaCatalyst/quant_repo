@@ -23,6 +23,7 @@ dependencies = [
 
 [project.optional-dependencies]
 tracking = ["wandb>=0.19"]
+tdx = ["mootdx>=0.11.7"]
 
 [project.scripts]
 alphasieve = "alphasieve.cli.main:main"

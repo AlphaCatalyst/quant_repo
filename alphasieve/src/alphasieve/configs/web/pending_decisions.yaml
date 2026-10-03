@@ -114,7 +114,7 @@ decisions:
         consequence: 在 2000 积分基础上加 report_rc 卖方预测，与 westock 研报重叠，可用于对账。
       - name: 暂缓升级
         consequence: 研究照常进行；mandate 与前瞻继续用 D-31 自算代理并标注，PIT 行业前视偏差保留，两融和股东类因子无法研究。
-    recommendation: Tushare 2000 积分（docs/17 §7）；不买也不阻塞当前研究。购买前确认适用个人价还是机构价，以及“不得商用”条款是否限制内部研究。
+    recommendation: Tushare 2000 积分（docs/17 §7）；全收益指数、两融、股东户数已有免费源（§7.4），必需项只剩历史指数权重和 PIT 申万行业；官网套餐都不需要（§7.5）。不买也不阻塞当前研究。购买前确认适用个人价还是机构价，以及“不得商用”条款是否限制内部研究。
     status: open
     decision: null
     decided_at: null

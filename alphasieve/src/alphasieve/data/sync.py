@@ -298,6 +298,8 @@ def sync_csindex_returns(settings: Settings, conn: sqlite3.Connection) -> dict:
             df = csindex.fetch_index_history(symbol)
             if df.empty:
                 raise ValueError("empty index history")
+            if path.exists() and len(df) < len(pd.read_parquet(path, columns=["date"])):
+                raise ValueError("index history shorter than the stored copy")
             _write_parquet(df, path)
             snap = record_snapshot(conn, "csindex:total_return", {"symbol": symbol}, [path], len(df), "csindex")
             out[symbol] = {"rows": len(df), "snapshot": snap}

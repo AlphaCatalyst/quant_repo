@@ -294,7 +294,8 @@ def cmd_data_daily_update(args, ctx) -> CommandResult:
     out["ws_return_index_daily"] = sync.sync_westock_index_kline(settings, conn, end, "return_index_daily")
     warnings = []
     for key, fetch in (("free_returns", lambda: sync.sync_csindex_returns(settings, conn)),
-                       ("exchange_margin", lambda: sync.sync_exchange_margin(settings, conn, end, end))):
+                       ("exchange_margin", lambda: sync.sync_exchange_margin(
+                           settings, conn, (pd.Timestamp(end) - pd.Timedelta(days=14)).strftime("%Y-%m-%d"), end))):
         try:
             out[key] = fetch()
         except Exception as exc:

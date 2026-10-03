@@ -43,6 +43,17 @@ def test_free_sync_resume_provenance_and_mirror(settings, monkeypatch):
     assert (settings.raw_store_dir / "exchange" / "margin" / path.name).exists()
 
 
+def test_total_return_history_is_not_replaced_by_a_shorter_response(settings, monkeypatch):
+    conn = connect(settings.state_db)
+    full = pd.DataFrame({"index_code": "H00905", "date": ["2022-12-29", "2022-12-30"], "close": [1.0, 1.1]})
+    monkeypatch.setattr(csindex, "fetch_index_history", lambda symbol: full.assign(index_code=symbol))
+    assert not sync.sync_csindex_returns(settings, conn)["errors"]
+    monkeypatch.setattr(csindex, "fetch_index_history", lambda symbol: full.tail(1).assign(index_code=symbol))
+    out = sync.sync_csindex_returns(settings, conn)
+    assert len(out["errors"]) == 3
+    assert len(pd.read_parquet(settings.raw_dir / "csindex" / "total_return" / "H00905.parquet")) == 2
+
+
 def test_other_free_sync_never_replaces_on_failure(settings, monkeypatch):
     conn = connect(settings.state_db)
     monkeypatch.setattr(csindex, "fetch_index_history", lambda symbol: pd.DataFrame(

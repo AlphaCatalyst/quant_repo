@@ -84,4 +84,7 @@ def fetch_margin_day(day: str) -> pd.DataFrame:
                 raise free_http.FreeDataError(f"SSE margin page count invalid for {day}")
         sh_pages.append(parse_sse(sh, day))
         page += 1
-    return pd.concat([parse_szse(sz, day), *sh_pages], ignore_index=True).drop_duplicates("code")
+    sz_rows, sh_rows = parse_szse(sz, day), pd.concat(sh_pages, ignore_index=True)
+    if sz_rows.empty != sh_rows.empty:
+        raise free_http.FreeDataError(f"only one exchange returned margin rows for {day}")
+    return pd.concat([sz_rows, sh_rows], ignore_index=True).drop_duplicates("code")

@@ -47,23 +47,37 @@ def test_exchange_parses_only_matching_margin_fields(monkeypatch):
     assert pd.isna(sse["SecurityValue"]) and pd.isna(sse["TradingValue"])
 
 
-def test_exchange_fetches_both_venues_and_all_sse_pages(monkeypatch):
-    calls = []
-    monkeypatch.setattr(pd, "read_excel", lambda *args, **kwargs: pd.DataFrame(columns=[
-        "证券代码", "融资买入额", "融资余额", "融券卖出量", "融券余量", "融券余额", "融资融券余额"]))
+SZ_COLUMNS = ["证券代码", "融资买入额", "融资余额", "融券卖出量", "融券余量", "融券余额", "融资融券余额"]
 
+
+def _fake_exchange(calls, sse_rows=True):
     def fake_get(url, params, **kwargs):
         calls.append((url, params))
         if url == exchange.SZ_URL:
             return b"PKfixture"
         page = int(params["pageHelp.pageNo"])
-        return _json({"pageHelp": {"pageCount": 2}, "result": [{"stockCode": f"60000{page}",
-            "opDate": "20221230", "rzye": page, "rzmre": page, "rzche": page}]})
+        rows = [{"stockCode": f"60000{page}", "opDate": "20221230", "rzye": page, "rzmre": page,
+                 "rzche": page}] if sse_rows else []
+        return _json({"pageHelp": {"pageCount": 2 if sse_rows else 1}, "result": rows})
+    return fake_get
 
-    monkeypatch.setattr(free_http, "get", fake_get)
+
+def test_exchange_fetches_both_venues_and_all_sse_pages(monkeypatch):
+    calls = []
+    monkeypatch.setattr(pd, "read_excel", lambda *args, **kwargs: pd.DataFrame(
+        [["000001", 1, 2, 3, 4, 5, 6]], columns=SZ_COLUMNS))
+    monkeypatch.setattr(free_http, "get", _fake_exchange(calls))
     frame = exchange.fetch_margin_day("2022-12-30")
-    assert frame["code"].tolist() == ["sh.600001", "sh.600002"]
+    assert frame["code"].tolist() == ["sz.000001", "sh.600001", "sh.600002"]
     assert len(calls) == 3
+
+
+def test_exchange_rejects_a_day_with_only_one_venue(monkeypatch):
+    monkeypatch.setattr(pd, "read_excel", lambda *args, **kwargs: pd.DataFrame(
+        [["000001", 1, 2, 3, 4, 5, 6]], columns=SZ_COLUMNS))
+    monkeypatch.setattr(free_http, "get", _fake_exchange([], sse_rows=False))
+    with pytest.raises(free_http.FreeDataError, match="only one exchange"):
+        exchange.fetch_margin_day("2022-12-30")
 
 
 def test_holder_page_uses_announcement_date_and_paginates(monkeypatch):

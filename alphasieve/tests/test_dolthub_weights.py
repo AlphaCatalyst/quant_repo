@@ -57,3 +57,17 @@ def test_dolthub_sync_preserves_good_raw_on_failure(settings, monkeypatch):
     result = sync.sync_dolthub_weights(settings, conn, "2022-12-31")
     assert len(result["errors"]) == 4
     assert pd.read_parquet(path).iloc[0]["weight"] == 100.0
+
+
+def test_dolthub_sync_drops_incomplete_snapshot_dates(settings, monkeypatch):
+    conn = connect(settings.state_db)
+    monkeypatch.setattr(dolthub, "master_hash", lambda: COMMIT)
+    monkeypatch.setattr(dolthub, "INDEX_START", dict.fromkeys(dolthub.INDEX_START, 2022))
+    monkeypatch.setattr(dolthub, "fetch_index_weights", lambda symbol, *args: pd.DataFrame([
+        {"index_code": symbol, "stock_code": "000001.SZ", "trade_date": "2022-11-30", "weight": 60.0},
+        {"index_code": symbol, "stock_code": "000001.SZ", "trade_date": "2022-12-30", "weight": 100.0}]))
+    result = sync.sync_dolthub_weights(settings, conn, "2022-12-31", symbols=["000906.SH"])
+    assert list(result["symbols"]) == ["000906.SH"] and not result["errors"]
+    assert result["symbols"]["000906.SH"]["dropped_dates"] == [{"date": "2022-11-30", "weight_sum": 60.0}]
+    df = pd.read_parquet(settings.raw_dir / "dolthub" / "index_weights" / "000906.SH.parquet")
+    assert df["trade_date"].astype(str).str[:10].tolist() == ["2022-12-30"]

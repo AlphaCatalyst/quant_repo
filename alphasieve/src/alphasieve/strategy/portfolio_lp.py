@@ -138,7 +138,8 @@ def build_weights_lp(scores: pd.DataFrame, panel: Panel, universe_mask: np.ndarr
                      industry_dev: float = 0.02, name_cap: float = 0.01, turnover_cap: float = 0.15,
                      size_limit: float = 0.2, beta: np.ndarray | None = None,
                      beta_range: tuple[float, float] | None = None, cfg=None,
-                     costs: dict | None = None) -> tuple[pd.DataFrame, dict]:
+                     costs: dict | None = None,
+                     benchmark_weights: np.ndarray | None = None) -> tuple[pd.DataFrame, dict]:
     """``cfg`` (a PortfolioLink) switches on the docs/21 options: ``objective="net_alpha_pwl"`` and
     ``active_liquidity_adv_fraction``; both read liquidity through the decision day's close only."""
     dates, codes = panel.dates, panel.codes
@@ -174,7 +175,10 @@ def build_weights_lp(scores: pd.DataFrame, panel: Panel, universe_mask: np.ndarr
         member = universe_mask[t] & np.isfinite(cap[t]) & (cap[t] > 0)
         if member.sum() < 20:
             continue
-        b = np.where(member, cap[t], 0.0) / cap[t][member].sum()
+        raw_b = np.where(member, cap[t] if benchmark_weights is None else benchmark_weights[t], 0.0)
+        if raw_b.sum() <= 0:
+            continue
+        b = raw_b / raw_b.sum()
         raw = np.where(member & np.isfinite(s[t]), s[t], np.nan)
         z = _score_z(raw)
         keep = member | (prev > 0)

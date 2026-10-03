@@ -117,6 +117,7 @@ class Output(_Model):
 class PortfolioLink(_Model):
     kind: Literal["index_enhancement", "event_calendar", "etf_rotation", "futures_hedged"]
     benchmark: str | None = None
+    benchmark_basis: Literal["member_cap_proxy", "official_weights"] = "member_cap_proxy"
     rebalance_every: int = 5
     industry_dev: float = 0.02
     name_cap: float = 0.01
@@ -284,7 +285,8 @@ LATER_FIELDS = (("features", "derived_fields"), ("features", "event_source"), ("
                 ("portfolio", "objective"), ("portfolio", "alpha_return_scale"), ("portfolio", "impact_segments"),
                 ("portfolio", "alpha_scale_mode"), ("portfolio", "impact_design_aum"),
                 ("portfolio", "score_ema_half_life"), ("portfolio", "active_liquidity_adv_fraction"),
-                ("portfolio", "liquidity_design_aum"), (None, "score_source"))
+                ("portfolio", "liquidity_design_aum"), ("portfolio", "benchmark_basis"),
+                (None, "score_source"))
 
 
 def tasks_dir(settings: Settings) -> Path:

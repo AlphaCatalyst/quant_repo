@@ -105,16 +105,27 @@ decisions:
     decided_at: null
   - id: paid-data
     title: 数据源付费升级
-    question: 是否购买 Tushare 积分，补官方指数权重、中证 500 全收益指数、PIT 申万行业，以及两融、股东户数等历史？卖方预测已由 westock 研报覆盖。
+    question: 免费源已补上全收益指数、两融、股东户数和历史指数权重（DoltHub 镜像），卖方预测由 westock 研报覆盖。是否仍购买 Tushare 积分，补 PIT 申万行业并取得权重数据的正式授权？
     evidence: docs/17-data-vendors.md
     options:
       - name: Tushare 2000 积分（个人约 200 元/年，机构价约 2000 元/年）
-        consequence: 补齐官方权重、全收益指数、PIT 行业；顺带两融、资金流、股东户数和交易所涨跌停价。依赖基准与行业的结论统一复核。
-      - name: Tushare 10000 积分（个人约 1000 元/年，机构价约 1 万元/年）
-        consequence: 在 2000 积分基础上加 report_rc 卖方预测，与 westock 研报重叠，可用于对账。
+        consequence: 补 PIT 申万行业，消除行业中性化和风险模型的前视偏差；指数权重改走正式接口，DoltHub 镜像只作对账。
       - name: 暂缓升级
-        consequence: 研究照常进行；mandate 与前瞻继续用 D-31 自算代理并标注，PIT 行业前视偏差保留，两融和股东类因子无法研究。
-    recommendation: Tushare 2000 积分（docs/17 §7）；全收益指数、两融、股东户数已有免费源（§7.4），必需项只剩历史指数权重和 PIT 申万行业；官网套餐都不需要（§7.5）。不买也不阻塞当前研究。购买前确认适用个人价还是机构价，以及“不得商用”条款是否限制内部研究。
+        consequence: 研究照常进行；历史行业仍用当前快照；若采用官方权重基准，依赖的是 DoltHub 上的 Tushare 镜像，使用许可未确认。
+    recommendation: Tushare 2000 积分（docs/17 §7.4–7.6）。花费小，同时解决唯一剩下的数据缺口（PIT 申万行业）和权重数据的授权问题；官网套餐都不需要（§7.5）。不买也不阻塞当前研究。
+    status: open
+    decision: null
+    decided_at: null
+  - id: benchmark-basis
+    title: mandate 默认基准是否切换为官方权重
+    question: dev 窗口实测，官方月末权重加后复权价格重建的中证 500 全收益与官方 H00905 年化差 -0.01%、跟踪误差 0.47%；D-31 自算代理年化高 0.58%、跟踪误差 1.24%。是否把 mandate 默认基准改为 benchmark_basis=official_weights？
+    evidence: docs/17-data-vendors.md
+    options:
+      - name: 切换到官方权重（新 task 默认）
+        consequence: 验收与跟踪误差更接近真实基准；旧 trial 数字保持原样、新旧不可直接比较，报告里同时给出 D-31 口径；权重来自 DoltHub 上的 Tushare 镜像，授权待 paid-data 决定。
+      - name: 保持 D-31 代理
+        consequence: 与历史 trial 可比；超额平均少算约 0.6%/年（2021–2022 约 2–3%），跟踪误差带入约 1.2% 的基准误差。
+    recommendation: 切换，但等 paid-data 有结论（正式授权或确认镜像可用于内部研究）后再改默认值；在此之前，新 trial 可以显式选用 official_weights 并并列报告 D-31 口径。
     status: open
     decision: null
     decided_at: null

@@ -101,8 +101,9 @@ def test_provider_filters_media_and_retries_consensus_missing_sections(monkeypat
     def fake_call(args):
         codes = args[1].split(",")
         calls.append(codes)
-        sections = [[{"year": 2026, "eps": 1.0}]]
-        return {"sections": sections}
+        if len(codes) == 1:
+            return [{"year": 2026, "eps": 1.0}]
+        return {"sections": [[{"year": 2026, "eps": 1.0}]]}
 
     monkeypatch.setattr(westock, "_call", fake_call)
     frame = westock.consensus(["sh.600000", "sz.000001"])

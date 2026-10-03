@@ -103,6 +103,9 @@ def report_detail(report_id: str) -> dict:
 def consensus(codes: list[str]) -> pd.DataFrame:
     def fetch(batch: list[str]) -> pd.DataFrame:
         result = _call(["consensus", ",".join(map(to_westock, batch))]) or {}
+        # a multi-code call answers {"sections": [...]}; a single-code call answers the bare list
+        if isinstance(result, list) and len(batch) == 1:
+            result = {"sections": [result]}
         sections = result.get("sections", []) if isinstance(result, dict) else []
         if len(sections) != len(batch):
             return pd.DataFrame(columns=["code"])

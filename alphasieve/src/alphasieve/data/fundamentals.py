@@ -98,10 +98,14 @@ def margin_rows(snapshots: pd.DataFrame) -> pd.DataFrame:
 
 
 def attach_margin(panel: pd.DataFrame, snapshots: pd.DataFrame, calendar: list[str]) -> pd.DataFrame:
+    return attach_margin_rows(panel, margin_rows(snapshots), calendar)
+
+
+def attach_margin_rows(panel: pd.DataFrame, rows: pd.DataFrame, calendar: list[str]) -> pd.DataFrame:
     from alphasieve.data.events import align_events, attach_events
 
     fields = ["_fin_value", *MARGIN_FIELDS[1:]]
-    aligned = align_events(margin_rows(snapshots), calendar, fields)
+    aligned = align_events(rows, calendar, fields)
     panel = attach_events(panel, aligned, calendar, fields, carry_days=MARGIN_CARRY_DAYS)
     panel["mg_fin_to_mv"] = _ratio(panel["_fin_value"], panel["circ_mv"])
     return panel.drop(columns=["_fin_value"])

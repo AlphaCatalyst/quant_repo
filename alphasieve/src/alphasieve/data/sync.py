@@ -273,6 +273,116 @@ def mirror_to_store(settings: Settings, universe: str | None = None) -> dict:
     return {"copied": copied, "store": str(dst_root)}
 
 
+def mirror_free_to_store(settings: Settings) -> dict:
+    copied = 0
+    for name in ("csindex", "exchange", "eastmoney"):
+        src_root = settings.raw_dir / name
+        for src in src_root.rglob("*.parquet"):
+            dst = settings.raw_store_dir / name / src.relative_to(src_root)
+            if dst.exists() and dst.stat().st_size == src.stat().st_size and dst.stat().st_mtime >= src.stat().st_mtime:
+                continue
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+            copied += 1
+    return {"copied": copied}
+
+
+def sync_csindex_returns(settings: Settings, conn: sqlite3.Connection) -> dict:
+    from alphasieve.data.providers import csindex
+
+    out, errors = {}, []
+    root = settings.raw_dir / "csindex" / "total_return"
+    for symbol in ("H00905", "H00300", "H00906"):
+        path = root / f"{symbol}.parquet"
+        try:
+            df = csindex.fetch_index_history(symbol)
+            if df.empty:
+                raise ValueError("empty index history")
+            if path.exists() and len(df) < len(pd.read_parquet(path, columns=["date"])):
+                raise ValueError("index history shorter than the stored copy")
+            _write_parquet(df, path)
+            snap = record_snapshot(conn, "csindex:total_return", {"symbol": symbol}, [path], len(df), "csindex")
+            out[symbol] = {"rows": len(df), "snapshot": snap}
+        except Exception as exc:
+            errors.append({"symbol": symbol, "error": str(exc)[:200]})
+    return {"symbols": out, "errors": errors}
+
+
+def sync_exchange_margin(settings: Settings, conn: sqlite3.Connection, start: str, end: str,
+                         progress=None) -> dict:
+    from alphasieve.data.providers import exchange
+
+    dates = load_calendar(settings)
+    dates = dates[(dates >= start) & (dates <= end)].tolist()
+    out, errors = [], []
+    root = settings.raw_dir / "exchange" / "margin"
+    for i, day in enumerate(dates, 1):
+        path = root / f"{day}.parquet"
+        if not path.exists():
+            try:
+                df = exchange.fetch_margin_day(day)
+                if df.empty:
+                    raise ValueError("empty exchange margin day")
+                _write_parquet(df, path)
+                snap = record_snapshot(conn, "exchange:margin", {"date": day}, [path], len(df), "exchange")
+                out.append({"date": day, "rows": len(df), "snapshot": snap})
+            except Exception as exc:
+                errors.append({"date": day, "error": str(exc)[:200]})
+        if progress:
+            progress(i, len(dates))
+    return {"dates": len(dates), "new_files": len(out), "rows": sum(r["rows"] for r in out),
+            "errors": errors}
+
+
+def sync_eastmoney_holders(settings: Settings, conn: sqlite3.Connection, codes: list[str], progress=None) -> dict:
+    from alphasieve.data.providers import eastmoney
+
+    root = settings.raw_dir / "eastmoney" / "holders"
+    out, errors = [], []
+    for i, code in enumerate(codes, 1):
+        path = root / f"{code}.parquet"
+        try:
+            df = eastmoney.fetch_holder_history(code)
+            if df.empty:
+                raise ValueError("empty shareholder history")
+            if path.exists():
+                old = pd.read_parquet(path)
+                df = pd.concat([old, df], ignore_index=True).drop_duplicates(
+                    ["code", "stat_date", "announce_date"], keep="last")
+            _write_parquet(df, path)
+            snap = record_snapshot(conn, "eastmoney:holders", {"code": code}, [path], len(df), "eastmoney")
+            out.append({"code": code, "rows": len(df), "snapshot": snap})
+        except Exception as exc:
+            errors.append({"code": code, "error": str(exc)[:200]})
+        if progress:
+            progress(i, len(codes))
+    return {"codes": len(codes), "files": len(out), "errors": errors}
+
+
+def sync_csindex_weights(settings: Settings, conn: sqlite3.Connection) -> dict:
+    from alphasieve.data.providers import csindex
+
+    root = settings.raw_dir / "csindex" / "weights"
+    out, errors = {}, []
+    for symbol in ("000905", "000300", "000906"):
+        try:
+            df = csindex.fetch_index_weights(symbol)
+            if df.empty:
+                raise ValueError("empty index weights")
+            snapshot_date = str(df["snapshot_date"].iloc[0])[:10]
+            path = root / symbol / f"{snapshot_date}.parquet"
+            if path.exists():
+                out[symbol] = {"date": snapshot_date, "existing": True}
+                continue
+            _write_parquet(df, path)
+            snap = record_snapshot(conn, "csindex:weights", {"symbol": symbol, "date": snapshot_date},
+                                   [path], len(df), "csindex")
+            out[symbol] = {"date": snapshot_date, "rows": len(df), "snapshot": snap}
+        except Exception as exc:
+            errors.append({"symbol": symbol, "error": str(exc)[:200]})
+    return {"symbols": out, "errors": errors}
+
+
 def _events_job(code: str, start: str, end: str, root: str) -> dict:
     root_path = Path(root) / "events"
     fc = _SESSION.forecast(code, start, end)

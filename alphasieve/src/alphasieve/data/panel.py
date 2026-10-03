@@ -183,6 +183,25 @@ def _load_westock(root: Path, codes: list[str], calendar: list[str]):
     return financials, flow, margin
 
 
+def _load_exchange_margin(root: Path, codes: list[str], end: str) -> pd.DataFrame | None:
+    wanted = set(codes)
+    parts = []
+    for path in sorted((root / "margin").glob("*.parquet")):
+        if path.stem > end:
+            break
+        df = pd.read_parquet(path)
+        df = df[df["code"].isin(wanted)]
+        if not df.empty:
+            parts.append(df)
+    return pd.concat(parts, ignore_index=True) if parts else None
+
+
+def _exchange_before_westock(exchange: pd.DataFrame, westock: pd.DataFrame) -> pd.DataFrame:
+    first_ws = westock.groupby("code")["date"].min()
+    first_for_code = exchange["code"].map(first_ws)
+    return exchange[first_for_code.isna() | (exchange["date"] < first_for_code)]
+
+
 def _attach_financials(panel: pd.DataFrame, frames: list[pd.DataFrame]) -> pd.DataFrame:
     panel = panel.sort_values(["date", "code"])
     for aligned in frames:
@@ -287,10 +306,19 @@ def build_long_panel(settings: Settings, end: str, universe: str | None = None,
         from alphasieve.data.fundamentals import attach_fund_flow
 
         panel = attach_fund_flow(panel, ws_flow)
-    if ws_margin is not None:
-        from alphasieve.data.fundamentals import attach_margin
+    ex_margin = _load_exchange_margin(settings.raw_dir / "exchange", codes, end)
+    if ws_margin is not None or ex_margin is not None:
+        from alphasieve.data.fundamentals import attach_margin_rows, margin_rows
 
-        panel = attach_margin(panel, ws_margin.astype({"code": panel["code"].dtype}), calendar)
+        parts = []
+        if ex_margin is not None:
+            if ws_margin is not None:
+                ex_margin = _exchange_before_westock(ex_margin, ws_margin)
+            parts.append(margin_rows(ex_margin.astype({"code": panel["code"].dtype})))
+        if ws_margin is not None:
+            parts.append(margin_rows(ws_margin.astype({"code": panel["code"].dtype})))
+        rows = pd.concat(parts, ignore_index=True).drop_duplicates(["code", "pub_date"], keep="last")
+        panel = attach_margin_rows(panel, rows, calendar)
     reports_path = westock_root(settings) / "reports" / "parsed.parquet"
     if reports_path.exists():
         from alphasieve.data.report_features import attach_report_features
@@ -311,7 +339,7 @@ def build_long_panel(settings: Settings, end: str, universe: str | None = None,
     info = {"codes": len(codes), "missing_codes": missing, "has_financials": bool(fin_frames), "universe": cfg["name"],
             "has_events": has_events is not None, "has_intraday": intraday is not None,
             "has_westock_financials": ws_financials is not None, "has_fund_flow": ws_flow is not None,
-            "has_margin": ws_margin is not None}
+            "has_margin": ws_margin is not None or ex_margin is not None}
     return panel, calendar, info
 
 

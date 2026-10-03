@@ -32,6 +32,30 @@ def append_ledger(conn: sqlite3.Connection, kind: str, actor: str, payload: dict
     return digest
 
 
+def verify_forward_ledger(conn: sqlite3.Connection) -> dict:
+    """Verify the original forward ledger digest format used by append_ledger."""
+    prev = "0" * 64
+    errors = []
+    count = 0
+    for record in conn.execute("SELECT * FROM forward_ledger ORDER BY seq"):
+        row = dict(record)
+        count += 1
+        if row["prev_hash"] != prev:
+            errors.append({"seq": row["seq"], "error": "prev_hash mismatch"})
+        try:
+            payload = json.loads(row["payload_json"])
+            hashed = {"kind": row["record_kind"], "actor": row["actor"], "payload": payload,
+                      "cohort_id": row["cohort_id"], "date": row["date"],
+                      "book_id": row["book_id"], "run_id": row["run_id"], "prev": row["prev_hash"]}
+            expected = sha256_hex(canonical_json(hashed))
+        except (TypeError, ValueError):
+            expected = None
+        if row["row_hash"] != expected:
+            errors.append({"seq": row["seq"], "error": "row_hash mismatch"})
+        prev = row["row_hash"]
+    return {"ok": not errors, "rows": count, "errors": errors}
+
+
 def _require_human(settings: Settings) -> None:
     if settings.role != "human":
         raise permission_denied("forward approval is human-only")

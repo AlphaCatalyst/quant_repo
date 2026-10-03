@@ -21,6 +21,65 @@ AIHUB_BASE_URL = "http://api.aihub.woa.com/standard"
 PASSTHROUGH = ("http_proxy", "https_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "LANG", "TZ")
 
 
+@dataclass(frozen=True)
+class AgentProfile:
+    name: str
+    claude_allowed: list[str]
+    claude_denied: list[str]
+    codex_network: bool
+    writable_subdirs: tuple[str, ...]
+    read_only_files: tuple[str, ...]
+
+
+MINER = AgentProfile(
+    name="miner",
+    claude_allowed=[
+        "Bash(alphasieve:*)", "Bash(git log:*)", "Bash(git diff:*)", "Bash(git status:*)",
+        "Read(./**)", "Glob", "Grep", "Write(./candidates/**)", "Write(./notes/**)",
+        "Write(./reports/**)", "Edit(./candidates/**)", "Edit(./notes/**)", "Edit(./reports/**)",
+    ],
+    claude_denied=[
+        "WebFetch", "WebSearch", "Task", "NotebookEdit", "Write(./program.md)",
+        "Write(./brief.md)", "Write(./memory.md)", "Write(./directives.md)",
+    ],
+    codex_network=False,
+    writable_subdirs=("candidates", "notes", "reports"),
+    read_only_files=("program.md", "brief.md", "memory.md", "directives.md"),
+)
+CLAUDE_ALLOWED = MINER.claude_allowed
+CLAUDE_DENIED = MINER.claude_denied
+
+_RESEARCH_READ_WEB = ["Read(./**)", "Glob(./**)", "Grep(./**)", "WebSearch", "WebFetch"]
+_THESIS_READ_ONLY = ["Task", "NotebookEdit", "Write(./brief.md)", "Edit(./brief.md)",
+                     "Write(./program.md)", "Edit(./program.md)"]
+
+RESEARCHER = AgentProfile(
+    name="researcher",
+    claude_allowed=[
+        *_RESEARCH_READ_WEB, "Write(./drafts/**)", "Edit(./drafts/**)",
+        "Bash(alphasieve thesis:*)", "Bash(alphasieve forecast list:*)",
+        "Bash(alphasieve forecast show:*)", "Bash(alphasieve library list:*)",
+        "Bash(ls:*)", "Bash(cat:*)",
+    ],
+    claude_denied=_THESIS_READ_ONLY.copy(),
+    codex_network=True,
+    writable_subdirs=("drafts",),
+    read_only_files=("brief.md", "program.md"),
+)
+REVIEWER = AgentProfile(
+    name="reviewer",
+    claude_allowed=[
+        *_RESEARCH_READ_WEB, "Write(./reviews/**)", "Edit(./reviews/**)",
+        "Bash(alphasieve thesis:*)", "Bash(ls:*)", "Bash(cat:*)",
+    ],
+    claude_denied=_THESIS_READ_ONLY.copy(),
+    codex_network=True,
+    writable_subdirs=("reviews",),
+    read_only_files=("brief.md", "program.md"),
+)
+PROFILES = {profile.name: profile for profile in (MINER, RESEARCHER, REVIEWER)}
+
+
 @dataclass
 class TurnContext:
     campaign_id: str
@@ -33,6 +92,7 @@ class TurnContext:
     timeout_s: int
     transcript_path: Path
     trial_allowance: int
+    profile: AgentProfile = MINER
 
 
 @dataclass
@@ -138,7 +198,8 @@ class CodexExecutor:
             CODEX_BIN, "exec", "--ignore-user-config", "--ignore-rules", "--ephemeral", "--skip-git-repo-check",
             "--json", "--color", "never", "-m", ctx.model, "-c", f'model_reasoning_effort="{ctx.effort or "high"}"',
             "-s", "workspace-write", "-c", f"sandbox_workspace_write.writable_roots={json.dumps(roots)}",
-            "-c", "sandbox_workspace_write.network_access=false", "-C", str(ctx.workspace), ctx.prompt,
+            "-c", f"sandbox_workspace_write.network_access={str(ctx.profile.codex_network).lower()}",
+            "-C", str(ctx.workspace), ctx.prompt,
         ]
 
     def run(self, ctx: TurnContext) -> TurnResult:
@@ -168,15 +229,6 @@ class CodexExecutor:
         return _finish(result, code, timed_out, stderr)
 
 
-CLAUDE_ALLOWED = [
-    "Bash(alphasieve:*)", "Bash(git log:*)", "Bash(git diff:*)", "Bash(git status:*)", "Read(./**)", "Glob", "Grep",
-    "Write(./candidates/**)", "Write(./notes/**)",
-    "Write(./reports/**)", "Edit(./candidates/**)", "Edit(./notes/**)", "Edit(./reports/**)",
-]
-CLAUDE_DENIED = ["WebFetch", "WebSearch", "Task", "NotebookEdit", "Write(./program.md)", "Write(./brief.md)",
-                 "Write(./memory.md)", "Write(./directives.md)"]
-
-
 class ClaudeExecutor:
     harness = "claude"
 
@@ -193,8 +245,8 @@ class ClaudeExecutor:
         return [
             CLAUDE_BIN, "-p", ctx.prompt, "--bare", "--model", ctx.model, "--output-format", "stream-json",
             "--verbose", "--permission-mode", "dontAsk", "--no-session-persistence", "--strict-mcp-config",
-            "--settings", settings_json, "--allowedTools", ",".join(CLAUDE_ALLOWED),
-            "--disallowedTools", ",".join(CLAUDE_DENIED),
+            "--settings", settings_json, "--allowedTools", ",".join(ctx.profile.claude_allowed),
+            "--disallowedTools", ",".join(ctx.profile.claude_denied),
         ]
 
     def run(self, ctx: TurnContext) -> TurnResult:

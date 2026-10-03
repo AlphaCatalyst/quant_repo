@@ -24,8 +24,13 @@ from alphasieve.data.access import read_meta
 from alphasieve.data.sync import load_calendar, raw_root
 from alphasieve.errors import AlphaSieveError
 from alphasieve.factors import library as lib
+from alphasieve.forecasts import service as forecast_service
+from alphasieve.journal import list_entries
 from alphasieve.ledger import ledger_stats, verify_ledger
+from alphasieve.portfolio_book import checkup, importer
 from alphasieve.state.backup import list_backups
+from alphasieve.thesis import evaluate_scenarios, implied, load_thesis
+from alphasieve.thesis.formula import FormulaError
 
 DIST = Path(__file__).resolve().parent / "dist"
 ARTIFACT_ID = re.compile(r"^[0-9a-f]{24}$")
@@ -208,6 +213,83 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
         from alphasieve.fresh.service import read_model
 
         return read_model(conn)
+
+    def thesis_files():
+        directory = Path(os.environ.get("ALPHASIEVE_THESES_DIR") or
+                         Path(__file__).resolve().parents[3] / "theses")
+        if not directory.is_dir():
+            return []
+        return sorted({*directory.glob("*.yaml"), *directory.glob("*.yml")})
+
+    def thesis_valuation(thesis):
+        try:
+            valuation = evaluate_scenarios(thesis)
+        except (FormulaError, ValueError, ZeroDivisionError, OverflowError):
+            valuation = {"base": None, "scenarios": {}, "sensitivity": [],
+                         "output_unit": thesis.valuation.output_unit}
+        implied_value = None
+        if thesis.valuation.price_param and thesis.valuation.market_price is not None:
+            try:
+                implied_value = implied(thesis)["value"]
+            except (FormulaError, ValueError, ZeroDivisionError, OverflowError):
+                pass
+        return valuation, implied_value
+
+    @app.get("/api/theses")
+    def theses_view(user: str = Depends(auth), conn=Depends(db)):
+        forecasts = forecast_service.list_forecasts(conn)["forecasts"]
+        forecast_counts = {}
+        for forecast in forecasts:
+            key = forecast["thesis_id"]
+            forecast_counts[key] = forecast_counts.get(key, 0) + 1
+        rows = []
+        for path in thesis_files():
+            thesis = load_thesis(path)
+            valuation, implied_value = thesis_valuation(thesis)
+            counts = {grade: sum(item.grade == grade for item in thesis.evidence)
+                      for grade in ("A", "B", "C", "D")}
+            rows.append({"id": thesis.thesis_id, "thesis_id": thesis.thesis_id,
+                         "title": thesis.title, "status": thesis.status, "as_of": thesis.as_of.isoformat(),
+                         "assets": [asset.model_dump(mode="json") for asset in thesis.assets],
+                         "base_valuation": valuation["base"], "market_price": thesis.valuation.market_price,
+                         "implied_core_value": implied_value, "evidence_counts": counts,
+                         "falsifiers_count": len(thesis.falsifiers),
+                         "linked_forecasts_count": forecast_counts.get(thesis.thesis_id, 0)})
+        return {"theses": rows, "count": len(rows)}
+
+    @app.get("/api/theses/{thesis_id}")
+    def thesis_view(thesis_id: str, user: str = Depends(auth), conn=Depends(db)):
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]{2,63}", thesis_id):
+            raise HTTPException(404, "thesis not found")
+        thesis = next((item for path in thesis_files() if (item := load_thesis(path)).thesis_id == thesis_id), None)
+        if thesis is None:
+            raise HTTPException(404, "thesis not found")
+        valuation, implied_value = thesis_valuation(thesis)
+        data = thesis.model_dump(mode="json")
+        return {"thesis": data, "base_valuation": valuation["base"],
+                "scenarios": valuation["scenarios"], "sensitivity": valuation["sensitivity"],
+                "valuation": valuation, "implied_core_value": implied_value,
+                "evidence": data["evidence"], "falsifiers": data["falsifiers"],
+                "proposed_forecasts": data["proposed_forecasts"],
+                "registered_forecasts": forecast_service.list_forecasts(conn, thesis_id=thesis_id)["forecasts"],
+                "journal_entries": list_entries(conn, thesis_id=thesis_id)}
+
+    @app.get("/api/forecasts")
+    def forecasts_view(user: str = Depends(auth), conn=Depends(db)):
+        return {**forecast_service.list_forecasts(conn), "score": forecast_service.score_forecasts(conn)}
+
+    @app.get("/api/book")
+    def book_view(user: str = Depends(auth), conn=Depends(db)):
+        if not require_auth or user == "anonymous":
+            raise HTTPException(403, "book requires human authentication")
+        snapshots = []
+        for item in importer.list_snapshots(conn):
+            snapshot = importer.show_snapshot(conn, item["snapshot_id"])
+            positions = snapshot["positions"]
+            snapshots.append({**snapshot, "positions_count": len(positions),
+                              "total_value": sum(float(position["market_value"]) for position in positions),
+                              "report": checkup.load_report(item["snapshot_id"], settings)})
+        return {"snapshots": snapshots, "count": len(snapshots)}
 
     @app.exception_handler(AlphaSieveError)
     async def _err(request, exc: AlphaSieveError):
@@ -647,7 +729,10 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
 
     @app.get("/api/docs/{name}", response_class=PlainTextResponse)
     def decision_doc(name: str, user: str = Depends(auth)):
-        if not re.fullmatch(r"(?:06-interfaces|10-decisions|17-data-vendors|23-forward-paper|24-mandate-campaigns|25-risk-model)\.md", name):
+        allowed = (r"(?:06-interfaces|10-decisions|17-data-vendors|23-forward-paper|"
+                   r"24-mandate-campaigns|25-risk-model|26-personal-account|"
+                   r"27-broad-quant-platform|28-platform-implementation)\.md")
+        if not re.fullmatch(allowed, name):
             raise HTTPException(404, "document not found")
         path = Path(__file__).resolve().parents[3] / "docs" / name
         if not path.is_file():

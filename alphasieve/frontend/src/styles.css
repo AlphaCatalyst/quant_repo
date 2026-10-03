@@ -151,6 +151,24 @@ main { max-width: 1480px; margin: 0 auto; padding: 20px 24px 60px; }
 .bar-fill { display: block; height: 100%; background: #94a3b8; }
 .bar-value { text-align: right; }
 
+.sensitivity-list { display: grid; gap: 9px; }
+.sensitivity-row { display: grid; grid-template-columns: minmax(120px, 200px) minmax(140px, 1fr) minmax(110px, 150px); gap: 10px; align-items: center; font-size: 12px; }
+.sensitivity-row > span:last-child { text-align: right; white-space: nowrap; }
+.sensitivity-track { position: relative; display: flex; align-items: center; height: 14px; border-radius: 3px; background: color-mix(in srgb, var(--muted) 8%, var(--card)); }
+.sensitivity-track::after { position: absolute; left: 50%; height: 18px; width: 1px; background: var(--muted); content: ""; }
+.sensitivity-negative { position: absolute; right: 50%; height: 10px; background: var(--red); }
+.sensitivity-positive { position: absolute; left: 50%; height: 10px; background: var(--blue); }
+.evidence-grade-A td:first-child { border-left: 3px solid #15803d; }
+.evidence-grade-B td:first-child { border-left: 3px solid #2563eb; }
+.evidence-grade-C td:first-child { border-left: 3px solid #d97706; }
+.evidence-grade-D td:first-child { border-left: 3px solid #dc2626; }
+.grade-label { font-weight: 600; white-space: nowrap; }
+.evidence-grade-A .grade-label { color: #15803d; }
+.evidence-grade-B .grade-label { color: #2563eb; }
+.evidence-grade-C .grade-label { color: #b45309; }
+.evidence-grade-D .grade-label { color: #dc2626; }
+@media (max-width: 650px) { .sensitivity-row { grid-template-columns: 100px minmax(100px, 1fr); } .sensitivity-row > span:last-child { grid-column: 2; text-align: left; } }
+
 .list { margin: 0; padding-left: 18px; line-height: 1.7; }
 .muted { color: var(--muted); }
 .small { font-size: 12px; }

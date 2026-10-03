@@ -7,13 +7,16 @@ import traceback
 from alphasieve.audit import record_event
 from alphasieve.cli import (  # noqa: F401  (register commands)
     commands_approval,
+    commands_book,
     commands_campaign,
     commands_core,
     commands_data,
     commands_factor,
+    commands_forecast,
     commands_fresh,
     commands_service,
     commands_strategy,
+    commands_thesis,
     commands_train,
     commands_web,
 )

@@ -353,6 +353,38 @@ MIGRATIONS: list[str] = [
     CREATE TRIGGER forward_approval_requests_no_delete BEFORE DELETE ON forward_approval_requests
     BEGIN SELECT RAISE(ABORT,'forward_approval_requests is append-only'); END;
     """,
+    """
+    CREATE TABLE forecast_ledger (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT, record_kind TEXT NOT NULL,
+        forecast_id TEXT NOT NULL, thesis_id TEXT, actor TEXT NOT NULL,
+        payload_json TEXT NOT NULL, created_at TEXT NOT NULL,
+        prev_hash TEXT NOT NULL, row_hash TEXT NOT NULL
+    );
+    CREATE INDEX forecast_ledger_forecast ON forecast_ledger(forecast_id);
+    CREATE TABLE journal_entries (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT, entry_id TEXT NOT NULL UNIQUE, entry_kind TEXT NOT NULL,
+        thesis_id TEXT, holdings_snapshot_id TEXT, actor TEXT NOT NULL,
+        payload_json TEXT NOT NULL, created_at TEXT NOT NULL,
+        prev_hash TEXT NOT NULL, row_hash TEXT NOT NULL
+    );
+    CREATE TABLE holdings_snapshots (
+        snapshot_id TEXT PRIMARY KEY, account TEXT NOT NULL, as_of TEXT NOT NULL, source TEXT NOT NULL,
+        positions_json TEXT NOT NULL, content_hash TEXT NOT NULL,
+        created_by TEXT NOT NULL, created_at TEXT NOT NULL
+    );
+    CREATE TRIGGER forecast_ledger_no_update BEFORE UPDATE ON forecast_ledger
+    BEGIN SELECT RAISE(ABORT,'forecast_ledger is append-only'); END;
+    CREATE TRIGGER forecast_ledger_no_delete BEFORE DELETE ON forecast_ledger
+    BEGIN SELECT RAISE(ABORT,'forecast_ledger is append-only'); END;
+    CREATE TRIGGER journal_entries_no_update BEFORE UPDATE ON journal_entries
+    BEGIN SELECT RAISE(ABORT,'journal_entries is append-only'); END;
+    CREATE TRIGGER journal_entries_no_delete BEFORE DELETE ON journal_entries
+    BEGIN SELECT RAISE(ABORT,'journal_entries is append-only'); END;
+    CREATE TRIGGER holdings_snapshots_no_update BEFORE UPDATE ON holdings_snapshots
+    BEGIN SELECT RAISE(ABORT,'holdings_snapshots is append-only'); END;
+    CREATE TRIGGER holdings_snapshots_no_delete BEFORE DELETE ON holdings_snapshots
+    BEGIN SELECT RAISE(ABORT,'holdings_snapshots is append-only'); END;
+    """,
 ]
 
 

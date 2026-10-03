@@ -31,6 +31,9 @@
 | [23-forward-paper.md](23-forward-paper.md) | 前瞻验证与 paper 追踪设计：只追加的 fresh 日分区、锁定模型的前向重拟合、观察账簿、统计判定与人工审批 |
 | [24-mandate-campaigns.md](24-mandate-campaigns.md) | 从属于 mandate 的因子 campaign 设计：冻结 A 基线、对齐 A 的 ridge 边际贡献、5 个一批进入 A 的规则 |
 | [25-risk-model.md](25-risk-model.md) | 组合层风险模型 v1 设计：六个风格暴露、固定参数因子协方差与事前 TE 校验、实际持仓闭环；暂不引入 QP |
+| [26-personal-account.md](26-personal-account.md) | 100 万–500 万个人账户：体量带来的约束与优势、可做的策略方向、上限与合理预期、对 AlphaSieve 的调整建议 |
+| [27-broad-quant-platform.md](27-broad-quant-platform.md) | 广义量化分析平台构想（50 万–1000 万个人持仓）：论点研究与可结算预测、信息与事件处理、持仓风控、特殊情况、决策复盘等可结合 agent 的能力与优先级 |
+| [28-platform-implementation.md](28-platform-implementation.md) | 广义平台的实现评估：现有代码的可复用度、两处前置重构（哈希链公共函数、agent profile）、快速可做项与中长期项；R-1、R-2、Q1–Q6 已实现 |
 | [acceptance-training.md](acceptance-training.md) | 训练任务与四个 mandate 的 dev 验收记录：结果、作废的 trial、平台实测、阻塞项 |
 | [acceptance-m0-m2.md](acceptance-m0-m2.md) | M0–M2 验收记录：真实数据同步结果、测试、端到端评估、gate 校准 |
 | [acceptance-scaling.md](acceptance-scaling.md) | 扩容 S-1 至 S-7 验收记录：评估性能、常驻服务、程序化搜索、策略回测、全 A 与事件、日内数据 |

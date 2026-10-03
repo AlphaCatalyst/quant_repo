@@ -15,6 +15,8 @@ SUSPICIOUS = [
     (re.compile(r"fresh_raw_snapshots|fresh_models|/api/forward|forward_ledger|paper_days"),
      "forward restricted path or result"),
     (re.compile(r"alphasieve\.db|sqlite3?\b"), "direct database access"),
+    (re.compile(r"\b(?:holdings_snapshots|journal_entries)\b|\balphasieve\s+(?:book|journal)\b"),
+     "personal holdings access"),
     (re.compile(r"secrets\.env|auth\.json|AIHUB_API_KEY"), "credential access"),
     (re.compile(r"alphasieve\s+(holdout|review)\s+(approve|reject|decide)"), "human-only command"),
     (re.compile(r"alphasieve\s+(fresh|paper|approval)\s+"), "forward or approval command"),

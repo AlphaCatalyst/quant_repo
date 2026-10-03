@@ -10,6 +10,9 @@ import { Mandates, Strategy } from "./pages/Mandates";
 import Compare from "./pages/Compare";
 import Inbox from "./pages/Inbox";
 import Forward from "./pages/Forward";
+import Theses, { Thesis } from "./pages/Theses";
+import Forecasts from "./pages/Forecasts";
+import Book from "./pages/Book";
 import { Glossary } from "./components";
 
 function useHashPath(): string {
@@ -32,6 +35,9 @@ const NAV: [string, string][] = [
   ["/factors", "因子"],
   ["/ledger", "试验记录"],
   ["/forward", "前瞻"],
+  ["/theses", "论点"],
+  ["/forecasts", "预测"],
+  ["/book", "持仓体检"],
   ["/data", "数据"],
 ];
 
@@ -90,15 +96,19 @@ function App() {
   if (parts[0] === "campaign" && parts[1]) page = <Campaign id={parts[1]} key={parts[1]} />;
   else if (parts[0] === "factor" && parts[1]) page = <Factor id={parts[1]} key={parts[1]} />;
   else if (parts[0] === "strategy" && parts[1]) page = <Strategy id={parts[1]} key={parts[1]} />;
+  else if (parts[0] === "thesis" && parts[1]) page = <Thesis id={parts[1]} key={parts[1]} />;
   else if (parts[0] === "compare") page = <Compare query={path.split("?")[1] ?? ""} />;
   else if (parts[0] === "mandates") page = <Mandates />;
   else if (parts[0] === "factors") page = <Factors />;
   else if (parts[0] === "ledger") page = <Ledger />;
   else if (parts[0] === "forward") page = <Forward />;
+  else if (parts[0] === "theses") page = <Theses />;
+  else if (parts[0] === "forecasts") page = <Forecasts />;
+  else if (parts[0] === "book") page = <Book />;
   else if (parts[0] === "data") page = <Data />;
   else if (parts[0] === "inbox") page = <Inbox />;
   else page = <Overview />;
-  const active = "/" + (parts[0] === "campaign" ? "" : parts[0] === "factor" ? "factors"
+  const active = "/" + (parts[0] === "campaign" ? "" : parts[0] === "factor" ? "factors" : parts[0] === "thesis" ? "theses"
     : parts[0] === "strategy" || parts[0] === "compare" ? "mandates" : parts[0] ?? "");
   const counts: Record<string, number | undefined> = {
     "/mandates": mandateSummary?.mandates?.length, "/factors": overview?.library_size,

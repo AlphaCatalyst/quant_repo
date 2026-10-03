@@ -74,3 +74,37 @@ export function useApi<T>(path: string | null, refreshMs = 0) {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type Json = any;
+
+export type ThesisSummary = {
+  id: string; title: string; status: string; assets: { code: string; name: string }[];
+  base_valuation: number | null; market_price: number | null;
+  implied_core_value: number | null;
+  evidence_counts: Record<string, number>; falsifiers_count: number; linked_forecasts_count: number;
+};
+export type ThesisDetail = {
+  thesis: { thesis_id: string; title: string; status: string; as_of: string; assets: ThesisSummary["assets"];
+    argument: string[]; core_variables: string[]; valuation: { formula: string; output_unit: string; market_price: number | null };
+    parameters: Record<string, { base: number; low: number; high: number; unit: string; evidence: string[] }> };
+  base_valuation: number; scenarios: Record<string, number>; sensitivity: {
+    parameter: string; low: number; high: number; low_impact: number; high_impact: number; absolute_impact: number;
+  }[];
+  evidence: { id: string; claim: string; value: string | number | null; source: string; grade: string; accessed: string }[];
+  falsifiers: { id: string; condition: string; variable: string; action: string }[];
+  proposed_forecasts: Record<string, unknown>[]; registered_forecasts: ForecastItem[];
+  journal_entries: { entry_id: string; action?: string; thesis_id?: string; created_at?: string; payload?: Record<string, unknown> }[];
+};
+export type ForecastItem = {
+  forecast_id: string; thesis_id: string | null; status: string; created_at: string;
+  spec: { statement: string; p: number; deadline: string; resolver_params: { settle_date: string }; source_of_truth: string };
+  resolution?: { outcome?: boolean; observed_value?: number; source?: string };
+};
+export type ForecastScore = { count: number; brier_score: number | null;
+  calibration: { range: string; count: number; observed_frequency: number | null }[] };
+export type ForecastsResponse = { forecasts: ForecastItem[]; score: ForecastScore };
+export type BookReport = { snapshot_id: string; total_value: number; weights: Record<string, number>;
+  industry_weights: Record<string, number>; top_n_concentration: number; hhi: number;
+  portfolio_beta_60d: number | null; benchmark: string; stress_returns: {
+    benchmark_down_10pct: number | null; industry_down_20pct: Record<string, number>;
+    largest_position_down_30pct: number | null }; stress_note?: string };
+export type BookSnapshot = { snapshot_id: string; account: string; as_of: string;
+  positions_count: number; total_value: number; report: BookReport | null };

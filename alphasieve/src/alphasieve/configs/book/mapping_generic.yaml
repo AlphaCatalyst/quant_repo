@@ -1,0 +1,11 @@
+version: 1
+columns:
+  code: [证券代码, 代码, 股票代码, code, symbol]
+  name: [证券名称, 股票名称, 名称, name]
+  quantity: [股票余额, 持仓数量, 持仓股数, 数量, quantity, shares]
+  cost_price: [成本价, 成本均价, cost_price, cost]
+  price: [最新价, 市价, 当前价, price, close]
+  market_value: [市值, 持仓市值, market_value, value]
+  asset_type: [资产类型, 类别, asset_type, type]
+  cash: [现金, 可用资金, cash]
+cash_labels: [现金, 人民币, 资金余额, cash, CNY]

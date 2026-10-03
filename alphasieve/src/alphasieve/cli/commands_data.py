@@ -14,7 +14,8 @@ MAX_SAMPLE_ROWS = 200
 SYNC_DATASETS = ("reference", "members", "daily", "financials", "events", "intraday", "mirror", "core",
                  "ws_financials", "fund_flow", "margin", "margin_history", "etf", "futures",
                  "ws_reports", "ws_consensus", "ws_index_members", "ws_sw_industry",
-                 "ws_sector_index_daily", "ws_return_index_daily")
+                 "ws_sector_index_daily", "ws_return_index_daily", "free_returns", "exchange_margin",
+                 "em_holders", "cs_weights")
 
 
 def _universe_arg(p):
@@ -42,7 +43,8 @@ def _configure_sync(p):
                    help="core = reference + members + daily + mirror")
     p.add_argument("--end", default=None, help="last date to fetch (default: latest trading day)")
     p.add_argument("--workers", type=int, default=6)
-    p.add_argument("--start", default="2020-01-01", help="first date for intraday bars / margin history")
+    p.add_argument("--start", default=None,
+                   help="first date (exchange margin defaults to 2010; others to 2020)")
     _universe_arg(p)
 
 
@@ -69,7 +71,8 @@ def cmd_data_sync(args, ctx) -> CommandResult:
     if "events" in datasets:
         out["events"] = sync.sync_events(settings, conn, end, args.workers, _progress("events"), u)
     if "intraday" in datasets:
-        out["intraday"] = sync.sync_intraday(settings, conn, args.start, end, args.workers, _progress("intraday"), u)
+        out["intraday"] = sync.sync_intraday(settings, conn, args.start or "2020-01-01", end,
+                                              args.workers, _progress("intraday"), u)
     if "ws_financials" in datasets:
         out["ws_financials"] = sync.sync_westock_financials(settings, conn, end, args.workers,
                                                             _progress("ws_financials"), u)
@@ -101,13 +104,26 @@ def cmd_data_sync(args, ctx) -> CommandResult:
 
         out["futures"] = sync_futures(settings, conn, end)
     if "margin_history" in datasets:
-        out["margin_history"] = sync.sync_margin_history(settings, conn, args.start, end, args.workers,
+        out["margin_history"] = sync.sync_margin_history(settings, conn, args.start or "2020-01-01", end, args.workers,
                                                          _progress("margin_history"), u)
+    if "free_returns" in datasets:
+        out["free_returns"] = sync.sync_csindex_returns(settings, conn)
+    if "exchange_margin" in datasets:
+        out["exchange_margin"] = sync.sync_exchange_margin(settings, conn, args.start or "2010-01-01", end,
+                                                            _progress("exchange_margin"))
+    if "em_holders" in datasets:
+        out["em_holders"] = sync.sync_eastmoney_holders(settings, conn, sync.universe_codes(settings, u),
+                                                        _progress("em_holders"))
+    if "cs_weights" in datasets:
+        out["cs_weights"] = sync.sync_csindex_weights(settings, conn)
     if "mirror" in datasets or ("financials" in datasets and u in (None, "csi800")):
         out["mirror"] = sync.mirror_to_store(settings, u)
+    if any(k in datasets for k in ("free_returns", "exchange_margin", "em_holders", "cs_weights")):
+        out["free_mirror"] = sync.mirror_free_to_store(settings)
     warnings = []
     for key in ("daily", "financials", "events", "intraday", "ws_financials", "fund_flow", "margin", "margin_history",
-                "futures", "ws_reports", "ws_sector_index_daily", "ws_return_index_daily"):
+                "futures", "ws_reports", "ws_sector_index_daily", "ws_return_index_daily", "free_returns",
+                "exchange_margin", "em_holders", "cs_weights"):
         if out.get(key, {}).get("errors"):
             warnings.append(f"{key}: {len(out[key]['errors'])} items failed; rerun to resume")
     return CommandResult(data=out, warnings=warnings)
@@ -276,12 +292,23 @@ def cmd_data_daily_update(args, ctx) -> CommandResult:
     out["ws_sw_industry"] = sync.sync_westock_sw_industry(settings, conn, today.isoformat())
     out["ws_sector_index_daily"] = sync.sync_westock_index_kline(settings, conn, end, "sector_index_daily")
     out["ws_return_index_daily"] = sync.sync_westock_index_kline(settings, conn, end, "return_index_daily")
+    warnings = []
+    for key, fetch in (("free_returns", lambda: sync.sync_csindex_returns(settings, conn)),
+                       ("exchange_margin", lambda: sync.sync_exchange_margin(settings, conn, end, end))):
+        try:
+            out[key] = fetch()
+        except Exception as exc:
+            warnings.append(f"{key}: {str(exc)[:200]}")
     if today.weekday() == 5:
         out["financials"] = sync.sync_financials(settings, conn, end, 4)
         out["ws_financials"] = sync.sync_westock_financials(settings, conn, end, 4, universe="ashare_all")
     out["mirror"] = sync.mirror_to_store(settings)
+    try:
+        out["free_mirror"] = sync.mirror_free_to_store(settings)
+    except Exception as exc:
+        warnings.append(f"free_mirror: {str(exc)[:200]}")
     keys = ("daily", "financials", "fund_flow", "margin", "ws_financials", "ws_reports",
-            "ws_sector_index_daily", "ws_return_index_daily")
-    warnings = [f"{k}: {len(out[k]['errors'])} items failed; rerun to resume"
-                for k in keys if out.get(k, {}).get("errors")]
+            "ws_sector_index_daily", "ws_return_index_daily", "free_returns", "exchange_margin")
+    warnings += [f"{k}: {len(out[k]['errors'])} items failed; rerun to resume"
+                 for k in keys if out.get(k, {}).get("errors")]
     return CommandResult(data=out, warnings=warnings)

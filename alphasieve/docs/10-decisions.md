@@ -262,6 +262,12 @@ verifier 本身的正确性要靠测试证明；gate 阈值用零假设模拟与
 - 三方核对限定 2012-01-01 至 2022-12-31 dev，用原始后复权价格与官方 H00905；缺少全量权重时不报告完整窗口的年化差与跟踪误差。DoltHub 是 Tushare 镜像，Tushare 禁商用条款适用性待 human 核实。
 - 通达信专业财务包只落原 zip 与季度中文字段 parquet，不入 panel、搜索空间或现有验收。`财报公告日期` 为空或 0 的行不可用于特征；其他财务字段从公告日下一交易日起可用。文件可能被事后修订，EPS/ROE 须与 BaoStock 带 `pubDate` 的首发值抽查后再决定是否接入。季度新文件或最近两季 hash 变化才下载更新，失败只记 warning。
 
+**D-40 新 mandate task 使用官方权重基准（2026-10-03，human 决定）**
+- human 确认本项目为个人研究、非商用，DoltHub 镜像权重可用于研究。dev 实测：官方权重重建与 H00905 年化差 -0.01%、跟踪误差 0.47%；D-31 代理年化 +0.58%、跟踪误差 1.24%（docs/17 §7.6）。
+- 新建的 index_enhancement / futures_hedged task 显式写 `benchmark_basis: official_weights`。schema 默认值仍为 `member_cap_proxy`，已登记 task 的配置哈希与重跑结果不变；旧 trial 数字不重算。
+- 采用官方权重时，结果同时输出 `execution_vs_member_proxy`（D-31 口径）供新旧对照；验收按官方权重口径判定。
+- 平台只放截断到 dev 末日（2022-12-31）的权重文件，路径 `<remote_root>/hot/data/raw/dolthub/index_weights/`。前向追踪（D-36）仍用 D-31 代理，切换须按 docs/23 另开 cohort，由 human 决定。
+
 ## 待定问题
 
 | 编号 | 问题 | 影响 | 计划决定时间 |

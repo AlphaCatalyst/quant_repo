@@ -152,6 +152,10 @@ def index_enhancement(panel: Panel, score: pd.DataFrame, members: np.ndarray, be
                     universe_mask=members, official_weights=official_weights)
     vs_index = simulate(weights, panel, costs, benchmark, aum=cfg.aum, max_participation=cfg.max_participation,
                         universe_mask=members)
+    extra = {}
+    if official_weights is not None:
+        extra["execution_vs_member_proxy"] = _clean(simulate(
+            weights, panel, costs, None, aum=cfg.aum, max_participation=cfg.max_participation, universe_mask=members))
     capacity = {k: {"annual_excess": v["annual_excess"], "information_ratio": v["information_ratio"],
                     "tracking_error": v["tracking_error"], "max_drawdown_excess": v["max_drawdown_excess"],
                     "annual_cost": v["annual_cost"], "annual_impact_cost": v["annual_impact_cost"],
@@ -178,7 +182,7 @@ def index_enhancement(panel: Panel, score: pd.DataFrame, members: np.ndarray, be
         "total-return member proxy (cap-weighted)"
     return {"weights": weights, "portfolio": diag, "benchmark_basis": basis,
             "execution": _clean(main), "execution_vs_price_index": _clean(vs_index),
-            "execution_no_impact": _clean(base),
+            "execution_no_impact": _clean(base), **extra,
             "capacity": capacity, "benchmark_proxy": proxy_tracking(panel, members, index_returns),
             "robustness": robustness(main, runs[f"{CAPACITY_AUMS[-1]:.0e}"], base),
             "acceptance": {"checks": checks, "passed": all(c[2] for c in checks.values())},

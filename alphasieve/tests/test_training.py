@@ -132,6 +132,37 @@ def test_train_run_records_a_strategy_trial(panel_settings, tmp_path, capsys):
     assert (panel_settings.store_root / "models" / "t_small" / out["trial_id"] / "scores.parquet").exists()
 
 
+def test_train_run_with_official_weights_reports_both_bases(panel_settings, tmp_path, capsys, monkeypatch):
+    import os
+
+    import pandas as pd
+
+    dev = load_panel(panel_settings, "dev", "system")
+    cap = dev.wide("circ_mv")
+    member = dev.mask("in_zz500")
+    month_ends = cap.index.to_series().groupby(cap.index.to_period("M")).max()
+    rows = []
+    for day in month_ends:
+        w = cap.loc[day].where(member.loc[day] & (cap.loc[day] > 0)).dropna()
+        for code, value in (100 * w / w.sum()).items():
+            rows.append({"index_code": "000905.SH", "trade_date": str(day.date()),
+                         "stock_code": f"{code[3:]}.{code[:2].upper()}", "weight": value})
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    for child in panel_settings.raw_dir.iterdir():
+        os.symlink(child, raw / child.name)
+    (raw / "dolthub" / "index_weights").mkdir(parents=True)
+    pd.DataFrame(rows).to_parquet(raw / "dolthub" / "index_weights" / "000905.SH.parquet")
+    monkeypatch.setenv("ALPHASIEVE_RAW_DIR", str(raw))
+    data = task_dict(task_id="t_official", portfolio={**BASE["portfolio"], "benchmark_basis": "official_weights"})
+    assert main(["train", "run", "--task", write_task(tmp_path, data), "--processes", "1", "--threads", "1",
+                 "--json"]) == 0
+    pf = json.loads(capsys.readouterr().out)["data"]["portfolio"]
+    assert pf["benchmark_basis"].startswith("official-weight")
+    assert pf["execution"]["benchmark"] == "official_weight_total_return"
+    assert pf["execution_vs_member_proxy"]["benchmark"] == "cap_weighted_universe"
+
+
 def test_strategy_holdout_is_human_only_and_budgeted(panel_settings, tmp_path, capsys):
     path = write_task(tmp_path, task_dict())
     assert main(["train", "run", "--task", path, "--processes", "1", "--threads", "1", "--json"]) == 0

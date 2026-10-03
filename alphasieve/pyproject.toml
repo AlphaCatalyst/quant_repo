@@ -8,7 +8,6 @@ dependencies = [
     "baostock>=0.9.4",
     "fastapi>=0.141.1",
     "lightgbm>=4.7.0",
-    "mootdx>=0.11.7",
     "numba>=0.67.0",
     "numpy>=1.26",
     "openpyxl>=3.1",
@@ -24,6 +23,7 @@ dependencies = [
 
 [project.optional-dependencies]
 tracking = ["wandb>=0.19"]
+tdx = ["mootdx>=0.11.7"]
 
 [project.scripts]
 alphasieve = "alphasieve.cli.main:main"

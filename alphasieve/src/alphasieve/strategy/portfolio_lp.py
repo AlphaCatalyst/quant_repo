@@ -23,7 +23,7 @@ from scipy import sparse
 from scipy.optimize import linprog
 
 from alphasieve.data.access import Panel
-from alphasieve.strategy.portfolio import _size_z
+from alphasieve.strategy.portfolio import _size_z, reference_weights
 
 SEGMENTS = 4
 
@@ -175,10 +175,9 @@ def build_weights_lp(scores: pd.DataFrame, panel: Panel, universe_mask: np.ndarr
         member = universe_mask[t] & np.isfinite(cap[t]) & (cap[t] > 0)
         if member.sum() < 20:
             continue
-        raw_b = np.where(member, cap[t] if benchmark_weights is None else benchmark_weights[t], 0.0)
-        if raw_b.sum() <= 0:
+        b = reference_weights(member, cap[t], None if benchmark_weights is None else benchmark_weights[t])
+        if not b.any():
             continue
-        b = raw_b / raw_b.sum()
         raw = np.where(member & np.isfinite(s[t]), s[t], np.nan)
         z = _score_z(raw)
         keep = member | (prev > 0)

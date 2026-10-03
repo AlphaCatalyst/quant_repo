@@ -8,7 +8,6 @@ import zipfile
 from pathlib import Path
 
 import pandas as pd
-from mootdx.affair import Affair
 
 from alphasieve.data.providers.gpcw_columns import columns
 
@@ -34,9 +33,18 @@ ALIASES = {
 }
 
 
+def _affair():
+    """mootdx is an optional extra (``uv sync --extra tdx``): only the downloader needs it."""
+    try:
+        from mootdx.affair import Affair
+    except ImportError as exc:
+        raise RuntimeError("TDX financial download needs the optional 'tdx' extra: uv sync --extra tdx") from exc
+    return Affair
+
+
 def files() -> list[dict]:
     out = []
-    for item in Affair.files() or []:
+    for item in _affair().files() or []:
         name = str(item.get("filename", ""))
         if not NAME.fullmatch(name):
             continue
@@ -55,7 +63,7 @@ def fetch(name: str, target_dir: Path, expected_hash: str) -> Path:
     with tempfile.TemporaryDirectory(dir=target_dir) as temp:
         # Affair uses the TDX file protocol. The public HTTPS zip URL currently
         # serves a JavaScript bot challenge, whereas this endpoint returns bytes.
-        Affair.fetch(temp, name)
+        _affair().fetch(temp, name)
         downloaded = Path(temp) / name
         if hashlib.md5(downloaded.read_bytes()).hexdigest() != expected_hash:  # noqa: S324
             raise ValueError(f"gpcw catalog hash mismatch: {name}")

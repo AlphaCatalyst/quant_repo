@@ -75,7 +75,8 @@ def test_hash_mismatch_does_not_replace_existing_archive(tmp_path, monkeypatch):
     old = root / "gpcw20160331.zip"
     old.write_bytes(_package("20160331"))
 
-    monkeypatch.setattr(gpcw.Affair, "fetch", lambda dirname, name: (Path(dirname) / name).write_bytes(b"bad"))
+    fake = type("Affair", (), {"fetch": staticmethod(lambda dirname, name: (Path(dirname) / name).write_bytes(b"bad"))})
+    monkeypatch.setattr(gpcw, "_affair", lambda: fake)
     original = old.read_bytes()
     with pytest.raises(ValueError, match="hash mismatch"):
         gpcw.fetch(old.name, root, "0" * 32)

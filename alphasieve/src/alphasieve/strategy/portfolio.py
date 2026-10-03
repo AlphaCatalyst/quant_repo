@@ -37,16 +37,24 @@ def _fill_industry(weight: float, scores: np.ndarray, cap: float) -> np.ndarray:
     return w
 
 
+def reference_weights(ok: np.ndarray, cap: np.ndarray, reference: np.ndarray | None = None) -> np.ndarray:
+    """Benchmark weights over ``ok``: cap-weighted members, or published index weights when given. The default
+    expression is kept as is so that results without published weights stay bit-identical."""
+    if reference is None:
+        return np.where(ok, cap, 0.0) / cap[ok].sum()
+    raw = np.where(ok, reference, 0.0)
+    return raw / raw.sum() if raw.sum() > 0 else np.zeros(len(raw))
+
+
 def target_weights(score: np.ndarray, cap_mv: np.ndarray, groups: np.ndarray, eligible: np.ndarray,
                    industry_dev: float, name_cap: float, benchmark_weights: np.ndarray | None = None) -> np.ndarray:
     w = np.zeros(len(score))
     ok = eligible & np.isfinite(score) & np.isfinite(cap_mv) & (cap_mv > 0)
     if ok.sum() == 0:
         return w
-    raw_bench = np.where(ok, cap_mv if benchmark_weights is None else benchmark_weights, 0.0)
-    if raw_bench.sum() <= 0:
+    bench = reference_weights(ok, cap_mv, benchmark_weights)
+    if not bench.any():
         return w
-    bench = raw_bench / raw_bench.sum()
     labels = np.unique(groups[ok])
     rank = pd.Series(score[ok]).rank(pct=True).to_numpy() - 0.5
     rank_full = np.zeros(len(score))
@@ -154,8 +162,7 @@ def build_weights(scores: pd.DataFrame, panel: Panel, rebalance_every: int = 5, 
         if target.sum() == 0:
             continue
         ok = universe[t] & np.isfinite(cap[t]) & (cap[t] > 0)
-        raw_bench = np.where(ok, cap[t] if reference is None else reference, 0.0)
-        bench = raw_bench / raw_bench.sum()
+        bench = reference_weights(ok, cap[t], reference)
         z = _size_z(cap[t], ok)
         target = enforce_size(target, bench, z, size_limit)
         if active_scale < 1.0:

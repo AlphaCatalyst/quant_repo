@@ -385,6 +385,17 @@ MIGRATIONS: list[str] = [
     CREATE TRIGGER holdings_snapshots_no_delete BEFORE DELETE ON holdings_snapshots
     BEGIN SELECT RAISE(ABORT,'holdings_snapshots is append-only'); END;
     """,
+    """
+    CREATE TABLE book_cashflows (
+        cashflow_id TEXT PRIMARY KEY, account TEXT NOT NULL, as_of TEXT NOT NULL,
+        amount REAL NOT NULL, note TEXT NOT NULL, created_by TEXT NOT NULL, created_at TEXT NOT NULL
+    );
+    CREATE INDEX book_cashflows_account_date ON book_cashflows(account, as_of);
+    CREATE TRIGGER book_cashflows_no_update BEFORE UPDATE ON book_cashflows
+    BEGIN SELECT RAISE(ABORT,'book_cashflows is append-only'); END;
+    CREATE TRIGGER book_cashflows_no_delete BEFORE DELETE ON book_cashflows
+    BEGIN SELECT RAISE(ABORT,'book_cashflows is append-only'); END;
+    """,
 ]
 
 

@@ -29,6 +29,9 @@ class AgentProfile:
     codex_network: bool
     writable_subdirs: tuple[str, ...]
     read_only_files: tuple[str, ...]
+    # `--bare` caps Claude at Bash/Edit/Read whatever `--tools` says; profiles that need web tools run
+    # without it and rely on the isolated HOME/CLAUDE_CONFIG_DIR instead.
+    claude_tools: tuple[str, ...] | None = None
 
 
 MINER = AgentProfile(
@@ -52,6 +55,7 @@ CLAUDE_DENIED = MINER.claude_denied
 _RESEARCH_READ_WEB = ["Read(./**)", "Glob(./**)", "Grep(./**)", "WebSearch", "WebFetch"]
 _THESIS_READ_ONLY = ["Task", "NotebookEdit", "Write(./brief.md)", "Edit(./brief.md)",
                      "Write(./program.md)", "Edit(./program.md)"]
+_THESIS_TOOLS = ("Bash", "Read", "Edit", "Write", "Glob", "Grep", "WebSearch", "WebFetch")
 
 RESEARCHER = AgentProfile(
     name="researcher",
@@ -65,6 +69,7 @@ RESEARCHER = AgentProfile(
     codex_network=True,
     writable_subdirs=("drafts",),
     read_only_files=("brief.md", "program.md"),
+    claude_tools=_THESIS_TOOLS,
 )
 REVIEWER = AgentProfile(
     name="reviewer",
@@ -76,6 +81,7 @@ REVIEWER = AgentProfile(
     codex_network=True,
     writable_subdirs=("reviews",),
     read_only_files=("brief.md", "program.md"),
+    claude_tools=_THESIS_TOOLS,
 )
 PROFILES = {profile.name: profile for profile in (MINER, RESEARCHER, REVIEWER)}
 
@@ -243,10 +249,13 @@ class ClaudeExecutor:
         settings_json = json.dumps({"alwaysThinkingEnabled": False, "includeCoAuthoredBy": False,
                                     "permissions": {"defaultMode": "dontAsk"}})
         return [
-            CLAUDE_BIN, "-p", ctx.prompt, "--bare", "--model", ctx.model, "--output-format", "stream-json",
+            CLAUDE_BIN, "-p", ctx.prompt,
+            *(["--disable-slash-commands"] if ctx.profile.claude_tools else ["--bare"]),
+            "--model", ctx.model, "--output-format", "stream-json",
             "--verbose", "--permission-mode", "dontAsk", "--no-session-persistence", "--strict-mcp-config",
             "--settings", settings_json, "--allowedTools", ",".join(ctx.profile.claude_allowed),
             "--disallowedTools", ",".join(ctx.profile.claude_denied),
+            *(["--tools", ",".join(ctx.profile.claude_tools)] if ctx.profile.claude_tools else []),
         ]
 
     def run(self, ctx: TurnContext) -> TurnResult:

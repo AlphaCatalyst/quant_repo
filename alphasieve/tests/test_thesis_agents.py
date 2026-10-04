@@ -100,3 +100,15 @@ def test_draft_and_review_cli_json_with_fake_executor(tmp_path, monkeypatch, cap
     assert out["data"]["drafts"][0]["thesis_id"] == "hog-cycle-muyuan"
     code, out = _cli(["thesis", "review", str(SAMPLE)], capsys)
     assert code == 0 and out["data"]["changed_files"] == ["reviews/review.md"]
+
+
+def test_review_without_output_fails(tmp_path, monkeypatch):
+    settings = _roots(tmp_path, monkeypatch)
+
+    def script(ctx, env, run_cli, result):
+        assert "target.yaml" in (ctx.workspace / "brief.md").read_text(encoding="utf-8")
+        return "nothing written"
+
+    run = run_review(settings, SAMPLE, "fake", fake_script=script)
+    assert run["status"] == "failed"
+    assert "without writing under reviews/" in run["error"]

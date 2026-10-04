@@ -95,6 +95,9 @@ def test_thesis_profiles(profile, write_dir, bash_commands):
     command = ClaudeExecutor(_settings()).command(ctx)
     assert command[command.index("--allowedTools") + 1] == ",".join(profile.claude_allowed)
     assert command[command.index("--disallowedTools") + 1] == ",".join(profile.claude_denied)
+    tools = command[command.index("--tools") + 1].split(",")
+    assert {"Write", "WebSearch", "WebFetch"} <= set(tools)
+    assert "--bare" not in command and "--disable-slash-commands" in command
     with pytest.raises(FrozenInstanceError):
         profile.codex_network = False
 

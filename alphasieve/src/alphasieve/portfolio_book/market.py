@@ -106,6 +106,54 @@ def recent_closes(settings: Settings, codes: list[str], benchmark: str, end: str
     return result
 
 
+def history_closes(settings: Settings, codes: list[str], benchmark: str, start: str,
+                   end: str) -> tuple[dict[str, pd.Series], dict]:
+    """Daily closes for a personal book; the local CSI300 TR series is preferred."""
+    result: dict[str, pd.Series] = {}
+    source = "BaoStock price index"
+    if benchmark == "sh.000300":
+        path = settings.raw_dir / "csindex" / "total_return" / "H00300.parquet"
+        if path.is_file():
+            frame = pd.read_parquet(path, columns=["date", "close"])
+            frame = frame[(frame["date"] >= start) & (frame["date"] <= end)]
+            if not frame.empty:
+                result[benchmark] = pd.Series(pd.to_numeric(frame["close"], errors="coerce").values,
+                                               index=frame["date"].astype(str)).dropna().sort_index()
+                source = "csindex CSI300 total return H00300"
+    for code in sorted(set([*codes, benchmark])):
+        if code in result:
+            continue
+        path = settings.hot_root / "book" / "market" / f"history-{code}-{start}-{end}.json"
+        if path.is_file():
+            rows = json.loads(path.read_text(encoding="utf-8"))
+        else:
+            kind = asset_class(code)
+            try:
+                if code != benchmark and kind in {"etf", "convertible_bond"}:
+                    frame = _westock_closes(code, start, end)
+                else:
+                    frame = _fetch_closes(code, start, end, benchmark=code == benchmark)
+                    if frame.empty and code != benchmark:
+                        frame = _westock_closes(code, start, end)
+            except (westock.WestockError, OSError, TimeoutError):
+                frame = pd.DataFrame()
+            if frame.empty or not {"date", "close"}.issubset(frame.columns):
+                rows = []
+            else:
+                frame = frame[["date", "close"]].copy()
+                frame["close"] = pd.to_numeric(frame["close"], errors="coerce")
+                frame = frame.dropna().drop_duplicates("date", keep="last").sort_values("date")
+                rows = frame.to_dict("records")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_name(path.name + ".tmp")
+            tmp.write_text(json.dumps(rows, ensure_ascii=False), encoding="utf-8")
+            os.replace(tmp, path)
+        result[code] = pd.Series({str(row["date"]): float(row["close"]) for row in rows}, dtype=float).sort_index()
+    if result[benchmark].empty:
+        raise validation_error("benchmark prices unavailable", benchmark=benchmark)
+    return result, {"code": benchmark, "source": source}
+
+
 def current_industry(settings: Settings, codes: list[str]) -> tuple[dict[str, str], dict]:
     """Latest local SW L1 snapshot, with CSRC fallback; neither source is PIT."""
     sw_dir = settings.raw_dir / "westock" / "sw_industry"

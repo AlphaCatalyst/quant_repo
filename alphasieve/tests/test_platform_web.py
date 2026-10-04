@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from alphasieve.forecasts.service import register_forecast, settle_forecast
 from alphasieve.journal.service import add_entry
 from alphasieve.portfolio_book.checkup import save_report
+from alphasieve.portfolio_book.history import save_analysis_report
 from alphasieve.portfolio_book.importer import import_snapshot
 from alphasieve.state import connect
 from alphasieve.web.app import _load_credentials, create_app
@@ -116,12 +117,37 @@ def test_book_uses_stored_report_without_market_fetch(platform_client, monkeypat
     assert "/data/alphasieve" not in json.dumps(snapshots)
 
 
+def test_book_analysis_endpoints_only_serve_saved_matching_reports(platform_client, settings, monkeypatch):
+    from alphasieve.portfolio_book import market
+
+    client, auth, _, snapshot_id = platform_client
+    monkeypatch.setattr(market, "history_closes", lambda *args: pytest.fail("market path used"))
+    reports = {
+        "history": {"start": "2026-10-01", "end": "2026-10-03", "rows": [], "summary": {}},
+        "attribution": {"start": "2026-10-01", "end": "2026-10-03", "by": "position", "rows": []},
+        "rebalance": {"snapshot_id": snapshot_id, "rows": []},
+    }
+    for kind, report in reports.items():
+        save_analysis_report(report, settings, "attribution-position" if kind == "attribution" else kind)
+        endpoint = f"/api/book/{kind}"
+        assert client.get(endpoint).status_code == 401
+        assert client.get(endpoint, auth=auth).json()["report"] == report
+    assert client.get("/api/book/history?start=2026-10-02", auth=auth).json()["report"] is None
+    assert client.get("/api/book/attribution?by=thesis", auth=auth).json()["report"] is None
+    from dataclasses import replace
+
+    open_client = TestClient(create_app(replace(settings), require_auth=False))
+    for kind in reports:
+        assert open_client.get(f"/api/book/{kind}").status_code == 403
+
+
 def test_platform_documents_are_whitelisted(platform_client):
     client, auth, _, _ = platform_client
     for name in ("26-personal-account.md", "27-broad-quant-platform.md",
-                 "28-platform-implementation.md", "29-coverage-review.md"):
+                 "28-platform-implementation.md", "29-coverage-review.md",
+                 "30-financial-red-flags.md", "31-announcements.md", "32-sw-industry-sensitivity.md"):
         assert client.get(f"/api/docs/{name}", auth=auth).status_code == 200
-    assert client.get("/api/docs/30-not-allowed.md", auth=auth).status_code == 404
+    assert client.get("/api/docs/33-not-allowed.md", auth=auth).status_code == 404
 
 
 def test_book_check_persists_report(settings, tmp_path, monkeypatch, capsys):

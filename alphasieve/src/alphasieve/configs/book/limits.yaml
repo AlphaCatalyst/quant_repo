@@ -1,0 +1,6 @@
+# Advisory thresholds as fractions of total book value.
+single_name_max: 0.20
+industry_max: 0.35
+drift_absolute: 0.05
+# Optional explicit target weights by normalized security code. Empty by default.
+target_weights: {}

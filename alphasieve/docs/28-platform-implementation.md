@@ -92,7 +92,7 @@
 3. 持仓导入使用哪家券商的导出格式。
 4. 第一个论点样例是否用猪周期，以及首批预测的结算数据源。
 
-## 9. 实现状态（2026-10-03）
+## 9. 实现状态（2026-10-04）
 
 按"所有操作都允许"的授权，§8 的四项按默认值执行：先做 R-1、R-2；Researcher 与 Reviewer 允许联网；持仓导入用通用中英文表头映射；第一个论点用猪周期。
 
@@ -103,9 +103,11 @@
 | Q1 | `forecasts/`，表 `forecast_ledger`（registered / settled / voided 事件，哈希链） | `forecast add / settle / void / list / show / score / verify` |
 | Q2 | `thesis/`（`model.py`、受限公式 `formula.py`、`scenarios.py`）；样例 `theses/hog-cycle-muyuan.yaml` | `thesis validate / scenarios / implied / show / list` |
 | Q3 | `journal/`，表 `journal_entries` | `journal add / list / show / verify` |
-| Q4 | `portfolio_book/`（导入、行情、体检），表 `holdings_snapshots`；映射 `configs/book/mapping_generic.yaml` | `book import / list / show / check`（仅 human、system） |
+| Q4 | `portfolio_book/`（导入、行情、体检、日度持仓与净值、仓位/行业/论点归因、持仓约束提示），追加表 `holdings_snapshots`、`book_cashflows`；映射与限制在 `configs/book/` | `book import / list / show / check / history / attribution / rebalance / cashflow`（仅 human、system） |
 | Q5 | `thesis/agent_run.py`：单次运行的临时 git 工作区 | `thesis draft / review / runs / run-show`（draft、review 仅 human） |
-| Q6 | `web/app.py`：`/api/theses`、`/api/theses/{id}`、`/api/forecasts`、`/api/book`；前端页面 `Theses`、`Forecasts`、`Book` | — |
+| Q6 | `web/app.py`：`/api/theses`、`/api/theses/{id}`、`/api/forecasts`、`/api/book` 及只读的 `/api/book/history`、`/api/book/attribution`、`/api/book/rebalance`；前端页面 `Theses`、`Forecasts`、`Book` | — |
+
+持仓跟踪的口径：`book history [--start --end --account --benchmark]` 以相邻券商快照之间数量不变、收盘价估值，数量差记在后一个快照日为**推断交易**；导出现金存在时沿用该金额。`book cashflow add --file flows.csv`（列 `account,as_of,amount,note`，流入为正）或单笔 `--account --as-of --amount` 登记外部现金流，日收益扣除当日登记流入后连乘为时间加权净值；未登记流入无法与交易区分。基准优先用本地沪深 300 全收益指数，缺失回退价格指数，并在报告注明来源。`book attribution --start --end --by position|industry|thesis` 的个股贡献按前一日仓位的价格变动计算；行业用持仓日可得的申万一级历史，基准权重取区间起点前最近的中证官方权重，缺失时可回退 DoltHub，缺少行业收益数据时效应留空；论点按 YAML 证券关联及明确指向证券的日志关联，未关联列为 core。风格/因子归因留待风险模型接口。`book rebalance [--snapshot id]` 只根据已登记的论点仓位上限和 `configs/book/limits.yaml` 限额、显式目标权重给出差额提示；无目标权重不推断加仓。所有新报告保存在 `<hot_root>/book/reports/`，网页仅显示已保存报告；无认证的 `/api/book` 系列接口返回 403，系统不生成订单。
 
 与前文设计不同或补充的地方：
 
@@ -116,4 +118,4 @@
 - **猪周期样例的口径**：广发 2027 参数（猪价 14、成本 11.2、出栏 0.78 亿头、均重 120、归母折算 0.925、PE 10）得 41.99 元，与报告一致；42.59 元市价隐含猪价 14.04 元/kg。原文参数在 0.925 归母折算下为 115.36 元，原文"约 120 元"未做折算；报告给出的隐含猪价 14.34 元用的是成本 11.5 元。两处口径差已写入样例的 `revisions`。
 - **预测草案**：样例中的 `proposed_forecasts` 只是草案，结算日需按数据源日历复核后再由人登记。
 
-验证：全量 `uv run pytest` 为 362 passed、22 skipped（真实数据与联网测试默认跳过）；在临时目录中用 CLI 走通论点校验与反推、预测登记与提前结算拒绝、持仓导入与真实 BaoStock 行情体检、agent 角色拒绝、决策日志与哈希链校验。尚未用真实模型运行 `thesis draft / review`。
+验证：2026-10-04 全量 `uv run pytest -q` 为 404 passed、22 skipped；`npm run build` 通过。持仓跟踪用临时热根导入 2026-09-28 至 09-30 三份 `mixed.csv` 快照并读取真实收盘价：期初/期末市值 6,815.50/6,874.50 元，时间加权收益 0.866%，沪深 300 全收益 0.411%，推断 9 月 30 日浦发银行增加 10 股。基准行业权重取 2026-08-31 官方快照；本地成分股日线只到 2026-09-24，该区间配置/选择效应为空（报告标记覆盖不足）。此前在临时目录中还走通论点校验与反推、预测登记与提前结算拒绝、持仓导入与真实 BaoStock 行情体检、agent 角色拒绝、决策日志与哈希链校验。尚未用真实模型运行 `thesis draft / review`。

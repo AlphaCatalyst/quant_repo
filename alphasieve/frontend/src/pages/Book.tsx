@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { useApi, type BookReport, type BookSnapshot } from "../api";
-import { Card, Empty, fmtNum, fmtPct, Loading } from "../components";
+import { useApi, type BookAttributionReport, type BookAttributionResponse, type BookHistoryReport, type BookHistoryResponse, type BookRebalanceReport, type BookRebalanceResponse, type BookReport, type BookSnapshot } from "../api";
+import { Card, Chart, Empty, fmtNum, fmtPct, Loading } from "../components";
 
 const ASSET_CLASS: Record<string, string> = { stock: "股票", etf: "ETF", convertible_bond: "可转债", cash: "现金", other: "其他" };
 const BOND_FLAG: Record<string, string> = {
@@ -13,6 +13,63 @@ const value = (v: number | null | undefined, digits = 2) => v == null ? "—" : 
 const percentPoints = (v: number | null | undefined, digits = 1) => v == null ? "—" : `${fmtNum(v, digits)}%`;
 const capYi = (v: number | null | undefined) => v == null ? "—" : `${fmtNum(v / 1e8, 1)} 亿`;
 const labelClass = (name: string) => ASSET_CLASS[name] ?? name;
+const reportMissing = "暂无该区间的已保存报告；请在本机运行相应的 book 命令生成报告。";
+
+function History({ report }: { report: BookHistoryReport | null }) {
+  if (!report?.rows?.length) return <Card title="净值与收益"><Empty text={reportMissing} /></Card>;
+  const daily = report.rows;
+  const summary = report.summary;
+  let benchmarkNav = 1;
+  const benchmarkSeries = daily.map((row) => {
+    if (row.benchmark_return != null) benchmarkNav *= 1 + row.benchmark_return;
+    return row.benchmark_return == null && row.date !== daily[0].date ? null : benchmarkNav;
+  });
+  const hasBenchmark = daily.some((row) => row.benchmark_return != null);
+  const inferredDates = new Set(report.trades.filter((trade) => trade.inferred).map((trade) => trade.date));
+  return <Card title="净值与收益" extra={<span className="small muted">基准：{report.benchmark.code} · {report.benchmark.source}</span>}>
+    <div className="stats-row">
+      <div className="stat"><div className="stat-value">{fmtPct(summary.total_return)}</div><div className="stat-label">区间收益</div></div>
+      <div className="stat"><div className="stat-value">{fmtPct(summary.benchmark_return == null ? null : summary.total_return - summary.benchmark_return)}</div><div className="stat-label">超额收益</div></div>
+      <div className="stat"><div className="stat-value">{fmtPct(summary.max_drawdown)}</div><div className="stat-label">最大回撤</div></div>
+      <div className="stat"><div className="stat-value">{fmtPct(summary.volatility_annualized)}</div><div className="stat-label">年化波动率</div></div>
+      <div className="stat"><div className="stat-value">{fmtPct(summary.turnover)}</div><div className="stat-label">区间换手率</div></div>
+    </div>
+    <Chart option={{ tooltip: { trigger: "axis" }, legend: { data: hasBenchmark ? ["组合净值", "基准净值"] : ["组合净值"] },
+      grid: { left: 55, right: 20, top: 35, bottom: 35 }, xAxis: { type: "category", data: daily.map((row) => row.date) },
+      yAxis: { type: "value", scale: true }, series: [
+        { name: "组合净值", type: "line", data: daily.map((row) => row.unit_nav), showSymbol: false },
+        ...(hasBenchmark ? [{ name: "基准净值", type: "line" as const, data: benchmarkSeries, showSymbol: false }] : []),
+      ] }} />
+    <div className="table-scroll"><table className="table"><thead><tr><th>日期</th><th>净值</th><th>日收益</th><th>基准日收益</th><th>超额收益</th><th>回撤</th><th>外部现金流（元）</th><th>记录</th></tr></thead><tbody>
+      {daily.map((row) => <tr key={row.date}><td>{row.date}</td><td>{value(row.unit_nav, 4)}</td><td>{fmtPct(row.return)}</td><td>{fmtPct(row.benchmark_return)}</td><td>{fmtPct(row.excess_return)}</td><td>{fmtPct(row.drawdown)}</td><td>{value(row.cash_flow)}</td><td>{inferredDates.has(row.date) ? "数量变动（推断交易）" : row.missing_prices?.length ? `缺报价：${row.missing_prices.join("、")}` : "—"}</td></tr>)}
+    </tbody></table></div>
+    <p className="small muted">两个导入日期之间按持仓数量不变估算；数量变化记在后一个快照日。未登记的外部现金流可能影响收益率。</p>
+  </Card>;
+}
+
+function Attribution({ report, by }: { report: BookAttributionReport | null; by: string }) {
+  const rows = report?.rows ?? [];
+  const brinson = by === "industry";
+  return <Card title="收益归因" extra={<span className="small muted">{report?.start && report?.end ? `${report.start} 至 ${report.end}` : ""}</span>}>
+    {rows.length ? <div className="table-scroll"><table className="table"><thead><tr><th>{by === "position" ? "持仓" : by === "industry" ? "申万一级行业" : "投资论点"}</th>{brinson && <><th>期初组合权重</th><th>基准权重</th><th>配置效应</th><th>选择效应</th></>}<th>收益贡献</th></tr></thead><tbody>
+      {rows.map((row) => <tr key={row.name}><td>{row.name === "core" ? "未关联论点（核心持仓）" : row.name}</td>{brinson && <><td>{fmtPct(row.portfolio_weight_start)}</td><td>{fmtPct(row.benchmark_weight)}</td><td>{fmtPct(row.allocation)}</td><td>{fmtPct(row.selection)}</td></>}<td>{fmtPct(row.contribution)}</td></tr>)}
+    </tbody></table></div> : <Empty text={reportMissing} />}
+    {report && <p className="small muted">组合收益 {fmtPct(report.summary.portfolio_return)}；持仓贡献合计 {fmtPct(report.summary.position_contribution_sum)}；未分解差额 {fmtPct(report.summary.residual)}。</p>}
+    {report?.industry_meta && brinson && <p className="small muted">行业：{report.industry_meta.source}（截至 {report.industry_meta.as_of}）{report.industry_meta.fallback_codes.length ? `；${report.industry_meta.fallback_codes.length} 个代码使用当前行业快照` : ""}。基准行业权重：{report.benchmark_industry_meta.snapshot_date ?? "不可用"}，覆盖状态 {report.benchmark_industry_meta.status}。</p>}
+    {brinson && <p className="small muted">配置与选择效应按申万一级行业计算；行业和基准权重以报告标注的数据日期为准。</p>}
+  </Card>;
+}
+
+function Rebalance({ report }: { report: BookRebalanceReport | null }) {
+  const rows = report?.rows ?? [];
+  return <Card title="持仓偏离提示" extra={<span className="small muted">{report?.as_of ?? ""}</span>}>
+    {rows.length ? <div className="table-scroll"><table className="table"><thead><tr><th>持仓</th><th>行业</th><th>提示</th><th>当前权重</th><th>适用上限</th><th>目标权重</th><th>参考减持金额（元）</th><th>参考增加金额（元）</th><th>原因</th></tr></thead><tbody>
+      {rows.map((row) => <tr key={row.code}><td>{row.name}（{row.code}）</td><td>{row.industry}</td><td>{row.action === "trim" ? "超出约束，考虑减持" : row.action === "add" ? "低于已登记目标，考虑增加" : "未超出约束"}</td><td>{fmtPct(row.weight)}</td><td>{fmtPct(row.cap)}</td><td>{fmtPct(row.target_weight)}</td><td>{value(row.suggested_trim_value)}</td><td>{value(row.suggested_add_value)}</td><td>{row.reasons.join("；") || "—"}</td></tr>)}
+    </tbody></table></div> : <Empty text={report ? "暂无超过已配置上限的偏离" : "暂无已保存的调仓提示；请在本机运行 book rebalance。"} />}
+    {report && <p className="small muted">超出约束 {report.summary.flagged} 项，参考减持金额合计 {value(report.summary.suggested_trim_total)} 元，参考增加金额合计 {value(rows.reduce((sum, row) => sum + row.suggested_add_value, 0))} 元。单一证券上限 {fmtPct(report.limits.single_name_max)}，行业上限 {fmtPct(report.limits.industry_max)}。</p>}
+    <p className="small muted">仅按已登记的持仓与约束计算差额，供人工复核；不会生成或执行交易指令。</p>
+  </Card>;
+}
 
 function Weights({ title, weights }: { title: string; weights: Record<string, number> }) {
   const rows = Object.entries(weights).sort((a, b) => b[1] - a[1]);
@@ -44,16 +101,35 @@ function Report({ report }: { report: BookReport }) {
 export default function Book() {
   const { data, error } = useApi<{ snapshots: BookSnapshot[] }>("/api/book", 30000);
   const [selected, setSelected] = useState<string | null>(null);
+  const [start, setStart] = useState("");
+  const [end, setEnd] = useState("");
+  const [by, setBy] = useState("position");
+  const rows = data?.snapshots ?? [];
+  const dates = [...new Set(rows.map((row) => row.as_of))].sort();
+  const effectiveStart = start || dates[0] || "";
+  const effectiveEnd = end || dates[dates.length - 1] || "";
+  const canCompare = !!data && !!effectiveStart && !!effectiveEnd && effectiveStart <= effectiveEnd;
+  const query = canCompare ? `start=${encodeURIComponent(effectiveStart)}&end=${encodeURIComponent(effectiveEnd)}` : "";
+  const { data: history, error: historyError } = useApi<BookHistoryResponse>(data ? `/api/book/history${query ? `?${query}` : ""}` : null);
+  const { data: attribution, error: attributionError } = useApi<BookAttributionResponse>(canCompare ? `/api/book/attribution?${query}&by=${by}` : null);
+  const { data: rebalance, error: rebalanceError } = useApi<BookRebalanceResponse>(data ? "/api/book/rebalance" : null);
   if (error?.startsWith("403 ")) return <div className="page"><div className="page-head"><h2>持仓体检</h2></div><Card title="访问受限">持仓属于个人数据，需认证后查看。</Card></div>;
   if (!data) return <Loading error={error} />;
-  const rows = data.snapshots ?? [];
   const active = rows.find((row) => row.snapshot_id === selected) ?? rows[0];
-  return <div className="page book-page"><div className="page-head"><div><h2>持仓体检</h2><p className="muted small">本机已导入的持仓快照及最近保存的体检报告。</p></div></div>
+  return <div className="page book-page"><div className="page-head"><div><h2>持仓跟踪</h2><p className="muted small">已导入快照、净值、收益归因与持仓偏离提示。</p></div></div>
     <Card title={`持仓快照（${rows.length}）`}>{rows.length ? <div className="table-scroll"><table className="table"><thead><tr><th>账户</th><th>截至日期</th><th>持仓数</th><th>总市值</th><th>体检报告</th></tr></thead><tbody>
       {rows.map((row) => <tr key={row.snapshot_id} className={active?.snapshot_id === row.snapshot_id ? "best-row" : ""}><td><button className="table-sort" onClick={() => setSelected(row.snapshot_id)}>{row.account}</button></td><td>{row.as_of}</td><td>{row.positions_count}</td><td>{fmtNum(row.total_value, 2)}</td><td>{row.report ? "已保存" : "暂无"}</td></tr>)}
     </tbody></table></div> : <Empty text="暂无已导入持仓" />}</Card>
     {active && <><Card title={`${active.account} · ${active.as_of}`} extra={<span className="small muted">总市值 {fmtNum(active.total_value, 2)}</span>}>
       {active.report ? <p className="small muted">已保存体检报告 · {active.positions_count} 个持仓</p> : <Empty text="这份快照暂无已保存的体检报告" />}</Card>
       {active.report && <Report report={active.report} />}</>}
+    <Card title="历史区间"><div className="filters">
+      <label>开始日期 <input aria-label="开始日期" type="date" value={start || effectiveStart} onChange={(event) => setStart(event.target.value)} /></label>
+      <label>结束日期 <input aria-label="结束日期" type="date" value={end || effectiveEnd} onChange={(event) => setEnd(event.target.value)} /></label>
+      <label>归因维度 <select aria-label="归因维度" value={by} onChange={(event) => setBy(event.target.value)}><option value="position">持仓</option><option value="industry">行业</option><option value="thesis">投资论点</option></select></label>
+    </div>{!canCompare && <p className="small muted">至少需要一个已导入日期才能查看历史；归因需选择有效区间。</p>}</Card>
+    {historyError ? <Card title="净值与收益"><Loading error={historyError} /></Card> : history ? <History report={history.report} /> : canCompare && <Card title="净值与收益"><Loading /></Card>}
+    {attributionError ? <Card title="收益归因"><Loading error={attributionError} /></Card> : attribution ? <Attribution report={attribution.report} by={by} /> : canCompare && <Card title="收益归因"><Loading /></Card>}
+    {rebalanceError ? <Card title="持仓偏离提示"><Loading error={rebalanceError} /></Card> : rebalance ? <Rebalance report={rebalance.report} /> : <Card title="持仓偏离提示"><Loading /></Card>}
   </div>;
 }

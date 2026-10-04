@@ -145,6 +145,9 @@ main { max-width: 1480px; margin: 0 auto; padding: 20px 24px 60px; }
 .kv td:first-child { color: var(--muted); white-space: nowrap; }
 
 .bars { display: flex; flex-direction: column; gap: 4px; }
+.book-page .filters { flex-wrap: wrap; }
+.book-page .filters label { display: inline-flex; align-items: center; gap: 6px; }
+.book-page .filters input { width: auto; }
 .bar-row { display: grid; grid-template-columns: 220px 1fr 40px; gap: 8px; align-items: center; font-size: 12px; }
 .bar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bar-track { height: 8px; background: #eef0f3; border-radius: 4px; overflow: hidden; }

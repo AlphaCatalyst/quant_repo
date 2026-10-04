@@ -28,6 +28,7 @@ from alphasieve.forecasts import service as forecast_service
 from alphasieve.journal import list_entries
 from alphasieve.ledger import ledger_stats, verify_ledger
 from alphasieve.portfolio_book import checkup, importer
+from alphasieve.portfolio_book import history as book_history
 from alphasieve.state.backup import list_backups
 from alphasieve.thesis import evaluate_scenarios, implied, load_thesis
 from alphasieve.thesis.formula import FormulaError
@@ -290,6 +291,34 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
                               "total_value": sum(float(position["market_value"]) for position in positions),
                               "report": checkup.load_report(item["snapshot_id"], settings)})
         return {"snapshots": snapshots, "count": len(snapshots)}
+
+    def _private_book(user: str) -> None:
+        if not require_auth or user == "anonymous":
+            raise HTTPException(403, "book requires human authentication")
+
+    def _saved_book(kind: str, user: str, start: str | None = None, end: str | None = None,
+                    by: str | None = None) -> dict:
+        _private_book(user)
+        report = book_history.load_analysis_report(settings, kind)
+        if report and ((start and report.get("start") != start) or (end and report.get("end") != end)
+                       or (by and report.get("by") != by)):
+            report = None
+        return {"report": report}
+
+    @app.get("/api/book/history")
+    def book_history_view(start: str | None = None, end: str | None = None, user: str = Depends(auth)):
+        return _saved_book("history", user, start, end)
+
+    @app.get("/api/book/attribution")
+    def book_attribution_view(start: str | None = None, end: str | None = None,
+                              by: str | None = None, user: str = Depends(auth)):
+        if by is not None and by not in {"position", "industry", "thesis"}:
+            raise HTTPException(400, "invalid attribution dimension")
+        return _saved_book(f"attribution-{by or 'position'}", user, start, end, by)
+
+    @app.get("/api/book/rebalance")
+    def book_rebalance_view(user: str = Depends(auth)):
+        return _saved_book("rebalance", user)
 
     @app.exception_handler(AlphaSieveError)
     async def _err(request, exc: AlphaSieveError):
@@ -731,7 +760,8 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
     def decision_doc(name: str, user: str = Depends(auth)):
         allowed = (r"(?:06-interfaces|10-decisions|17-data-vendors|23-forward-paper|"
                    r"24-mandate-campaigns|25-risk-model|26-personal-account|"
-                   r"27-broad-quant-platform|28-platform-implementation|29-coverage-review)\.md")
+                   r"27-broad-quant-platform|28-platform-implementation|29-coverage-review|"
+                   r"30-financial-red-flags|31-announcements|32-sw-industry-sensitivity)\.md")
         if not re.fullmatch(allowed, name):
             raise HTTPException(404, "document not found")
         path = Path(__file__).resolve().parents[3] / "docs" / name

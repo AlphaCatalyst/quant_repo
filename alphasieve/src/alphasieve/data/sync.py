@@ -55,6 +55,43 @@ def record_snapshot(conn: sqlite3.Connection, dataset: str, params: dict, paths:
     return snapshot_id
 
 
+def sync_cninfo_announcements(settings: Settings, conn: sqlite3.Connection, start: str, end: str,
+                              progress=None, refresh: bool = False) -> dict:
+    """Store all-market cninfo metadata by publication date, without entering research panels."""
+    from alphasieve.data.providers import cninfo
+
+    days = pd.date_range(start, end, freq="D")
+    root = settings.raw_dir / "cninfo" / "announcements"
+    total = 0
+    fetched = 0
+    errors = []
+    for index, day in enumerate(days, 1):
+        stamp = day.strftime("%Y-%m-%d")
+        path = root / f"{stamp}.parquet"
+        try:
+            prior_rows = len(pd.read_parquet(path, columns=["announcement_id"])) if path.exists() else None
+            if prior_rows is not None and not refresh and prior_rows != cninfo.PAGE_LIMIT * cninfo.PAGE_SIZE:
+                rows = prior_rows
+            else:
+                data = cninfo.query(stamp, stamp)
+                frame = pd.DataFrame(data, columns=["announcement_id", "code", "name", "title", "published_at",
+                                                    "published_date", "org_id", "pdf_url", "adjunct_size_kb", "source"])
+                _write_parquet(frame, path)
+                rows = len(frame)
+                fetched += 1
+            record_snapshot(conn, "cninfo_announcements", {"date": stamp}, [path], rows, source="cninfo")
+            conn.commit()
+            total += rows
+        except Exception as exc:  # resume later without losing completed dates
+            errors.append({"date": stamp, "error": str(exc)[:300]})
+            if "429" in str(exc) or "403" in str(exc):
+                break
+        if progress:
+            progress(index, len(days))
+    return {"start": start, "end": end, "days": len(days), "fetched_days": fetched,
+            "rows": total, "errors": errors, "path": str(root)}
+
+
 def _sw_code_books(root: Path, stamp: str) -> dict[str, Path]:
     """Today's official SW code books, falling back to the latest cached copy of each version."""
     from alphasieve.data.providers import free_http, swsresearch

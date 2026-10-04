@@ -16,7 +16,7 @@ SYNC_DATASETS = ("reference", "members", "daily", "financials", "events", "intra
                  "ws_reports", "ws_consensus", "ws_index_members", "ws_sw_industry",
                  "ws_sector_index_daily", "ws_return_index_daily", "free_returns", "exchange_margin",
                  "em_holders", "cs_weights", "dolthub_weights", "gpcw", "sw_industry_hist",
-                 "cb_universe", "cb_terms", "cb_daily", "cb_quote")
+                 "cb_universe", "cb_terms", "cb_daily", "cb_quote", "cninfo_announcements")
 
 
 def _universe_arg(p):
@@ -45,7 +45,7 @@ def _configure_sync(p):
     p.add_argument("--end", default=None, help="last date to fetch (default: latest trading day)")
     p.add_argument("--workers", type=int, default=6)
     p.add_argument("--start", default=None,
-                   help="first date (exchange margin defaults to 2010; others to 2020)")
+                   help="first date (cninfo defaults to 90 days back; exchange margin to 2010; others to 2020)")
     _universe_arg(p)
 
 
@@ -60,6 +60,12 @@ def cmd_data_sync(args, ctx) -> CommandResult:
     default = ["reference", "members", "daily", "mirror"] if u in (None, "csi800") else ["reference", "daily"]
     datasets = default if args.dataset == "core" else [args.dataset]
     cb_only = all(name.startswith("cb_") for name in datasets)
+    if args.dataset == "cninfo_announcements":
+        start = args.start or (pd.Timestamp(end) - pd.Timedelta(days=90)).strftime("%Y-%m-%d")
+        out["cninfo_announcements"] = sync.sync_cninfo_announcements(
+            settings, conn, start, end, _progress("cninfo_announcements"))
+        errors = out["cninfo_announcements"]["errors"]
+        return CommandResult(data=out, warnings=[f"cninfo_announcements: {len(errors)} days failed"] if errors else [])
     if cb_only:
         out["universe"] = "convertible_bonds"
     if "reference" in datasets or (not cb_only and not (sync.raw_root(settings, u) / "trade_dates.parquet").exists()):
@@ -322,6 +328,11 @@ def cmd_data_daily_update(args, ctx) -> CommandResult:
     out["ws_reports"] = sync.sync_westock_reports(settings, conn, 4, universe="ashare_all")
     out["ws_consensus"] = sync.sync_westock_consensus(settings, conn, today.isoformat(), 4,
                                                       universe="ashare_all")
+    try:
+        out["cninfo_announcements"] = sync.sync_cninfo_announcements(
+            settings, conn, (today - pd.Timedelta(days=3)).isoformat(), today.isoformat(), refresh=True)
+    except Exception as exc:  # daily update should still complete when cninfo is unavailable
+        out["cninfo_announcements"] = {"errors": [{"error": str(exc)[:300]}]}
     out["ws_index_members"] = sync.sync_westock_index_members(settings, conn, today.isoformat())
     out["ws_sw_industry"] = sync.sync_westock_sw_industry(settings, conn, today.isoformat())
     out["sw_industry_hist"] = sync.sync_sw_industry_hist(settings, conn, today.isoformat())
@@ -356,7 +367,7 @@ def cmd_data_daily_update(args, ctx) -> CommandResult:
         warnings.append(f"free_mirror: {str(exc)[:200]}")
     keys = ("daily", "financials", "fund_flow", "margin", "ws_financials", "ws_reports",
             "ws_sector_index_daily", "ws_return_index_daily", "free_returns", "exchange_margin", "gpcw",
-            "cb_daily")
+            "cb_daily", "cninfo_announcements")
     warnings += [f"{k}: {len(out[k]['errors'])} items failed; rerun to resume"
                  for k in keys if out.get(k, {}).get("errors")]
     return CommandResult(data=out, warnings=warnings)

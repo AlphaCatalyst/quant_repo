@@ -1,6 +1,6 @@
 # 25 · 组合层风险模型 v1
 
-状态：设计，未实现、未运行。日期 2026-10-01。本次只写本文，不改代码、配置、测试或文档索引，不运行 trial、Ray 或 `train run`，不读取 holdout/fresh。推荐顺序是报告 → 协方差验证 → 可选闭环；新约束和 QP 不进入现有 A 试验。
+状态：风险报告步骤 1、2、4 已实现并生成 dev 报告；闭环、约束和 QP 未授权。日期 2026-10-04。风险报告仅使用 dev 证据，不读取 holdout/fresh，不运行新策略 trial。
 
 ## 1. 目标与非目标
 
@@ -105,7 +105,7 @@ dev 验证固定为 2016–2022，沿用 `robustness.PERIODS`、逐年与三个�
 
 不新增 SQLite 表或 ledger 列，复用 artifact service 与审计 events；risk artifact id 由自己的 manifest 决定。现有 `artifacts.py::write_artifact` 不接收 Parquet，新增独立 `write_risk_artifact` 服务按同一 canonical manifest/hash/临时目录原子发布协议写整份报告，不能发布后再追加表。manifest 含各表 digest；风险表不能经过 `training/run.py::write_outputs` 的统一 float32 转换，保留键/字符串类型和 float64 数值。
 
-拟新增命令（尚不可执行）：`alphasieve risk report --trial S-1f2df27729ff --model rm1 --tier dev --json`；`alphasieve risk validate --risk-artifact <id> --json`；`alphasieve risk show --artifact <id> --json`。report 只消费已经保存的目标/实际轨迹和匹配 panel，禁止调用 `simulate`、优化器、训练或补读其他 tier。旧产物没有实际持仓时，仅生成目标报告并标记 `actual_unavailable`，validate 返回证据不足。
+已实现命令：`alphasieve risk report --trial S-1f2df27729ff --model rm1 --tier dev --json`；`alphasieve risk validate --risk-artifact <id> --json`；`alphasieve risk show --artifact <id> --json`。report 只消费已经保存的目标轨迹和匹配 panel，禁止调用 `simulate`、优化器、训练或补读其他 tier。旧产物没有实际持仓时，仅生成目标报告并标记 `actual_unavailable`，validate 返回证据不足。实际持仓观察器属于尚未实施的步骤 3；现阶段没有实际持仓 TE 或 bias 配对。
 
 agent/human 可运行上述 dev 命令；system 可作为已登记运行的后端产出同一报告，不能借角色扩大本命令的数据范围。报告生成写 artifact 与审计事件，不新增研究 trial。未来新策略仍走 `train validate/run` 的唯一入口和预算检查；holdout 申请/批准、review 决定、paper promotion 仅 human，risk 命令没有审批副作用。前端只读展示留待后续，不设计新的写操作页面。
 
@@ -120,7 +120,7 @@ agent/human 可运行上述 dev 命令；system 可作为已登记运行的后�
 
 ## 5. 最小实现计划
 
-以下为后续工程顺序，本次不执行。涉及受保护评测、gate、ledger 计算的变更须人工工程 review；本设计不要求修改这些模块。
+步骤 1、2、4 已作为独立报告路径实现；步骤 3、5、6 未实施。涉及受保护评测、gate、ledger 计算的变更须人工工程 review；本次不修改这些模块。
 
 | 顺序 / 文件 | 函数、schema 与验收 |
 |---|---|
@@ -137,10 +137,10 @@ focused tests 均用合成 fixture、临时 artifact/ledger，不接真实研究
 
 旧路径复现要求同一冻结运行环境下 **bit-for-bit**：所有旧 YAML 的 config hash、目标数组、日收益/成本、已有指标完全相同，分别检查无观察器和有观察器；NaN 位置也一致。保留旧黄金夹具，不用新版结果更新基线。报告文件可新增，旧结果文件不重写。工程完成后先跑 focused tests，再按仓库约定 `uv run pytest`；本次文档检查不代替这些工程验收。
 
-## 6. 人工待决定问题
+## 6. 人工决定（2026-10-04）
 
-1. 是否接受非 PIT 行业的临时 dev 风险报告？推荐默认：允许带完整 warning 的 provisional 报告；严格 PIT 协方差、新风险控制待 PIT 行业源到位，不将当前快照冒充历史分类。
-2. 是否冻结 rm1 的暴露定义、60/90 日半衰期、10% 协方差对角收缩、50% 特异收缩与 bias 门槛？推荐默认：按本文固定；没有参数网格，不根据报告优化收益。
-3. 是否在 v1 引入 QP 或硬 TE 控制？推荐默认：暂缓，采用 §3.3 的触发条件；触发后仍需人工批准依赖方案、预算和预注册。
-4. 是否给实际持仓闭环新增 A 试验名额，并选择哪个已锁定参考配置？推荐默认：先完成合成工程验收和报告，不授权真实试验；以后另注册单机制 trial，保持 docs/22 两配置原样。容量同时固定“独立闭环 / 固定目标对照”口径。
-5. 是否启用四个新增风格的上下限？推荐默认：全部关闭；先看固定报告，人工提出有业务理由的界限后另注册试验，不从 dev 最优收益反推界限。
+1. 允许临时 dev 报告。行业输入采用申万历史，经 panel 的 `industry_source: sw1_pit` 和逐日 `industry_asof(T, "sw1")` 读取。申万记录的 `更新日期` 可能晚于 `计入日期`，属于可能的事后重述；报告必须保留此警告，质量为 provisional，绝不称为严格 PIT。
+2. rm1 暴露、60/90 日半衰期、10% 因子协方差对角收缩、50% 特异方差收缩和 bias 门槛按 §3.1–3.2 冻结；没有参数网格。
+3. v1 不引入 QP 或硬 TE 控制。
+4. 不增加 A 试验名额，不运行实际持仓闭环；仅报告锁定参考 trial 的已存证据。
+5. 全部新增风格上下限保持关闭。

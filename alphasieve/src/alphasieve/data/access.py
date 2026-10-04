@@ -78,6 +78,13 @@ class Panel:
         last = self.long.drop_duplicates("code", keep="last").set_index("code")["industry"]
         return last.reindex(self.codes).fillna("unknown")
 
+    def industry_asof(self, day, source: str = "industry") -> pd.Series:
+        """Return the selected label for each code on a panel date."""
+        if source not in ("industry", "sw1", "sw2") or source not in self.long:
+            raise not_found(f"industry field {source} not in panel")
+        rows = self.long[self.long["date"] == pd.Timestamp(day)]
+        return rows.set_index("code")[source].reindex(self.codes).fillna("unknown")
+
     def truncated(self, last_date) -> "Panel":
         long = self.long[self.long["date"] <= pd.Timestamp(last_date)]
         return Panel(long.reset_index(drop=True), dict(self.meta), self.benchmark)

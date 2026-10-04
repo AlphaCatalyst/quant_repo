@@ -10,6 +10,7 @@ import os
 import re
 import subprocess
 import time
+from datetime import date, timedelta
 
 import pandas as pd
 
@@ -162,6 +163,209 @@ def kline(codes: list[str], start: str, end: str) -> pd.DataFrame:
                             "last", "high", "low", "volume", "amount", "exchange"])
 
     return fetch(codes)
+
+
+def quote(codes: list[str]) -> dict[str, dict]:
+    """Current quote rows keyed by dotted code; retry symbols omitted by a batch response."""
+    if not codes:
+        return {}
+
+    def fetch(batch: list[str]) -> dict[str, dict]:
+        response = _call(["quote", ",".join(map(to_westock, batch))])
+        entries = response.get("data", []) if isinstance(response, dict) else response
+        result = {}
+        for entry in entries if isinstance(entries, list) else []:
+            row = entry.get("data", entry) if isinstance(entry, dict) else None
+            symbol = (row or {}).get("code") or entry.get("symbol")
+            if isinstance(symbol, str) and re.fullmatch(r"(sh|sz|bj)\d{6}", symbol):
+                result[from_westock(symbol)] = row
+        return result
+
+    result = fetch(codes)
+    for code in codes:
+        if code not in result and len(codes) > 1:
+            result.update(fetch([code]))
+    return result
+
+
+_BOND_SCHEDULES = {
+    "coupons": "couponRateList",
+    "puts": "putDetail",
+    "calls": "callDetail",
+    "revisions": "changeDetail",
+    "cashflows": "cashflowDetail",
+}
+_BOND_DATE_FIELDS = {
+    "issueStartDate", "issueEndDate", "couponStart", "couponEnd", "dueDate",
+    "convertStartDate", "buybackStartDate", "nextPaymentDate",
+}
+
+
+def _bond_date(value):
+    if isinstance(value, str) and re.fullmatch(r"\d{8}", value):
+        return f"{value[:4]}-{value[4:6]}-{value[6:]}"
+    return value
+
+
+def _bond_schedule(value) -> list[dict]:
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            return []
+    return value if isinstance(value, list) else []
+
+
+def _bond_entries(response) -> list[dict]:
+    """Extract native batch rows; the CLI's single-code display is parsed separately."""
+    if isinstance(response, dict) and isinstance(response.get("data"), list):
+        return [entry.get("data", entry) for entry in response["data"] if isinstance(entry, dict)]
+    return []
+
+
+def bond_detail(codes: list[str]) -> dict[str, pd.DataFrame]:
+    """Current bond terms and clause schedules, with one static row per bond.
+
+    ``terms`` includes full vendor clause text where available. These are current
+    observations; the provider does not supply historical conversion-price changes.
+    """
+    tables: dict[str, list[dict]] = {key: [] for key in ("terms", *_BOND_SCHEDULES)}
+    if not codes:
+        return {key: pd.DataFrame(columns=["code"]) for key in tables}
+
+    def fetch(batch: list[str]):
+        symbols = [to_westock(code) for code in batch]
+        # A one-code CLI request is reformatted into Chinese display sections and
+        # loses the full clause text. Duplicate the symbol to select native batch JSON.
+        if len(symbols) == 1:
+            symbols *= 2
+        response = _call(["bond", "detail", ",".join(symbols), "--terms", "--schedule"])
+        if isinstance(response, dict) and response.get("success") is False:
+            raise WestockError(f"bond detail {','.join(batch)}: {response.get('status', 'failed')}")
+        entries = _bond_entries(response)
+        if not entries and isinstance(response, dict) and "sections" in response:
+            # Some CLI versions still return display sections for a duplicated code.
+            sections = response["sections"]
+            if sections and isinstance(sections[0], list):
+                summary = {row["项目"]: row.get("内容") for row in sections[0]
+                           if isinstance(row, dict) and "项目" in row}
+                entries = [{"code": summary.get("债券代码", symbols[0]),
+                            "issuer": summary.get("发行人"), "stockCode": summary.get("正股代码"),
+                            "dueDate": summary.get("到期日"), "convertPrice": summary.get("转股价"),
+                            **{field: sections[index] if len(sections) > index else []
+                               for index, field in enumerate(_BOND_SCHEDULES.values(), 1)}}]
+        return entries
+
+    # Small batches reduce dropped records. Retry every omitted symbol separately.
+    for offset in range(0, len(codes), 4):
+        batch = codes[offset:offset + 4]
+        entries = fetch(batch)
+        found = {row.get("code") for row in entries}
+        for code in batch:
+            if to_westock(code) not in found and len(batch) > 1:
+                entries.extend(fetch([code]))
+        for row in entries:
+            symbol = row.get("code")
+            if not isinstance(symbol, str) or not re.fullmatch(r"(?:sh|sz|bj)\d{6}", symbol):
+                continue
+            code = from_westock(symbol)
+            static = {key: _bond_date(value) if key in _BOND_DATE_FIELDS else value
+                      for key, value in row.items() if key not in _BOND_SCHEDULES.values()}
+            static["code"] = code
+            tables["terms"].append(static)
+            for table, field in _BOND_SCHEDULES.items():
+                for item in _bond_schedule(row.get(field)):
+                    if isinstance(item, dict):
+                        tables[table].append({"code": code, **{
+                            key: _bond_date(value) if key.endswith("Date") else value
+                            for key, value in item.items()}})
+    return {name: pd.DataFrame(rows).drop_duplicates().reset_index(drop=True)
+            if rows else pd.DataFrame(columns=["code"]) for name, rows in tables.items()}
+
+
+def bond_daily(codes: list[str], start: str, end: str) -> pd.DataFrame:
+    """Daily CB OHLCV; dotted codes in, dotted codes out."""
+    if not codes:
+        return pd.DataFrame(columns=["code", "date", "open", "last", "high", "low",
+                                     "volume", "amount", "exchange"])
+    # The CLI silently caps range responses at 250 rows. Page backwards until
+    # the requested start, including retired bonds whose final quote is old.
+    pages = []
+    for code in codes:
+        first_page = len(pages)
+        cursor = end
+        while cursor >= start:
+            page = kline([to_westock(code)], start, cursor)
+            if page.empty:
+                # Retired bonds can answer [] for a long range ending years
+                # after their last trade, even when their early annual slices
+                # have history. Query from listing forward in that case.
+                if len(pages) == first_page and int(end[:4]) > int(start[:4]):
+                    blank_years = 0
+                    for year in range(int(start[:4]), int(end[:4]) + 1):
+                        lo, hi = max(start, f"{year}-01-01"), min(end, f"{year}-12-31")
+                        if lo > hi:
+                            continue
+                        annual = kline([to_westock(code)], lo, hi)
+                        if annual.empty:
+                            blank_years += 1
+                            if blank_years >= 2:
+                                break
+                        else:
+                            pages.append(annual)
+                            blank_years = 0
+                break
+            pages.append(page)
+            oldest = str(page["date"].min())
+            if oldest <= start:
+                break
+            next_cursor = (date.fromisoformat(oldest) - timedelta(days=1)).isoformat()
+            if next_cursor >= cursor:
+                raise WestockError(f"bond kline {code}: pagination did not advance")
+            cursor = next_cursor
+    result = pd.concat(pages, ignore_index=True) if pages else pd.DataFrame(
+        columns=["code", "date", "open", "last", "high", "low", "volume", "amount", "exchange"])
+    if not result.empty:
+        result["code"] = result["code"].map(from_westock)
+        for field in ("open", "last", "high", "low", "volume", "amount", "exchange"):
+            result[field] = pd.to_numeric(result[field], errors="coerce")
+        result = result.drop_duplicates(["code", "date"]).sort_values(["code", "date"])
+    return result.reset_index(drop=True)
+
+
+def bond_quote(codes: list[str]) -> pd.DataFrame:
+    """Current CB quote and valuation fields, preserving the quote's market date."""
+    rows = quote(codes)
+    return pd.DataFrame([{"code": code, **{key: value for key, value in row.items()
+                                            if key not in ("code", "symbol")}}
+                         for code, row in rows.items()])
+
+
+def bond_universe() -> pd.DataFrame:
+    """Eastmoney/AKShare CB issue list, including entries no longer trading.
+
+    The endpoint has no delisting date or status; current issue quote fields
+    are observations, not historical point-in-time values.
+    """
+    import akshare as ak  # lazy: the rest of the westock provider does not need AKShare
+
+    rename = {
+        "债券代码": "code", "债券简称": "name", "申购日期": "subscription_date",
+        "申购代码": "subscription_code", "申购上限": "subscription_limit",
+        "正股代码": "stock_code", "正股简称": "stock_name", "正股价": "stock_price",
+        "转股价": "convert_price", "转股价值": "equity_value", "债现价": "bond_price",
+        "转股溢价率": "equity_premium", "原股东配售-股权登记日": "allotment_record_date",
+        "原股东配售-每股配售额": "allotment_per_share", "发行规模": "issue_size",
+        "中签号发布日": "lottery_publish_date", "中签率": "lottery_rate",
+        "上市时间": "list_date", "信用评级": "rating",
+    }
+    frame = ak.bond_zh_cov().rename(columns=rename)
+    frame["code"] = frame["code"].astype(str).str.zfill(6).map(
+        lambda value: f"{'sh' if value.startswith('11') else 'sz'}.{value}")
+    for field in ("subscription_date", "allotment_record_date", "lottery_publish_date", "list_date"):
+        if field in frame:
+            frame[field] = pd.to_datetime(frame[field], errors="coerce").dt.strftime("%Y-%m-%d")
+    return frame.drop_duplicates("code").reset_index(drop=True)
 
 
 def statements(codes: list[str], kind: str, start: str, end: str) -> pd.DataFrame:

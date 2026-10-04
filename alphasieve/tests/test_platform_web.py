@@ -51,6 +51,10 @@ def platform_client(settings, tmp_path, monkeypatch):
     snapshot_id = snapshot["snapshot_id"]
     report = {"snapshot_id": snapshot_id, "total_value": 120.0,
               "weights": {"sh.600000": 1.0}, "industry_weights": {"银行": 1.0},
+              "asset_class_weights": {"stock": 1.0}, "market_cap_buckets": {"50–200亿": 1.0},
+              "holdings": [{"code": "sh.600000", "asset_class": "stock", "weight": 1.0,
+                            "market_cap_bucket": "50–200亿", "quote": {"pe_ratio": 6.0}}],
+              "convertible_bonds": [],
               "portfolio_beta_60d": 1.1,
               "stress_returns": {"benchmark_down_10pct": -0.11}}
     save_report(report, settings)
@@ -106,6 +110,8 @@ def test_book_uses_stored_report_without_market_fetch(platform_client, monkeypat
     assert row["account"] == "synthetic-account" and row["as_of"] == "2026-10-03"
     assert row["positions_count"] == 1 and row["total_value"] == pytest.approx(120)
     assert row["report"]["industry_weights"] == {"银行": 1.0}
+    assert row["report"]["asset_class_weights"] == {"stock": 1.0}
+    assert row["report"]["holdings"][0]["quote"]["pe_ratio"] == 6.0
     assert row["report"]["stress_returns"]["benchmark_down_10pct"] == pytest.approx(-0.11)
     assert "/data/alphasieve" not in json.dumps(snapshots)
 
@@ -113,9 +119,9 @@ def test_book_uses_stored_report_without_market_fetch(platform_client, monkeypat
 def test_platform_documents_are_whitelisted(platform_client):
     client, auth, _, _ = platform_client
     for name in ("26-personal-account.md", "27-broad-quant-platform.md",
-                 "28-platform-implementation.md"):
+                 "28-platform-implementation.md", "29-coverage-review.md"):
         assert client.get(f"/api/docs/{name}", auth=auth).status_code == 200
-    assert client.get("/api/docs/29-not-allowed.md", auth=auth).status_code == 404
+    assert client.get("/api/docs/30-not-allowed.md", auth=auth).status_code == 404
 
 
 def test_book_check_persists_report(settings, tmp_path, monkeypatch, capsys):

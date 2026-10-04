@@ -15,7 +15,8 @@ SYNC_DATASETS = ("reference", "members", "daily", "financials", "events", "intra
                  "ws_financials", "fund_flow", "margin", "margin_history", "etf", "futures",
                  "ws_reports", "ws_consensus", "ws_index_members", "ws_sw_industry",
                  "ws_sector_index_daily", "ws_return_index_daily", "free_returns", "exchange_margin",
-                 "em_holders", "cs_weights", "dolthub_weights", "gpcw")
+                 "em_holders", "cs_weights", "dolthub_weights", "gpcw", "sw_industry_hist",
+                 "cb_universe", "cb_terms", "cb_daily", "cb_quote")
 
 
 def _universe_arg(p):
@@ -58,10 +59,32 @@ def cmd_data_sync(args, ctx) -> CommandResult:
     out: dict = {"universe": u or "csi800"}
     default = ["reference", "members", "daily", "mirror"] if u in (None, "csi800") else ["reference", "daily"]
     datasets = default if args.dataset == "core" else [args.dataset]
-    if "reference" in datasets or not (sync.raw_root(settings, u) / "trade_dates.parquet").exists():
+    cb_only = all(name.startswith("cb_") for name in datasets)
+    if cb_only:
+        out["universe"] = "convertible_bonds"
+    if "reference" in datasets or (not cb_only and not (sync.raw_root(settings, u) / "trade_dates.parquet").exists()):
         out["reference"] = sync.sync_reference(settings, conn, end, u)
-    end = sync.latest_trading_day(settings, end, u)
+    if not cb_only:
+        end = sync.latest_trading_day(settings, end, u)
     out["end"] = end
+    if cb_only:
+        from alphasieve.data import cb_sync
+
+        day = date.today().isoformat()
+        if args.dataset == "cb_universe":
+            out["cb_universe"] = cb_sync.sync_cb_universe(settings, conn, day)
+        else:
+            cb_sync.sync_cb_universe(settings, conn, day)
+            if args.dataset == "cb_terms":
+                out["cb_terms"] = cb_sync.sync_cb_terms(settings, conn, day, _progress("cb_terms"))
+            elif args.dataset == "cb_quote":
+                out["cb_quote"] = cb_sync.sync_cb_quote(settings, conn, day)
+            else:
+                out["cb_daily"] = cb_sync.sync_cb_daily(settings, conn, end, full=True,
+                                                         progress=_progress("cb_daily"), workers=min(args.workers, 4))
+        warnings = [f"{args.dataset}: {len(out[args.dataset]['errors'])} items failed; rerun to resume"] if (
+            out[args.dataset].get("errors")) else []
+        return CommandResult(data=out, warnings=warnings)
     if "members" in datasets:
         out["members"] = sync.sync_members(settings, conn, end)
     if "daily" in datasets:
@@ -89,6 +112,8 @@ def cmd_data_sync(args, ctx) -> CommandResult:
         out["ws_index_members"] = sync.sync_westock_index_members(settings, conn, date.today().isoformat())
     if "ws_sw_industry" in datasets:
         out["ws_sw_industry"] = sync.sync_westock_sw_industry(settings, conn, date.today().isoformat())
+    if "sw_industry_hist" in datasets:
+        out["sw_industry_hist"] = sync.sync_sw_industry_hist(settings, conn, date.today().isoformat())
     if "ws_sector_index_daily" in datasets:
         out["ws_sector_index_daily"] = sync.sync_westock_index_kline(settings, conn, end, "sector_index_daily",
                                                                       args.workers, _progress("ws_sector_index_daily"))
@@ -140,6 +165,7 @@ def _configure_build(p):
     p.add_argument("--end", default=None, help="last date to include (default: holdout end)")
     p.add_argument("--tiers", default="dev,holdout", help="which tiers to build (holdout only on the local host)")
     p.add_argument("--warmup-start", default=None, help="shorter history for holdout-only builds (saves memory)")
+    p.add_argument("--industry-source", choices=("csrc", "sw1_pit", "sw2_pit"), default="csrc")
     _universe_arg(p)
 
 
@@ -148,7 +174,8 @@ def cmd_build_panel(args, ctx) -> CommandResult:
     from alphasieve.data.panel import build_panel
 
     tiers = tuple(t.strip() for t in args.tiers.split(",") if t.strip())
-    results = build_panel(ctx.settings, ctx.conn, args.end, args.universe, tiers, args.warmup_start)
+    results = build_panel(ctx.settings, ctx.conn, args.end, args.universe, tiers, args.warmup_start,
+                          args.industry_source)
     warnings = [f"{tier}: quality checks failed" for tier, r in results.items() if not r["quality_ok"]]
     return CommandResult(data=results, warnings=warnings)
 
@@ -297,9 +324,18 @@ def cmd_data_daily_update(args, ctx) -> CommandResult:
                                                       universe="ashare_all")
     out["ws_index_members"] = sync.sync_westock_index_members(settings, conn, today.isoformat())
     out["ws_sw_industry"] = sync.sync_westock_sw_industry(settings, conn, today.isoformat())
+    out["sw_industry_hist"] = sync.sync_sw_industry_hist(settings, conn, today.isoformat())
     out["ws_sector_index_daily"] = sync.sync_westock_index_kline(settings, conn, end, "sector_index_daily")
     out["ws_return_index_daily"] = sync.sync_westock_index_kline(settings, conn, end, "return_index_daily")
+    from alphasieve.data import cb_sync
+
     warnings = []
+    try:
+        out["cb_universe"] = cb_sync.sync_cb_universe(settings, conn, today.isoformat())
+        out["cb_quote"] = cb_sync.sync_cb_quote(settings, conn, today.isoformat())
+        out["cb_daily"] = cb_sync.sync_cb_daily(settings, conn, today.isoformat(), full=False, workers=4)
+    except Exception as exc:  # noqa: BLE001
+        warnings.append(f"convertible bonds: {str(exc)[:200]}")
     from alphasieve.data.gpcw_sync import sync_gpcw
 
     for key, fetch in (("free_returns", lambda: sync.sync_csindex_returns(settings, conn)),
@@ -319,7 +355,8 @@ def cmd_data_daily_update(args, ctx) -> CommandResult:
     except Exception as exc:
         warnings.append(f"free_mirror: {str(exc)[:200]}")
     keys = ("daily", "financials", "fund_flow", "margin", "ws_financials", "ws_reports",
-            "ws_sector_index_daily", "ws_return_index_daily", "free_returns", "exchange_margin", "gpcw")
+            "ws_sector_index_daily", "ws_return_index_daily", "free_returns", "exchange_margin", "gpcw",
+            "cb_daily")
     warnings += [f"{k}: {len(out[k]['errors'])} items failed; rerun to resume"
                  for k in keys if out.get(k, {}).get("errors")]
     return CommandResult(data=out, warnings=warnings)

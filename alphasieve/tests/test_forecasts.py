@@ -94,6 +94,26 @@ def test_sina_resolver_uses_exact_date_and_rejects_override(settings, monkeypatc
     conn.close()
 
 
+def test_sina_resolver_scale_converts_units(settings, monkeypatch):
+    from alphasieve.data.providers import sina
+
+    monkeypatch.setattr(sina, "daily_bars",
+                        lambda symbol: pd.DataFrame({"date": ["2020-01-02"], "close": [10680.0]}))
+    conn = connect(settings.state_db)
+    per_kg = spec("sina_futures_close", condition={"op": ">=", "threshold": 12})
+    per_kg["resolver_params"]["scale"] = 0.001
+    forecast_id = register_forecast(conn, per_kg, "tester")["forecast_id"]
+    result = settle_forecast(conn, forecast_id, "tester")
+    assert result["observed_value"] == pytest.approx(10.68)
+    assert result["outcome"] is False
+    assert result["source"].endswith(":close=10680:scale=0.001")
+    bad = spec("sina_futures_close")
+    bad["resolver_params"]["scale"] = 0
+    with pytest.raises(AlphaSieveError):
+        register_forecast(conn, bad, "tester")
+    conn.close()
+
+
 def test_stock_resolver_uses_existing_daily_provider(settings, monkeypatch):
     from alphasieve.data.providers import baostock
 

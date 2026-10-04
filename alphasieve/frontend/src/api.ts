@@ -101,8 +101,23 @@ export type ForecastItem = {
 export type ForecastScore = { count: number; brier_score: number | null;
   calibration: { range: string; count: number; observed_frequency: number | null }[] };
 export type ForecastsResponse = { forecasts: ForecastItem[]; score: ForecastScore };
+export type BookPosition = { code: string; name?: string; asset_class: string; weight: number; market_value?: number;
+  industry?: string | null; market_cap_bucket?: string | null; quote?: {
+    price?: number | null; time?: string | null; pe_ratio?: number | null; pb_ratio?: number | null;
+    total_market_cap?: number | null; circulating_market_cap?: number | null;
+    position_52week?: number | null } | null };
+export type BookConvertibleBond = { code: string; name?: string;
+  conversion_premium_pct?: number | null; pure_bond_premium_pct?: number | null;
+  double_low?: number | null; ytm_pct?: number | null; rating?: string | null;
+  remaining_size_yi?: number | null; remaining_term_years?: number | null;
+  redeem_distance_pct?: number | null; buyback_distance_pct?: number | null;
+  flags?: string[] };
 export type BookReport = { snapshot_id: string; total_value: number; weights: Record<string, number>;
-  industry_weights: Record<string, number>; top_n_concentration: number; hhi: number;
+  holdings?: BookPosition[]; convertible_bonds?: BookConvertibleBond[];
+  asset_class_weights?: Record<string, number>; industry_weights: Record<string, number>;
+  market_cap_buckets?: Record<string, number> | null; market_cap_note?: string;
+  industry_snapshot?: { label?: string };
+  top_n_concentration: number; hhi: number;
   portfolio_beta_60d: number | null; benchmark: string; stress_returns: {
     benchmark_down_10pct: number | null; industry_down_20pct: Record<string, number>;
     largest_position_down_30pct: number | null }; stress_note?: string };

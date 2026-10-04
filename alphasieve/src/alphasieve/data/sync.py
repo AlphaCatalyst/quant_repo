@@ -55,6 +55,83 @@ def record_snapshot(conn: sqlite3.Connection, dataset: str, params: dict, paths:
     return snapshot_id
 
 
+def _sw_code_books(root: Path, stamp: str) -> dict[str, Path]:
+    """Today's official SW code books, falling back to the latest cached copy of each version."""
+    from alphasieve.data.providers import free_http, swsresearch
+
+    books = {}
+    for version, url in swsresearch.CLASS_CODE_URLS.items():
+        prefix = f"SwClassCode_{version[2:]}_"
+        path = root / f"{prefix}{stamp}.xls"
+        if not path.exists():
+            try:
+                data = swsresearch.fetch(url)
+                if not data.startswith(b"\xd0\xcf\x11\xe0"):
+                    raise ValueError("SW code book download is not an XLS workbook")
+                tmp = path.with_suffix(".xls.tmp")
+                tmp.write_bytes(data)
+                os.replace(tmp, path)
+            except (OSError, ValueError, free_http.FreeDataError):
+                cached = sorted(root.glob(f"{prefix}*.xls"))
+                if not cached:
+                    continue
+                path = cached[-1]
+        books[version] = path
+    return books if len(books) == len(swsresearch.CLASS_CODE_URLS) else {}
+
+
+def sync_sw_industry_hist(settings: Settings, conn: sqlite3.Connection, day: str) -> dict:
+    """Refresh SW history once per day, retaining official bytes and parsed snapshots."""
+    from alphasieve.data.providers import free_http, swsresearch
+
+    root = settings.raw_dir / "swsresearch"
+    root.mkdir(parents=True, exist_ok=True)
+    stamp = day.replace("-", "")
+    stock_path = root / f"StockClassifyUse_stock_{stamp}.xls"
+    stale = False
+    if not stock_path.exists():
+        try:
+            data = swsresearch.fetch(swsresearch.STOCK_URL)
+            if not data.startswith(b"\xd0\xcf\x11\xe0"):
+                raise ValueError("SW stock download is not an XLS workbook")
+            tmp = stock_path.with_suffix(".xls.tmp")
+            tmp.write_bytes(data)
+            os.replace(tmp, stock_path)
+        except (OSError, ValueError, free_http.FreeDataError) as exc:
+            cached = sorted(root.glob("StockClassifyUse_stock_*.xls"))
+            if not cached:
+                raise exc
+            stock_path = cached[-1]
+            stale = True
+    books = _sw_code_books(root, stamp)
+    if books:
+        names = pd.concat([swsresearch.parse_names(path.read_bytes(), version)
+                           for version, path in books.items()], ignore_index=True)
+    else:
+        names = pd.DataFrame(columns=["sw_code", "name"])
+        current_path = westock_root(settings) / "sw_industry" / f"{day}.parquet"
+        if current_path.exists():
+            provisional = swsresearch.parse_history(stock_path.read_bytes(), names)
+            names = swsresearch.infer_current_names(provisional, pd.read_parquet(current_path))
+    names_path = root / f"sw_names_{stamp}.parquet"
+    _write_parquet(names, names_path)
+    _write_parquet(names, root / "sw_names.parquet")
+    history = swsresearch.parse_history(stock_path.read_bytes(), names)
+    parsed_path = root / f"sw_industry_hist_{stamp}.parquet"
+    _write_parquet(history, parsed_path)
+    _write_parquet(history, root / "sw_industry_hist.parquet")
+    paths = [stock_path, parsed_path, names_path, *books.values()]
+    snapshot = record_snapshot(conn, "sw_industry_hist", {"date": day, "stock_url": swsresearch.STOCK_URL,
+                              "raw_file": stock_path.name, "stale": stale,
+                              "names_source": "official_code_books" if books else "westock_membership",
+                              "code_books": {v: p.name for v, p in books.items()},
+                              "name_rows": len(names)}, paths,
+                              len(history), "swsresearch")
+    return {"rows": len(history), "snapshot": snapshot, "name_rows": len(names), "stale": stale,
+            "l1_named": int(history["l1_name"].notna().sum()),
+            "l2_named": int(history["l2_name"].notna().sum()), "raw": str(stock_path)}
+
+
 def latest_trading_day(settings: Settings, on_or_before: str | None = None, universe: str | None = None) -> str:
     cal = load_calendar(settings, universe)
     limit = on_or_before or date.today().isoformat()

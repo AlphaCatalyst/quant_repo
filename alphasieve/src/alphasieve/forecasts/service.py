@@ -41,6 +41,8 @@ class ResolverParams(BaseModel):
     settle_date: date
     symbol: str | None = None
     code: str | None = None
+    # Multiplies the provider close before comparison, e.g. 0.001 turns 元/吨 into 元/kg.
+    scale: float = Field(default=1.0, gt=0, allow_inf_nan=False)
 
 
 class ForecastSpec(BaseModel):
@@ -165,7 +167,10 @@ def _provider_close(spec: dict) -> tuple[float, str]:
     observed = float(matches.iloc[0]["close"])
     if not math.isfinite(observed):
         raise validation_error("settlement close is not finite", source=source)
-    return observed, source
+    scale = float(params.get("scale", 1.0))
+    if scale != 1.0:
+        source = f"{source}:close={observed:g}:scale={scale:g}"
+    return observed * scale, source
 
 
 def settle_forecast(conn: sqlite3.Connection, forecast_id: str, actor: str,

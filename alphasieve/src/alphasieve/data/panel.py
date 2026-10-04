@@ -23,11 +23,48 @@ FINANCIAL_FIELDS = {
 WESTOCK_WARNING = ("ws_* statement fields: announcement dates are first publication, but about a third of annual "
                    "balance sheets hold later restated values (D-30)")
 PANEL_WARNINGS = [
-    "industry classification is a current snapshot (CSRC), not point-in-time",
     "universe is CSI 800 (HS300 + ZZ500) because free historical constituents are only available for these indices",
     "limit-up / limit-down prices are derived from board rules, not provided by the data source",
     "circ_mv is derived as close * volume / turnover rate",
 ]
+
+INDUSTRY_SOURCES = ("csrc", "sw1_pit", "sw2_pit")
+SW_WARNING = ("SW history uses the first trading day after both effective_date and updated_at; "
+              "updated_at is last modification, so earlier first publication cannot be reconstructed")
+
+
+def attach_sw_industry(panel: pd.DataFrame, history: pd.DataFrame, calendar: list[str],
+                       *, conservative: bool = True) -> pd.DataFrame:
+    """Attach known SW labels; conservatively gate records by their last update date."""
+    out = panel.copy()
+    for level in (1, 2):
+        out[f"sw{level}"] = "unknown"
+    if history.empty or not calendar:
+        return out
+    rows = history.copy()
+    rows["effective_date"] = pd.to_datetime(rows["effective_date"])
+    rows["updated_at"] = pd.to_datetime(rows["updated_at"])
+    gate = rows["effective_date"]
+    if conservative:
+        gate = pd.concat([gate, rows["updated_at"].dt.normalize()], axis=1).max(axis=1)
+    days = np.array(calendar, dtype="datetime64[ns]")
+    pos = np.searchsorted(days, gate.to_numpy(dtype="datetime64[ns]"), side="right")
+    rows = rows.loc[pos < len(days)].copy()
+    rows["available_date"] = pd.to_datetime(days[pos[pos < len(days)]])
+    # A late update to an older effective record must not undo a newer classification.
+    rows = rows.sort_values(["code", "available_date", "effective_date", "updated_at"])
+    rows = rows.drop_duplicates(["code", "available_date"], keep="last")
+    rows = rows[rows["effective_date"] >= rows.groupby("code")["effective_date"].cummax()]
+    left = out.reset_index(names="_sw_order")
+    left["date"] = pd.to_datetime(left["date"]).astype("datetime64[ns]")
+    left = left.sort_values(["date", "code"])
+    right = rows[["code", "available_date", "l1_name", "l2_name"]].sort_values(["available_date", "code"])
+    joined = pd.merge_asof(left, right, left_on="date", right_on="available_date", by="code",
+                           direction="backward")
+    joined = joined.sort_values("_sw_order")
+    for level in (1, 2):
+        out[f"sw{level}"] = joined[f"l{level}_name"].fillna("unknown").replace("", "unknown").to_numpy()
+    return out
 
 
 def _round_half_up(values: np.ndarray) -> np.ndarray:
@@ -265,7 +302,10 @@ def _rule_universe(panel: pd.DataFrame, rule: dict) -> pd.Series:
 
 
 def build_long_panel(settings: Settings, end: str, universe: str | None = None,
-                     warmup_start: str | None = None) -> tuple[pd.DataFrame, list[str], dict]:
+                     warmup_start: str | None = None,
+                     industry_source: str = "csrc") -> tuple[pd.DataFrame, list[str], dict]:
+    if industry_source not in INDUSTRY_SOURCES:
+        raise ValueError(f"industry_source must be one of {INDUSTRY_SOURCES}")
     cfg = universe_config(settings, universe)
     start = max(history_start(settings, universe), warmup_start or "")
     root = raw_root(settings, universe)
@@ -290,6 +330,16 @@ def build_long_panel(settings: Settings, end: str, universe: str | None = None,
     industry = pd.read_parquet(root / "industry.parquet")
     ind_map = dict(zip(industry["code"], industry["industry"].replace("", "unknown"), strict=True))
     panel["industry"] = panel["code"].map(ind_map).fillna("unknown")
+    sw_path = settings.raw_dir / "swsresearch" / "sw_industry_hist.parquet"
+    if sw_path.exists():
+        panel = attach_sw_industry(panel, pd.read_parquet(sw_path), calendar)
+    else:
+        panel["sw1"] = "unknown"
+        panel["sw2"] = "unknown"
+    if industry_source != "csrc":
+        if not sw_path.exists():
+            raise FileNotFoundError(f"SW history is required for {industry_source}: {sw_path}")
+        panel["industry"] = panel["sw1" if industry_source == "sw1_pit" else "sw2"]
     fin_frames = _load_financials(root, codes, calendar)
     if fin_frames:
         panel = _attach_financials(panel, fin_frames)
@@ -385,7 +435,7 @@ def _universe_note(cfg: dict) -> str:
 
 def build_panel(settings: Settings, conn: sqlite3.Connection | None = None, end: str | None = None,
                 universe: str | None = None, tiers: tuple[str, ...] = ("dev", "holdout"),
-                warmup_start: str | None = None) -> dict:
+                warmup_start: str | None = None, industry_source: str = "csrc") -> dict:
     from alphasieve.data.quality import quality_report
 
     if "fresh" in tiers:
@@ -396,7 +446,7 @@ def build_panel(settings: Settings, conn: sqlite3.Connection | None = None, end:
     last_needed = end or max(splits[t]["end"] for t in tiers)
     if warmup_start and "dev" in tiers:
         raise ValueError("--warmup-start only applies to holdout / fresh builds (the dev window needs full history)")
-    panel, calendar, info = build_long_panel(settings, last_needed, universe, warmup_start)
+    panel, calendar, info = build_long_panel(settings, last_needed, universe, warmup_start, industry_source)
     snapshots = []
     if conn is not None:
         snapshots = [dict(r) for r in conn.execute(
@@ -426,8 +476,12 @@ def build_panel(settings: Settings, conn: sqlite3.Connection | None = None, end:
             "horizons": list(HORIZONS),
             "embargo": {f"label_{h}d": 1 + h for h in HORIZONS},
             "fields": sorted(tier_panel.columns),
+            "industry_source": industry_source,
             "source_snapshots": snapshots,
-            "warnings": (PANEL_WARNINGS if cfg["name"] == "csi800" else [
+            "warnings": (["industry classification is a current snapshot (CSRC), not point-in-time"]
+                         if industry_source == "csrc" else [])
+            + ([SW_WARNING] if (settings.raw_dir / "swsresearch" / "sw_industry_hist.parquet").exists() else [])
+            + (PANEL_WARNINGS if cfg["name"] == "csi800" else [
                 w for w in PANEL_WARNINGS if not w.startswith("universe is CSI 800")] + [_universe_note(cfg)])
             + ([WESTOCK_WARNING] if info["has_westock_financials"] else []),
             "built_at": utcnow_iso(),

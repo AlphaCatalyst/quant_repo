@@ -370,4 +370,11 @@ def cmd_data_daily_update(args, ctx) -> CommandResult:
             "cb_daily", "cninfo_announcements")
     warnings += [f"{k}: {len(out[k]['errors'])} items failed; rerun to resume"
                  for k in keys if out.get(k, {}).get("errors")]
+    try:
+        from alphasieve.monitor import run as monitor_run
+        result = monitor_run(settings, conn, today.isoformat())
+        out["monitor"] = {k: v for k, v in result.items() if k != "warnings"}
+        warnings.extend(f"monitor: {warning}" for warning in result["warnings"])
+    except Exception as exc:  # monitoring must never fail an update
+        warnings.append(f"monitor: {str(exc)[:200]}")
     return CommandResult(data=out, warnings=warnings)

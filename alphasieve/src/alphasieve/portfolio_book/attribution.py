@@ -9,8 +9,10 @@ import yaml
 
 from alphasieve.config import Settings
 from alphasieve.errors import AlphaSieveError
+from alphasieve.portfolio_book import market
 from alphasieve.portfolio_book.history import build_history
 from alphasieve.portfolio_book.importer import normalize_code
+from alphasieve.portfolio_book.style import exposure as style_exposure
 
 
 def industry_asof(settings: Settings, codes: list[str], as_of: str) -> tuple[dict[str, str], dict]:
@@ -103,7 +105,9 @@ def _benchmark_sectors(settings: Settings, start: str, end: str) -> tuple[dict[s
         code, weight = str(row.code), float(row.weight) / 100
         sector = industries.get(code, "未知")
         sector_weight[sector] += weight
-        local = settings.raw_dir / "baostock_all" / "daily" / f"{code}.parquet"
+        local = settings.raw_dir / "baostock" / "daily" / f"{code}.parquet"
+        if not local.is_file():
+            local = settings.raw_dir / "baostock_all" / "daily" / f"{code}.parquet"
         if not local.is_file():
             continue
         frame = pd.read_parquet(local, columns=["date", "close"])
@@ -130,7 +134,7 @@ def _benchmark_sectors(settings: Settings, start: str, end: str) -> tuple[dict[s
             "source": str(path),
             "source_label": source_label,
             "snapshot_date": snapshot_date,
-            "price_source": "baostock_all/daily close",
+            "price_source": "baostock/daily close; baostock_all/daily fallback",
             "constituent_weight_with_prices": covered,
             "industry": meta,
         },
@@ -214,6 +218,17 @@ def build_attribution(
                     "selection": None,
                 }
             )
+    last = rows[-1]
+    style_codes = [code for code in last["positions"] if market.asset_class(code) == "stock"]
+    style_weights = {code: position["market_value"] / last["nav"] for code, position in last["positions"].items()}
+    style_hook = None
+    if style_codes:
+        try:
+            style_quotes = market.current_quotes(settings, style_codes)
+            style_closes = market.recent_closes(settings, style_codes, benchmark)
+            style_hook = style_exposure(settings, style_codes, style_weights, style_quotes, style_closes, benchmark)
+        except (AlphaSieveError, OSError, ValueError, KeyError) as exc:
+            style_hook = {"model": "book_simplified_not_rm1", "status": "unavailable", "reason": str(exc)}
     return {
         "account": history["account"],
         "start": start,
@@ -229,7 +244,7 @@ def build_attribution(
         "industry_meta": industry_meta,
         "benchmark_industry_meta": benchmark_meta,
         "thesis_links": links,
-        "risk_model_hook": None,
+        "risk_model_hook": style_hook,
         "method": "Position P&L contribution sums prior-quantity close changes / prior NAV (arithmetic). "
         "Industry allocation=(portfolio start weight-benchmark official weight)*benchmark sector return; "
         "selection=portfolio start weight*(portfolio sector return-benchmark sector return). "

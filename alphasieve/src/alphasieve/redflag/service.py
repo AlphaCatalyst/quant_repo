@@ -36,8 +36,8 @@ RULES = (
         "receivables_growth",
         "应收增速超营收",
         "应收票据及账款同比增速－营业收入TTM同比增速",
-        0.20,
-        0.50,
+        0.90,
+        0.97,
         ("BillAccReceivable", "TotalOperatingRevenueTTM"),
         "应收增长快于销售可能提示回款风险",
     ),
@@ -45,8 +45,8 @@ RULES = (
         "inventory_growth",
         "存货增速超收入",
         "存货同比增速－营业收入TTM同比增速",
-        0.25,
-        0.60,
+        0.90,
+        0.97,
         ("Inventories", "TotalOperatingRevenueTTM"),
         "存货积压可能提示需求或减值风险",
     ),
@@ -54,8 +54,8 @@ RULES = (
         "cash_profit",
         "利润现金背离",
         "经营现金流TTM／归母净利润TTM",
-        0.8,
-        0.3,
+        0.90,
+        0.97,
         ("NetOperateCashFlowTTM", "NPParentCompanyOwnersTTM"),
         "盈利未同步转成经营现金流",
         "low",
@@ -64,8 +64,8 @@ RULES = (
         "accruals",
         "应计利润偏高",
         "(归母净利润TTM－经营现金流TTM)／总资产",
-        0.05,
-        0.10,
+        0.90,
+        0.97,
         ("NPParentCompanyOwnersTTM", "NetOperateCashFlowTTM", "TotalLiability", "TotalShareholderEquity"),
         "应计利润占资产较高",
     ),
@@ -73,8 +73,8 @@ RULES = (
         "goodwill",
         "商誉占净资产",
         "商誉／归母净资产",
-        0.20,
-        0.40,
+        0.90,
+        0.97,
         ("GoodWill", "SEWithoutMI"),
         "商誉减值可能侵蚀净资产",
     ),
@@ -82,8 +82,8 @@ RULES = (
         "other_receivables",
         "其他应收款占资产",
         "其他应收款／总资产",
-        0.05,
-        0.12,
+        0.90,
+        0.97,
         ("OtherReceivableED", "TotalLiability", "TotalShareholderEquity"),
         "其他应收款集中可能提示资金占用",
     ),
@@ -91,17 +91,17 @@ RULES = (
         "prepayments",
         "预付款激增",
         "预付款同比增速",
-        0.50,
-        1.50,
+        0.90,
+        0.97,
         ("AdvancePayment",),
         "预付款激增可能提示交易或供应链风险",
     ),
     Rule(
         "cash_debt",
         "存贷双高",
-        "短期借款／货币资金；且两者分别超过资产10%",
-        0.8,
-        1.2,
+        "短期借款／资产与货币资金／资产的较小值",
+        0.90,
+        0.97,
         ("ShortTermLoan", "CashEquivalents", "TotalLiability", "TotalShareholderEquity"),
         "大量现金同时伴随短债需解释融资安排",
     ),
@@ -109,8 +109,8 @@ RULES = (
         "gross_margin",
         "毛利率异常",
         "毛利TTM／营业收入TTM；按行业上尾比较",
-        None,
-        None,
+        0.90,
+        0.97,
         ("GrossProfitTTM", "TotalOperatingRevenueTTM"),
         "异常高毛利率需要同行核验",
     ),
@@ -140,6 +140,8 @@ RULES = (
     ),
 )
 RULE_BY_ID = {r.id: r for r in RULES}
+AMBER_PERCENTILE = 0.90
+RED_PERCENTILE = 0.97
 
 
 def rule_catalog() -> list[dict]:
@@ -165,13 +167,11 @@ def _growth(a: float | None, b: float | None) -> float | None:
     return q - 1 if q is not None else None
 
 
-def _level(value: float | None, rule: Rule) -> str:
-    if value is None or rule.red is None:
-        return "unavailable"
-    sign = 1 if rule.direction == "high" else -1
-    if sign * value >= sign * rule.red:
+def _overall_level(levels: list[str], hard: bool) -> str:
+    reds, ambers = levels.count("red"), levels.count("amber")
+    if hard or reds >= 2 or (reds >= 1 and ambers >= 2):
         return "red"
-    if sign * value >= sign * rule.amber:
+    if reds >= 1 or ambers >= 2:
         return "amber"
     return "none"
 
@@ -207,7 +207,9 @@ def _evaluate(code: str, asof: str, root: Path) -> dict:
             "period": None,
             "announcement_date": None,
             "level": "unavailable",
-            "rules": {r.id: {"value": None, "level": "unavailable", "evidence": {}} for r in RULES},
+            "rules": {r.id: {"value": None, "level": "unavailable", "industry_percentile": None,
+                             "peer_group": None, "peer_count": 0, "evidence": {}} for r in RULES},
+            "hard_conditions": {},
             "status": "no_complete_statement",
         }
     period = periods[-1]
@@ -235,9 +237,8 @@ def _evaluate(code: str, asof: str, root: Path) -> dict:
         "goodwill": _ratio(n(b, "GoodWill"), n(b, "SEWithoutMI")),
         "other_receivables": _ratio(n(b, "OtherReceivableED"), assets),
         "prepayments": _growth(n(b, "AdvancePayment"), n(pb, "AdvancePayment")),
-        "cash_debt": (_ratio(debt, money) if debt / assets >= 0.1 and money / assets >= 0.1 else 0.0)
-        if all(v is not None for v in (debt, money, assets)) and assets > 0
-        else None,
+        "cash_debt": min(debt / assets, money / assets)
+        if all(v is not None for v in (debt, money, assets)) and assets > 0 else None,
         "gross_margin": _ratio(n(i, "GrossProfitTTM"), n(i, "TotalOperatingRevenueTTM")),
     }
     fields = {k: {f: n(row, f) for r in RULES for f in r.fields if f in row} for k, row in current.items()}
@@ -255,7 +256,10 @@ def _evaluate(code: str, asof: str, root: Path) -> dict:
         value = values.get(rule.id)
         rules[rule.id] = {
             "value": value,
-            "level": _level(value, rule) if rule.available else "unavailable",
+            "level": "none" if value is not None and rule.available else "unavailable",
+            "industry_percentile": None,
+            "peer_group": None,
+            "peer_count": 0,
             "evidence": {
                 "period": period,
                 "announcement_dates": {k: str(row["InfoPublDate"]) for k, row in current.items()},
@@ -264,6 +268,29 @@ def _evaluate(code: str, asof: str, root: Path) -> dict:
                 "prior_fields": {k: {f: v for f, v in d.items() if f in rule.fields} for k, d in prev_fields.items()},
             },
         }
+    cash_years = []
+    for year in (int(period[:4]) - offset for offset in range(3)):
+        comparable = f"{year}{period[4:]}"
+        income = parts["lrb"].get(comparable)
+        flow = parts["xjll"].get(comparable)
+        p = n(income, "NPParentCompanyOwnersTTM")
+        c = n(flow, "NetOperateCashFlowTTM")
+        cash_years.append({"period": comparable, "profit": p, "operating_cash_flow": c,
+                           "income_announcement": income.get("InfoPublDate") if income else None,
+                           "cash_announcement": flow.get("InfoPublDate") if flow else None})
+    hard_conditions = {
+        "goodwill_over_half_net_assets": {
+            "triggered": values["goodwill"] is not None and values["goodwill"] > 0.5,
+            "value": values["goodwill"], "threshold": 0.5,
+            "evidence": rules["goodwill"]["evidence"],
+        },
+        "negative_cash_three_years_with_profit": {
+            "triggered": all(x["profit"] is not None and x["profit"] > 0
+                             and x["operating_cash_flow"] is not None and x["operating_cash_flow"] < 0
+                             for x in cash_years),
+            "years": cash_years,
+        },
+    }
     return {
         "code": code,
         "asof": asof,
@@ -271,6 +298,7 @@ def _evaluate(code: str, asof: str, root: Path) -> dict:
         "announcement_date": max(str(row["InfoPublDate"]) for row in current.values()),
         "level": "none",
         "rules": rules,
+        "hard_conditions": hard_conditions,
         "status": "ok",
     }
 
@@ -315,24 +343,32 @@ def flags_for(settings, codes, asof) -> list[dict]:
     for rule in RULES:
         if not rule.available:
             continue
-        groups: dict[str, list[tuple[dict, float]]] = {}
-        for row in results:
-            if row["status"] == "ok" and row["industry"]:
-                value = row["rules"][rule.id]["value"]
-                if value is not None:
-                    groups.setdefault(row["industry"], []).append((row, value))
-        for group in groups.values():
-            vals = sorted(value for _, value in group)
-            for row, value in group:
-                rank = sum(x <= value for x in vals) / len(vals)
-                row["rules"][rule.id]["industry_percentile"] = rank
-                row["rules"][rule.id]["industry_sample"] = len(vals)
-                if rule.id == "gross_margin" and len(vals) >= 10:
-                    row["rules"][rule.id]["level"] = "red" if rank >= 0.98 else "amber" if rank >= 0.90 else "none"
+        eligible = [row for row in results if row["status"] == "ok"
+                    and row["rules"][rule.id]["value"] is not None]
+        universe_values = sorted(row["rules"][rule.id]["value"] for row in eligible)
+        groups: dict[str, list[float]] = {}
+        for row in eligible:
+            groups.setdefault(row["industry"] or "unknown", []).append(row["rules"][rule.id]["value"])
+        for row in eligible:
+            industry = row["industry"] or "unknown"
+            own = groups[industry]
+            peer_group = industry if len(own) >= 15 else "universe"
+            values = own if len(own) >= 15 else universe_values
+            value = row["rules"][rule.id]["value"]
+            # Midrank prevents a common tied value (especially zero) from filling the tail.
+            percentile = (sum(x < value for x in values) + 0.5 * sum(x == value for x in values)) / len(values)
+            if rule.direction == "low":
+                percentile = 1 - percentile
+            item = row["rules"][rule.id]
+            item.update(industry_percentile=percentile, peer_group=peer_group,
+                        peer_count=len(values), industry_sample=len(own))
+            item["level"] = ("red" if percentile >= RED_PERCENTILE else "amber"
+                             if percentile >= AMBER_PERCENTILE else "none")
     for row in results:
         if row["status"] == "ok":
             levels = [r["level"] for r in row["rules"].values()]
-            row["level"] = "red" if "red" in levels else "amber" if "amber" in levels else "none"
+            hard = any(x["triggered"] for x in row["hard_conditions"].values())
+            row["level"] = _overall_level(levels, hard)
     return results
 
 
@@ -423,8 +459,12 @@ def explain(row: dict) -> str:
             lines.append(f"\n## {spec.name} [{spec.id}]：{item['level']}")
             lines.append(
                 f"公式：{spec.formula}；值：{item['value']}；"
-                f"行业分位：{item.get('industry_percentile')}（样本 {item.get('industry_sample')}）"
+                f"尾部分位：{item.get('industry_percentile')}"
+                f"（同业组 {item.get('peer_group')}，样本 {item.get('peer_count')}）"
             )
             lines.append("证据：" + json.dumps(item["evidence"], ensure_ascii=False))
+    for key, condition in row.get("hard_conditions", {}).items():
+        lines.append(f"\n## 硬条件 [{key}]：{'触发' if condition['triggered'] else '未触发'}")
+        lines.append("证据：" + json.dumps(condition, ensure_ascii=False))
     lines.append("\n限制：westock 每期仅存一个版本，重述可能造成历史前视；行业为当前快照。")
     return "\n".join(lines)

@@ -10,7 +10,8 @@ from alphasieve.cli.main import main
 from alphasieve.thesis import Thesis, evaluate_scenarios, implied, load_thesis
 from alphasieve.thesis.formula import FormulaError, evaluate, references
 
-SAMPLE = Path(__file__).resolve().parents[1] / "theses" / "hog-cycle-muyuan.yaml"
+SAMPLE = Path(__file__).resolve().parent / "fixtures" / "thesis_sample.yaml"
+LIVE = Path(__file__).resolve().parents[1] / "theses" / "hog-cycle-muyuan.yaml"
 
 
 def synthetic():
@@ -90,6 +91,11 @@ def test_sample_headlines_and_evidence():
     assert implied(thesis, "hog_price")["value"] == pytest.approx(14.039825, abs=1e-5)
     missing = next(item for item in thesis.evidence if item.id == "missing_volume_statement")
     assert missing.grade == "D" and missing.value is None
+
+
+def test_live_thesis_evaluates():
+    result = evaluate_scenarios(load_thesis(LIVE))
+    assert result["base"] > 0 and result["scenarios"]
 
 
 def test_cli_commands_without_state(tmp_path, monkeypatch, capsys):

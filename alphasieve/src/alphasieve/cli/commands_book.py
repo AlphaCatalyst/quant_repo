@@ -51,11 +51,15 @@ def book_show(args, ctx):
 def _check_args(parser):
     _id_args(parser)
     parser.add_argument("--benchmark", default="sh.000300")
+    parser.add_argument("--announcement-lookback-days", type=int, default=30)
 
 
 @command("book check", roles=ROLES, configure=_check_args, needs_store=False)
 def book_check(args, ctx):
-    report, markdown = build_report(show_snapshot(ctx.conn, args.snapshot_id), ctx.settings, args.benchmark)
+    if args.announcement_lookback_days < 1 or args.announcement_lookback_days > 365:
+        raise validation_error("announcement lookback must be 1..365 days")
+    report, markdown = build_report(show_snapshot(ctx.conn, args.snapshot_id), ctx.settings, args.benchmark,
+                                    announcement_lookback_days=args.announcement_lookback_days)
     save_report(report, ctx.settings)
     return CommandResult(data={"report": report, "markdown": markdown})
 

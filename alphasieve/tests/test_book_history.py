@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 from alphasieve.portfolio_book import market
-from alphasieve.portfolio_book.attribution import build_attribution
+from alphasieve.portfolio_book.attribution import _benchmark_sectors, build_attribution
 from alphasieve.portfolio_book.cashflow import add_cashflow
 from alphasieve.portfolio_book.history import build_history, load_analysis_report, save_analysis_report
 from alphasieve.portfolio_book.importer import import_snapshot
@@ -19,6 +19,25 @@ def _import(conn, tmp_path, day, quantity, cash):
     )
     mapping = Path(__file__).parents[1] / "src/alphasieve/configs/book/mapping_generic.yaml"
     return import_snapshot(conn, path, "demo", day, "test", mapping=mapping)[0]
+
+
+def test_benchmark_sectors_uses_daily_update_prices(settings, monkeypatch):
+    from alphasieve.portfolio_book import attribution
+
+    raw = settings.raw_dir
+    weights_dir = raw / "csindex" / "weights" / "000300"
+    weights_dir.mkdir(parents=True)
+    pd.DataFrame([{"code": "sh.600000", "weight": 100.0}]).to_parquet(weights_dir / "2026-09-01.parquet")
+    for root, dates in (("baostock_all", ["2026-09-24"]),
+                        ("baostock", ["2026-09-24", "2026-09-30"])):
+        folder = raw / root / "daily"
+        folder.mkdir(parents=True)
+        pd.DataFrame({"date": dates, "close": list(range(10, 10 + len(dates))) }).to_parquet(
+            folder / "sh.600000.parquet")
+    monkeypatch.setattr(attribution, "industry_asof", lambda *args: ({"sh.600000": "银行"}, {}))
+    _, returns, meta = _benchmark_sectors(settings, "2026-09-01", "2026-09-30")
+    assert returns["银行"] == pytest.approx(0.1)
+    assert meta["price_source"].startswith("baostock/daily")
 
 
 def test_history_cashflow_and_inferred_trade(settings, monkeypatch, tmp_path):

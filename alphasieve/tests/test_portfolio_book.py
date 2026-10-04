@@ -66,6 +66,50 @@ def test_checkup_synthetic_prices(settings, monkeypatch, capsys):
     assert "持仓体检" in checked["data"]["markdown"]
 
 
+def test_checkup_flags_announcements_and_saved_sections(settings, monkeypatch, capsys):
+    from alphasieve import announcements, redflag
+    from alphasieve.portfolio_book.checkup import load_report
+
+    days = pd.bdate_range("2026-06-01", periods=75).strftime("%Y-%m-%d")
+    series = pd.Series(range(100, 175), index=days, dtype=float)
+    monkeypatch.setattr(market, "recent_closes", lambda *args, **kwargs: {
+        "sh.000300": series, "sh.600000": series * 2, "sh.510300": series,
+        "sz.127045": series})
+    monkeypatch.setattr(market, "current_quotes", lambda settings, codes: {
+        code: {"bond_stock_code": "002714"} if code == "sz.127045" else {"pb_ratio": 0.8,
+        "circulating_market_cap": 1e10} for code in codes})
+    monkeypatch.setattr(market, "current_industry", lambda *args: ({}, {"label": "test"}))
+    monkeypatch.setattr(redflag, "flags_for", lambda settings, codes, asof: [{
+        "code": "sh.600000", "level": "amber", "extra": "future field",
+        "rules": {"cash_profit": {"level": "amber", "evidence": {"period": "20250630"}}}}])
+    wanted = []
+    def fake_recent(settings, codes, since):
+        wanted.extend(codes)
+        assert since == "2026-09-03"
+        return [{"code": "127045", "importance": "high", "event_type": "convertible_redemption",
+                 "title": "强赎公告", "published_date": "2026-09-30", "pdf_url": "https://example.test/1"},
+                {"code": "002714", "importance": "medium", "event_type": "convertible_revision",
+                 "title": "下修公告", "published_date": "2026-10-01", "pdf_url": "https://example.test/2"}]
+    monkeypatch.setattr(announcements, "recent_for", fake_recent)
+    monkeypatch.setattr(announcements, "list_local", lambda *args, **kwargs: [
+        {"code": "127045", "importance": "low", "event_type": "convertible_other",
+         "title": "回售公告", "published_date": "2026-10-02", "pdf_url": "https://example.test/3",
+         "announcement_id": "3"}])
+    fixture = FIXTURE.with_name("mixed.csv")
+    _, imported = call(["book", "import", "--file", str(fixture), "--account", "mixed",
+                        "--as-of", "2026-10-03"], capsys)
+    snapshot_id = imported["data"]["snapshot"]["snapshot_id"]
+    code, checked = call(["book", "check", snapshot_id], capsys)
+    assert code == 0
+    report = checked["data"]["report"]
+    assert report["red_flags"]["flagged_weight"] == pytest.approx(1000 / 7000)
+    assert report["red_flags"]["holdings"][0]["rules"][0]["evidence"]["period"] == "20250630"
+    assert set(wanted) == {"600000", "127045", "002714"}
+    assert len(report["announcements"]["convertible_bond_items"]) == 3
+    assert report["style_exposure"]["model"] == "book_simplified_not_rm1"
+    assert load_report(snapshot_id, settings)["announcements"] == report["announcements"]
+
+
 def test_mixed_book_quote_bonds_and_price_cache(settings, monkeypatch, capsys):
     from alphasieve.data.providers import westock
 

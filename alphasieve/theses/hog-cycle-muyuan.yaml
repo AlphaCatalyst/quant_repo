@@ -3,191 +3,250 @@ title: 牧原股份猪周期估值推演复核
 assets:
   - {code: 002714.SZ, name: 牧原股份}
 status: researching
-as_of: 2026-09-14
-core_variables: [hog_price, full_cost, slaughter_volume, average_weight, attributable_factor, pe]
+as_of: 2026-10-04
+core_variables: [hog_price, full_cost, slaughter_volume, average_weight, other_business_after_expenses, attributable_factor, pe]
 argument:
-  - 周期观：能繁母猪去化影响后续猪价，跨期猪价须锁定同一口径。
-  - 参数层：猪价、完全成本、出栏量和均重均需逐项核对出处。
-  - 估值层：头均利润乘出栏量、归母折算及 PE，再除以股本。
+  - 基准是 2027E 全年情景；2027 猪价、成本和出栏量均为待验证的预测假设，2026 出栏指引仅作数量级参照。
+  - 能繁母猪存栏与供需变化须持续观察农业农村部统计；不同猪价序列不可混用。
+  - 头均价差乘出栏量只是养殖利润近似值；其他业务、期间费用、税费等净影响另列残差，再按年报归母比例折算。完全成本口径可能已含部分期间费用，不机械重复扣除。
+  - 2026-09-30 BaoStock 不复权收盘 42.45 元，按以下条件模型反推市场隐含猪价；模型并非独立盈利预测或目标价。
 parameters:
   hog_price:
     base: 14.0
     unit: 元/kg
     low: 13.0
     high: 18.0
-    evidence: [gf_price, original_price]
+    evidence: [gf_price, original_price, price_range]
   full_cost:
     base: 11.2
     unit: 元/kg
-    low: 11.2
-    high: 13.5
-    evidence: [gf_cost, revised_cost]
+    low: 10.5
+    high: 12.0
+    evidence: [gf_cost, cost_actual_2025, cost_h1_2026, cost_range]
   slaughter_volume:
     base: 0.78
     unit: 亿头
-    low: 0.75
-    high: 1.0
-    evidence: [guide, guide_midpoint, original_volume]
+    low: 0.70
+    high: 0.86
+    evidence: [guide, volume_2025, volume_2027_assumption, missing_volume_statement]
   average_weight:
-    base: 120.0
+    base: 126.0
     unit: kg/头
     low: 120.0
-    high: 125.0
-    evidence: [original_weight]
+    high: 132.0
+    evidence: [weight_2025, weight_range]
+  other_business_after_expenses:
+    base: 0.0
+    unit: 亿元
+    low: -30.0
+    high: 30.0
+    evidence: [bridge_residual, annual_pnl]
   attributable_factor:
-    base: 0.925
+    base: 0.979450415
     unit: 比例
-    low: 0.90
-    high: 0.95
-    evidence: [factor]
+    low: 0.95
+    high: 1.0
+    evidence: [attributable_2025, attribution_range]
   pe:
     base: 10.0
     unit: 倍
-    low: 10.0
-    high: 17.4
-    evidence: [original_pe]
+    low: 8.0
+    high: 12.0
+    evidence: [original_pe, pe_range]
   shares:
-    base: 57.73
+    base: 57.72996075
     unit: 亿股
-    low: 57.73
-    high: 57.73
+    low: 57.72996075
+    high: 57.72996075
     evidence: [shares]
 evidence:
   - id: gf_price
-    claim: 广发证券 2027E 猪价 14.0 元/kg
+    claim: 2027E 猪价 14.0 元/kg；所谓广发预测尚无可核实的研报标题、日期和原文，因此这里只作未验证情景假设。
     value: 14.0
-    source: AlphaNotes《猪周期估值推演的辩证复核》§2.1、§8；广发证券 2027E 测算
+    source: https://alphacatalyst.github.io/AlphaNotes/reports/hog-cycle/analysis.html §2、§8；二手转述，未检出广发原研报
     grade: C
-    accessed: 2026-09-16
-  - id: original_price
-    claim: 原文档假设猪价 18 元/kg
-    value: 18.0
-    source: AlphaNotes《猪周期估值推演的辩证复核》§1、§2.1；原文档推演
-    grade: C
-    accessed: 2026-09-16
+    accessed: 2026-10-04
   - id: gf_cost
-    claim: 广发证券 2027E 完全成本 11.2 元/kg
+    claim: 2027E 完全成本 11.2 元/kg；所谓广发预测尚无可核实原研报，仅作未验证情景假设。
     value: 11.2
-    source: AlphaNotes《猪周期估值推演的辩证复核》§8；广发证券 2027E 测算
+    source: https://alphacatalyst.github.io/AlphaNotes/reports/hog-cycle/analysis.html §8；二手转述
     grade: C
-    accessed: 2026-09-16
-  - id: revised_cost
-    claim: 上行期成本修订区间 12.0–13.5 元/kg，扩产到 1 亿头时为 12.7–13.5 元/kg
-    source: AlphaNotes《猪周期估值推演的辩证复核》§4.1.2、开篇更新；本报告推演
+    accessed: 2026-10-04
+  - id: original_price
+    claim: 原推演上行猪价假设 18 元/kg，不代表公司或交易所预测。
+    value: 18.0
+    source: https://alphacatalyst.github.io/AlphaNotes/reports/hog-cycle/analysis.html §1、§2
     grade: C
-    accessed: 2026-09-27
+    accessed: 2026-10-04
+  - id: price_range
+    claim: 13–18 元/kg 为猪价情景压力区间，不是已验证概率区间；13 引自报告谨慎情景。
+    source: https://alphacatalyst.github.io/AlphaNotes/reports/hog-cycle/analysis.html §8、§10
+    grade: C
+    accessed: 2026-10-04
+  - id: cost_actual_2025
+    claim: 2025 年生猪养殖完全成本约 12 元/kg，年报第 14 页。
+    value: 12.0
+    source: https://static.cninfo.com.cn/finalpage/2026-03-28/1225042507.PDF
+    grade: A
+    accessed: 2026-10-04
+  - id: cost_h1_2026
+    claim: 2026 年 6 月完全成本约 11.7 元/kg，全年平均目标 11.5 元/kg；半年报第 11 页。目标是管理层展望。
+    source: https://static.cninfo.com.cn/finalpage/2026-08-21/1225485220.PDF
+    grade: B
+    accessed: 2026-10-04
+  - id: cost_range
+    claim: 2027E 成本 10.5–12.0 元/kg 为基准两侧压力区间；10.5 无公司指引，12.0 是 2025 实绩而非 2027 预测。
+    source: https://static.cninfo.com.cn/finalpage/2026-03-28/1225042507.PDF 第14页；https://alphacatalyst.github.io/AlphaNotes/reports/hog-cycle/analysis.html §4、§8；研究者情景设定
+    grade: C
+    accessed: 2026-10-04
   - id: guide
-    claim: 公司 2026 年出栏指引 7500–8100 万头
-    source: AlphaNotes《猪周期估值推演的辩证复核》§2.1、附录 A；公司公告
+    claim: 公司在 2026 年业绩说明会预计当年销售商品猪 7500–8100 万头；管理层口头指引，不是 2027 指引。
+    source: https://vip.stock.finance.sina.com.cn/corp/view/vCB_AllBulletinDetail.php?CompanyCode=80198868&gather=1&id=12097210
+    grade: B
+    accessed: 2026-10-04
+  - id: volume_2025
+    claim: 2025 年销售商品猪 7798.1 万头，年报第 14 页。
+    value: 0.77981
+    source: https://static.cninfo.com.cn/finalpage/2026-03-28/1225042507.PDF
     grade: A
-    accessed: 2026-09-16
-  - id: guide_midpoint
-    claim: 情景采用公司出栏指引中位附近的 7800 万头
+    accessed: 2026-10-04
+  - id: volume_2027_assumption
+    claim: 2027E 基准 7800 万头、区间 7000–8600 万头均为研究者外推；基准靠近 2025 实绩与 2026 管理层指引中点，尚无 2027 公司指引。
     value: 0.78
-    source: AlphaNotes《猪周期估值推演的辩证复核》§8；本报告情景假设
+    source: https://static.cninfo.com.cn/finalpage/2026-03-28/1225042507.PDF 第14页；https://vip.stock.finance.sina.com.cn/corp/view/vCB_AllBulletinDetail.php?CompanyCode=80198868&gather=1&id=12097210；研究者情景设定
     grade: C
-    accessed: 2026-09-16
-  - id: original_volume
-    claim: 原文档假设出栏 1 亿头
-    value: 1.0
-    source: AlphaNotes《猪周期估值推演的辩证复核》§1、§2.1；原文档推演
-    grade: C
-    accessed: 2026-09-16
+    accessed: 2026-10-04
   - id: missing_volume_statement
-    claim: 未找到牧原管理层关于实际出栏 1 亿头的表态
-    source: AlphaNotes《猪周期估值推演的辩证复核》§4.2、附录 A；年报、业绩会、互动平台、投关记录检索
+    claim: 未检出公司对原文所述极高出栏量的正式指引；该数字只保留为上行情景假设。
+    source: https://static.cninfo.com.cn/finalpage/2026-08-21/1225485220.PDF；https://vip.stock.finance.sina.com.cn/corp/view/vCB_AllBulletinDetail.php?CompanyCode=80198868&gather=1&id=12097210；检索年报、半年报及业绩说明会
     grade: D
-    accessed: 2026-09-16
-  - id: original_weight
-    claim: 原文档估值均重 120 kg/头
-    value: 120.0
-    source: AlphaNotes《猪周期估值推演的辩证复核》§1、§2.1；原文档假设
+    accessed: 2026-10-04
+  - id: weight_2025
+    claim: 公司回答 2025 年商品猪销售均重约 126 kg；业绩说明会问答第 5 项，是管理层表述。
+    value: 126.0
+    source: https://vip.stock.finance.sina.com.cn/corp/view/vCB_AllBulletinDetail.php?CompanyCode=80198868&gather=1&id=12097210
+    grade: B
+    accessed: 2026-10-04
+  - id: weight_range
+    claim: 2027E 均重 120–132 kg 为以 2025 年约 126 kg 为中心的对称 ±6 kg 压力设定，非公司预测。
+    source: https://vip.stock.finance.sina.com.cn/corp/view/vCB_AllBulletinDetail.php?CompanyCode=80198868&gather=1&id=12097210；研究者情景设定
     grade: C
-    accessed: 2026-09-16
-  - id: factor
-    claim: 本报告估值使用归母折算 0.925
-    value: 0.925
-    source: AlphaNotes《猪周期估值推演的辩证复核》§3.1、§8；本报告模型
+    accessed: 2026-10-04
+  - id: annual_pnl
+    claim: 2025 合并利润表第 115–116 页：销售、管理、研发、财务费用合计 93.2300 亿元，所得税费用 -0.0188 亿元；屠宰肉食收入 452.28 亿元且首次全年盈利。报告不单列可直接外推的 2027 养殖价差至归母净利桥。
+    source: https://static.cninfo.com.cn/finalpage/2026-03-28/1225042507.PDF 第14、115–116、203–204页
+    grade: A
+    accessed: 2026-10-04
+  - id: bridge_residual
+    claim: 其他业务、期间费用、税费及价差口径差异合并为 2027E 净影响残差，基准暂设 0 亿元、压力 ±30 亿元；无可核验 2027 预测。因完全成本口径不明，不把 2025 期间费用再机械扣一次。
+    value: 0.0
+    source: https://static.cninfo.com.cn/finalpage/2026-03-28/1225042507.PDF 第14、115–116页；研究者情景设定
     grade: C
-    accessed: 2026-09-16
+    accessed: 2026-10-04
+  - id: attributable_2025
+    claim: 2025 年合并净利润 158.1181754345 亿元、归母净利润 154.8689125404 亿元、少数股东损益 3.2492628941 亿元；归母比例 = 154.8689125404 / 158.1181754345 = 0.979450415。只验证净利到归母这一段，并非 2027 保证比例。
+    value: 0.979450415
+    source: https://static.cninfo.com.cn/finalpage/2026-03-28/1225042507.PDF 第115–116页合并利润表
+    grade: A
+    accessed: 2026-10-04
+  - id: attribution_range
+    claim: 0.95–1.00 是围绕 2025 年归母比例的研究者压力区间；少数股东损益可能变化。
+    source: https://static.cninfo.com.cn/finalpage/2026-03-28/1225042507.PDF 第116页；研究者情景设定
+    grade: C
+    accessed: 2026-10-04
   - id: original_pe
-    claim: 原文档估值使用 10 倍 PE
+    claim: 原推演使用 10 倍 PE，仅是估值假设。
     value: 10.0
-    source: AlphaNotes《猪周期估值推演的辩证复核》§1、§8；原文档假设
+    source: https://alphacatalyst.github.io/AlphaNotes/reports/hog-cycle/analysis.html §1、§8
     grade: C
-    accessed: 2026-09-16
+    accessed: 2026-10-04
+  - id: pe_range
+    claim: 8–12 倍 PE 是围绕 10 倍的对称 ±2 倍敏感性，不是市场可证的合理估值带。
+    source: https://alphacatalyst.github.io/AlphaNotes/reports/hog-cycle/analysis.html §8；研究者情景设定
+    grade: C
+    accessed: 2026-10-04
   - id: shares
-    claim: 2026-06-30 总股本 57.73 亿股
-    value: 57.73
-    source: AlphaNotes《猪周期估值推演的辩证复核》§2.1、附录 A；公司公告
+    claim: 2026-06-30 总股本 5,772,996,075 股，即 57.72996075 亿股；半年报股本表。后续发行、回购需另行检查。
+    value: 57.72996075
+    source: https://static.cninfo.com.cn/finalpage/2026-08-21/1225485220.PDF 股本表
     grade: A
-    accessed: 2026-09-16
+    accessed: 2026-10-04
   - id: market
-    claim: 2026-09-14 收盘价 42.59 元
-    value: 42.59
-    source: AlphaNotes《猪周期估值推演的辩证复核》题头、§2.1；2026-09-14 收盘行情
-    grade: A
-    accessed: 2026-09-16
-  - id: corn
-    claim: 上行期玉米现货价突破 2600 元/吨将损害 12 元/kg 成本假设
-    value: 2600
-    source: AlphaNotes《猪周期估值推演的辩证复核》§4.1.2、§11；卓创/发改委周度口径
+    claim: 002714.SZ 于 2026-09-30 不复权收盘 42.45 元；本地调用 BaoStockSession.daily，adjustflag=3。不属交易所一手数据。
+    value: 42.45
+    source: https://www.baostock.com/baostock/index.php/%E9%A6%96%E9%A1%B5 ; BaoStock query_history_k_data_plus(sz.002714, 2026-09-30, adjustflag=3)
     grade: C
-    accessed: 2026-09-16
+    accessed: 2026-10-04
+  - id: sow_data
+    claim: 能繁母猪存栏为猪周期论点的待观察变量，须记录农业农村部原统计发布时间与口径；本版未把其数值代入估值。
+    source: https://www.moa.gov.cn/ztzl/szcpxx/
+    grade: A
+    accessed: 2026-10-04
 valuation:
-  formula: (hog_price - full_cost) * average_weight * slaughter_volume * attributable_factor * pe / shares
+  formula: ((hog_price - full_cost) * average_weight * slaughter_volume + other_business_after_expenses) * attributable_factor * pe / shares
   output_unit: 元/股
   price_param: hog_price
-  market_price: 42.59
-  shares: 57.73
+  market_price: 42.45
+  shares: 57.72996075
 scenarios:
-  original:
-    hog_price: 18.0
-    full_cost: 12.0
-    slaughter_volume: 1.0
-    average_weight: 120.0
-    attributable_factor: 0.925
-    pe: 10.0
-  guangfa_2027:
+  base_2027:
     hog_price: 14.0
     full_cost: 11.2
     slaughter_volume: 0.78
+    average_weight: 126.0
+  cautious_2027:
+    hog_price: 13.0
+    full_cost: 12.0
+    slaughter_volume: 0.75
     average_weight: 120.0
-    attributable_factor: 0.925
-    pe: 10.0
-  revised_cost_low_no_expansion:
+    pe: 8.0
+  upside_2027:
     hog_price: 18.0
     full_cost: 12.0
-    slaughter_volume: 0.78
-  revised_cost_low_with_expansion:
+    slaughter_volume: 0.86
+    average_weight: 132.0
+    pe: 10.0
+  original_hypothesis_not_guidance:
     hog_price: 18.0
-    full_cost: 12.7
+    full_cost: 12.0
     slaughter_volume: 1.0
-  revised_cost_high_with_expansion:
-    hog_price: 18.0
-    full_cost: 13.5
-    slaughter_volume: 1.0
+    average_weight: 120.0
+    pe: 10.0
 falsifiers:
-  - id: corn-cost
-    condition: 猪价上行期玉米现货价突破 2600 元/吨（约较 2372 元/吨上升一成）
-    variable: corn_spot_price
-    action: 撤销完全成本 12 元/kg 的有效性并重估
-  - id: high-price-high-cost
-    condition: 2027 年猪价超过 16 元/kg 且牧原完全成本超过 13 元/kg
-    variable: hog_price, full_cost
-    action: 撤销头均利润 720 元的假设并重估
+  - id: price_below_market_implied
+    condition: 2027 年可比较的全国生猪均价持续低于按 2026-09-30 股价和当前基准参数反推的猪价约 13.75 元/kg（旧版 2026-09-14 的 42.59 元与旧参数对应约 14.04 元/kg）；核对农业农村部 https://www.moa.gov.cn/ztzl/szcpxx/ 价格统计及大商所 https://www.dce.com.cn/ LH 期货曲线，不把期货价直接等同现货。
+    variable: hog_price
+    action: 撤销基准价差所支撑的现价估值并重算利润与股价。
+  - id: company_cost_above_base
+    condition: 牧原月度销售简报 https://www.cninfo.com.cn/new/disclosure/stock?stockCode=002714 或定期报告所披露完全成本持续高于基准 11.2 元/kg；若达 12.0 元/kg，在其余参数不变时重算市场隐含猪价。
+    variable: full_cost
+    action: 撤销 11.2 元/kg 成本假设；若月报未披露成本则等待定期报告，不自行推算成已披露值。
+  - id: volume_or_weight_shortfall
+    condition: 牧原月度销售简报 https://www.cninfo.com.cn/new/disclosure/stock?stockCode=002714 的商品猪销量与售价趋势、定期报告披露的年度出栏量或均重，与 2027E 7800 万头及 126 kg 假设明显背离。
+    variable: slaughter_volume, average_weight
+    action: 按公司披露口径重估，分别核对月度销量和年度均重。
 position_limit: 0.0
 proposed_forecasts:
-  - proposition: LH2707 到期结算价是否高于 16 元/kg
-    settle_date: 2027-07-31
-    source: AlphaNotes《猪周期估值推演的辩证复核》§11；阈值来自报告，结算日为论点草案排期，需按大商所合约日历复核
-  - proposition: 牧原月度销售简报披露的出栏均重是否超过 125 kg/头
-    settle_date: 2026-11-30
-    source: AlphaNotes《猪周期估值推演的辩证复核》§11；阈值来自报告，结算日为论点草案排期
+  - statement: 2027-07-15 LH2707 日收盘价高于 14.0 元/kg；这是合约月中旬观察日，不称到期结算价。
+    thesis_id: hog-cycle-muyuan
+    resolver: sina_futures_close
+    resolver_params: {symbol: LH2707, settle_date: 2027-07-15, scale: 0.001}
+    condition: {op: '>', threshold: 14.0}
+    p: 0.5
+    deadline: 2027-07-15
+    source_of_truth: https://www.dce.com.cn/dalianshangpin/fgfz/6142914/6142926/6262877/%E5%A4%A7%E8%BF%9E%E5%95%86%E5%93%81%E4%B8%9A%E5%8A%A1%E7%BB%86%E5%88%99%EF%BC%88%E6%A0%B9%E6%8D%AE2025%E5%B9%B46%E6%9C%8824%E6%97%A5%E3%80%942025%E3%80%9559%E5%8F%B7%E6%96%87%E4%BB%B6%E4%BF%AE%E6%94%B9%EF%BC%89.pdf ; 2027-07-15 为周四、合约月中旬，须在登记前据大商所 2027 日历复核交易日；结算读取新浪期货 LH2707 当日 close 元/吨 × 0.001，若休市则改期后再登记。
+  - statement: 牧原 2026 年 11 月月度销售简报披露的商品猪销售量是否高于 600 万头。
+    thesis_id: hog-cycle-muyuan
+    resolver: manual
+    resolver_params: {settle_date: 2026-12-15}
+    condition: {op: '>', threshold: 600.0}
+    p: 0.5
+    deadline: 2026-12-15
+    source_of_truth: https://www.cninfo.com.cn/new/disclosure/stock?stockCode=002714 ; 以公司正式发布的 2026 年 11 月销售简报中商品猪销售量（万头）为准；600 万头阈值与 p=0.5 为 2026-10-04 主观预注册提案；12 月 15 日为人工核对日，如未发布则登记前调整日期。
 revisions:
   - date: 2026-09-16
-    note: 报告未给仓位上限；研究状态暂设零仓位，不表示报告的数字。
-  - date: 2026-09-16
-    note: 原文档约 120 元未作归母折算；本报告 §8 用 0.925 折算后为 115.36 元，广发情景为 41.99 元。
+    note: 报告未给仓位上限；研究状态暂设零仓位。
   - date: 2026-09-27
-    note: 报告将上行成本 12.8–14.2 元/kg 修订为 12.0–13.5 元/kg；扩产到 1 亿头对应 12.7–13.5 元/kg。
+    note: 原报告把上行成本区间修订为 12.0–13.5 元/kg；该映射仍未由公司指引证实。
+  - date: 2026-10-04
+    note: 依据 theses/reviews/hog-cycle-muyuan-2026-10-04-codex.md 与 theses/reviews/hog-cycle-muyuan-2026-10-04-claude.md 修订；将基准统一为 2027E、2025 均重调至 126 kg、用 2025 年报归母/合并净利比替换 0.925，另列未经验证的净影响残差，更新 2026-09-30 不复权收盘、可结算预测及对应证伪条件。仍为 researching。

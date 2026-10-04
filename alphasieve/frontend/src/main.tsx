@@ -13,6 +13,7 @@ import Forward from "./pages/Forward";
 import Theses, { Thesis } from "./pages/Theses";
 import Forecasts from "./pages/Forecasts";
 import Book from "./pages/Book";
+import Alerts from "./pages/Alerts";
 import { Glossary } from "./components";
 
 function useHashPath(): string {
@@ -38,6 +39,7 @@ const NAV: [string, string][] = [
   ["/theses", "论点"],
   ["/forecasts", "预测"],
   ["/book", "持仓体检"],
+  ["/alerts", "监控告警"],
   ["/data", "数据"],
 ];
 
@@ -105,6 +107,7 @@ function App() {
   else if (parts[0] === "theses") page = <Theses />;
   else if (parts[0] === "forecasts") page = <Forecasts />;
   else if (parts[0] === "book") page = <Book />;
+  else if (parts[0] === "alerts") page = <Alerts />;
   else if (parts[0] === "data") page = <Data />;
   else if (parts[0] === "inbox") page = <Inbox />;
   else page = <Overview />;

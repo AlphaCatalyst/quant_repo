@@ -396,6 +396,28 @@ MIGRATIONS: list[str] = [
     CREATE TRIGGER book_cashflows_no_delete BEFORE DELETE ON book_cashflows
     BEGIN SELECT RAISE(ABORT,'book_cashflows is append-only'); END;
     """,
+    """
+    CREATE TABLE alerts (
+        alert_id TEXT PRIMARY KEY, kind TEXT NOT NULL, severity TEXT NOT NULL,
+        subject TEXT NOT NULL, title TEXT NOT NULL, detail TEXT NOT NULL,
+        evidence_json TEXT NOT NULL, created_at TEXT NOT NULL,
+        visibility TEXT NOT NULL CHECK (visibility IN ('public','private'))
+    );
+    CREATE INDEX alerts_visibility_date ON alerts(visibility, created_at DESC);
+    CREATE TABLE alert_acks (
+        ack_id TEXT PRIMARY KEY, alert_id TEXT NOT NULL REFERENCES alerts(alert_id),
+        actor TEXT NOT NULL, note TEXT NOT NULL, created_at TEXT NOT NULL
+    );
+    CREATE INDEX alert_acks_alert ON alert_acks(alert_id);
+    CREATE TRIGGER alerts_no_update BEFORE UPDATE ON alerts
+    BEGIN SELECT RAISE(ABORT,'alerts is append-only'); END;
+    CREATE TRIGGER alerts_no_delete BEFORE DELETE ON alerts
+    BEGIN SELECT RAISE(ABORT,'alerts is append-only'); END;
+    CREATE TRIGGER alert_acks_no_update BEFORE UPDATE ON alert_acks
+    BEGIN SELECT RAISE(ABORT,'alert_acks is append-only'); END;
+    CREATE TRIGGER alert_acks_no_delete BEFORE DELETE ON alert_acks
+    BEGIN SELECT RAISE(ABORT,'alert_acks is append-only'); END;
+    """,
 ]
 
 

@@ -3,6 +3,7 @@
 import json
 import math
 import os
+from datetime import date, timedelta
 from itertools import combinations
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -12,6 +13,7 @@ import pandas as pd
 from alphasieve.config import Settings
 from alphasieve.errors import validation_error
 from alphasieve.portfolio_book import market
+from alphasieve.portfolio_book.style import exposure as style_exposure
 
 
 def _num(value) -> float | None:
@@ -106,7 +108,8 @@ def load_report(snapshot_id: str, settings: Settings) -> dict | None:
         return json.load(stream)
 
 
-def build_report(snapshot: dict, settings: Settings, benchmark: str = "sh.000300", top_n: int = 5) -> tuple[dict, str]:
+def build_report(snapshot: dict, settings: Settings, benchmark: str = "sh.000300", top_n: int = 5,
+                 announcement_lookback_days: int = 30) -> tuple[dict, str]:
     positions = snapshot["positions"]
     codes = [position["code"] for position in positions if position["code"] != "CASH"]
     values = {position["code"]: float(position["market_value"]) for position in positions}
@@ -161,7 +164,70 @@ def build_report(snapshot: dict, settings: Settings, benchmark: str = "sh.000300
             linked = next((stock for bond, stock in underlying_codes if bond == code), None)
             underlying = {"code": linked, **underlying_quotes.get(linked, {})} if linked else {}
             convertible_bonds.append(_bond_record(code, quotes.get(code, {}), underlying))
+    from alphasieve.announcements import list_local, recent_for
+    from alphasieve.redflag import flags_for
+
+    asof = snapshot["as_of"]
+    flag_rows = flags_for(settings, stock_codes, asof) if stock_codes else []
+    flagged = []
+    for row in flag_rows:
+        code = row.get("code")
+        if row.get("level") not in {"amber", "red"} or code not in weights:
+            continue
+        firing = [{"rule": name, "level": item.get("level"), "evidence": item.get("evidence")}
+                  for name, item in row.get("rules", {}).items() if item.get("level") in {"amber", "red"}]
+        firing.extend({"rule": name, "level": "red", "evidence": item.get("evidence")}
+                      for name, item in row.get("hard_conditions", {}).items() if item.get("triggered"))
+        flagged.append({"code": code, "level": row["level"], "weight": weights[code], "rules": firing})
+    red_flags = {"as_of": asof, "holdings": flagged,
+                 "flagged_weight": sum(item["weight"] for item in flagged),
+                 "screened_stock_weight": sum(weights[code] for code in stock_codes)}
+    since = (date.fromisoformat(asof) - timedelta(days=announcement_lookback_days)).isoformat()
+    cb_codes = [code for code in codes if classes[code] == "convertible_bond"]
+    announcement_codes = sorted({*(code.split(".")[-1] for code in stock_codes + cb_codes),
+                                 *(code.split(".")[-1] for _, code in underlying_codes)})
+    items = recent_for(settings, announcement_codes, since) if announcement_codes else []
+    # The shared classifier currently rates some 回售 notices low. Include these
+    # bond events explicitly from the same local metadata without a network fetch.
+    if cb_codes:
+        bond_six = {code.split(".")[-1] for code in cb_codes} | {
+            code.split(".")[-1] for _, code in underlying_codes}
+        seen = {(str(item.get("code")), str(item.get("announcement_id"))) for item in items}
+        for item in list_local(settings, since=since):
+            key = (str(item.get("code")), str(item.get("announcement_id")))
+            if (str(item.get("code")) in bond_six and key not in seen
+                    and any(word in str(item.get("title") or "") for word in ("下修", "强赎", "回售"))):
+                items.append(item)
+                seen.add(key)
+    relevant = {code.split(".")[-1]: code for code in stock_codes + cb_codes}
+    cb_links = {bond.split(".")[-1]: bond for bond in cb_codes}
+    underlying_links = {stock.split(".")[-1]: bond for bond, stock in underlying_codes}
+    announcement_rows = []
+    for item in items:
+        six = str(item.get("code", "")).zfill(6)
+        if six not in relevant and six not in underlying_links:
+            continue
+        bond_event = (six in cb_links or six in underlying_links) and any(
+            word in str(item.get("title") or "") for word in ("下修", "强赎", "回售"))
+        if item.get("importance") not in {"high", "medium"} and not bond_event:
+            continue
+        event_date = str(item.get("published_date") or item.get("published_at") or "")[:10]
+        if event_date > asof:
+            continue
+        announcement_rows.append({"code": relevant.get(six) or next((stock for bond, stock in underlying_codes
+                                                                         if bond == underlying_links.get(six)), None),
+                                  "bond_code": cb_links.get(six) or underlying_links.get(six),
+                                  "type": item.get("event_type"), "title": item.get("title"),
+                                  "date": event_date,
+                                  "url": item.get("pdf_url"), "importance": item.get("importance")})
+    announcements = {"since": since, "as_of": asof, "items": announcement_rows,
+                     "convertible_bond_items": [item for item in announcement_rows if item["bond_code"]
+                                                and (item["type"] in {"convertible_revision", "convertible_redemption",
+                                                                        "convertible_putback", "convertible_resale"}
+                                                     or any(word in (item["title"] or "")
+                                                            for word in ("下修", "强赎", "回售")))]}
     closes = market.recent_closes(settings, codes, benchmark, asset_classes=classes)
+    style = style_exposure(settings, stock_codes, weights, quotes, closes, benchmark)
     returns = {code: series.pct_change(fill_method=None).dropna().tail(60) for code, series in closes.items()}
     benchmark_returns = returns[benchmark]
     beta = {}
@@ -193,6 +259,7 @@ def build_report(snapshot: dict, settings: Settings, benchmark: str = "sh.000300
         "market_cap_buckets": market_cap_buckets,
         "market_cap_note": "流通市值优先，总市值回退；仅股票；当前快照，非 PIT；单位人民币元",
         "convertible_bonds": convertible_bonds,
+        "red_flags": red_flags, "announcements": announcements, "style_exposure": style,
         "beta_60d": beta, "beta_overlap_days": overlap_days, "portfolio_beta_60d": portfolio_beta,
         "benchmark": benchmark, "pairwise_correlation": {
             "mean": sum(item["correlation"] for item in correlations) / len(correlations) if correlations else None,
@@ -225,4 +292,16 @@ def build_report(snapshot: dict, settings: Settings, benchmark: str = "sh.000300
                          f"正股距强赎触发价 {_display(bond['redeem_distance_pct'], '%')}；"
                          f"正股距回售触发价 {_display(bond['buyback_distance_pct'], '%')}；"
                          f"标记 {flag_text}。\n")
+    markdown += f"\n## 财务红旗\n\n琥珀/红色持仓权重：{red_flags['flagged_weight']:.1%}。\n"
+    for item in flagged:
+        rules = "、".join(
+            f"{r['rule']}（{(r.get('evidence') or {}).get('period') or '期间缺失'}）"
+            for r in item["rules"])
+        markdown += f"- {item['code']} {item['level']}，权重 {item['weight']:.1%}：{rules or '触发规则未列出'}。\n"
+    markdown += f"\n## 近期公告（{since} 起）\n\n"
+    for item in announcement_rows:
+        markdown += f"- {item['date']} {item['code']} {item['type']}：{item['title']} {item['url'] or ''}\n"
+    markdown += "\n## 当前风格暴露（简化，非 rm1）\n\n"
+    for name, item in style["factors"].items():
+        markdown += f"- {name}：股票持仓 {_display(item['portfolio'])}；基准 {_display(item['benchmark'])}。\n"
     return report, markdown

@@ -27,6 +27,7 @@ from alphasieve.factors import library as lib
 from alphasieve.forecasts import service as forecast_service
 from alphasieve.journal import list_entries
 from alphasieve.ledger import ledger_stats, verify_ledger
+from alphasieve.monitor import list_alerts
 from alphasieve.portfolio_book import checkup, importer
 from alphasieve.portfolio_book import history as book_history
 from alphasieve.state.backup import list_backups
@@ -206,6 +207,19 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
             yield conn
         finally:
             conn.close()
+
+    @app.get("/api/alerts")
+    def alerts_view(open: bool = False, kind: str | None = None, conn=Depends(db)):
+        rows = list_alerts(conn, visibility="public", open_only=open, kind=kind)
+        return {"alerts": rows, "count": len(rows)}
+
+    @app.get("/api/alerts/private")
+    def private_alerts_view(open: bool = False, kind: str | None = None,
+                            user: str = Depends(auth), conn=Depends(db)):
+        if not require_auth or user == "anonymous":
+            raise HTTPException(403, "private alerts require human authentication")
+        rows = list_alerts(conn, visibility="private", open_only=open, kind=kind)
+        return {"alerts": rows, "count": len(rows)}
 
     @app.get("/api/forward")
     def forward_view(user: str = Depends(auth), conn=Depends(db)):
@@ -761,7 +775,7 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
         allowed = (r"(?:06-interfaces|10-decisions|17-data-vendors|23-forward-paper|"
                    r"24-mandate-campaigns|25-risk-model|26-personal-account|"
                    r"27-broad-quant-platform|28-platform-implementation|29-coverage-review|"
-                   r"30-financial-red-flags|31-announcements|32-sw-industry-sensitivity)\.md")
+                   r"30-financial-red-flags|31-announcements|32-sw-industry-sensitivity|33-monitoring)\.md")
         if not re.fullmatch(allowed, name):
             raise HTTPException(404, "document not found")
         path = Path(__file__).resolve().parents[3] / "docs" / name

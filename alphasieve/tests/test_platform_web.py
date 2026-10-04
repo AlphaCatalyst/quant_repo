@@ -145,9 +145,24 @@ def test_platform_documents_are_whitelisted(platform_client):
     client, auth, _, _ = platform_client
     for name in ("26-personal-account.md", "27-broad-quant-platform.md",
                  "28-platform-implementation.md", "29-coverage-review.md",
-                 "30-financial-red-flags.md", "31-announcements.md", "32-sw-industry-sensitivity.md"):
+                 "30-financial-red-flags.md", "31-announcements.md",
+                 "32-sw-industry-sensitivity.md", "33-monitoring.md"):
         assert client.get(f"/api/docs/{name}", auth=auth).status_code == 200
     assert client.get("/api/docs/33-not-allowed.md", auth=auth).status_code == 404
+
+
+def test_alert_visibility_requires_human_auth(platform_client, settings):
+    client, auth, _, _ = platform_client
+    with connect(settings.state_db) as conn:
+        for aid, visibility in (("public-test", "public"), ("private-test", "private")):
+            conn.execute("INSERT INTO alerts VALUES (?,?,?,?,?,?,?,?,?)", (
+                aid, "test", "info", "subject", aid, "detail", "[]",
+                "2026-10-04T00:00:00+00:00", visibility))
+    assert client.get("/api/alerts").json()["alerts"][0]["alert_id"] == "public-test"
+    assert client.get("/api/alerts/private").status_code == 401
+    private = client.get("/api/alerts/private", auth=auth)
+    assert private.status_code == 200
+    assert [a["alert_id"] for a in private.json()["alerts"]] == ["private-test"]
 
 
 def test_book_check_persists_report(settings, tmp_path, monkeypatch, capsys):
@@ -161,7 +176,7 @@ def test_book_check_persists_report(settings, tmp_path, monkeypatch, capsys):
         snapshot, _ = import_snapshot(conn, export, "synthetic-account", "2026-10-03", "test")
     snapshot_id = snapshot["snapshot_id"]
     report = {"snapshot_id": snapshot_id, "total_value": 120.0, "weights": {"sh.600000": 1.0}}
-    monkeypatch.setattr(commands_book, "build_report", lambda *args: (report, "合成体检"))
+    monkeypatch.setattr(commands_book, "build_report", lambda *args, **kwargs: (report, "合成体检"))
     assert main(["book", "check", snapshot_id, "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["data"]["report"] == report
     assert load_report(snapshot_id, settings) == report

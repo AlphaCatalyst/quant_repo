@@ -9,12 +9,14 @@ import json
 import os
 import re
 import subprocess
+import threading
 import time
 from datetime import date, timedelta
 
 import pandas as pd
 
 CLI = os.environ.get("ALPHASIEVE_WESTOCK_CLI", "/usr/local/bin/westock-data")
+_LOCAL_SEMAPHORE = threading.BoundedSemaphore(int(os.environ.get("ALPHASIEVE_WESTOCK_LOCAL_CONCURRENCY", "3")))
 CALL_TIMEOUT_S = 300
 KLINE_RETRIES = 6
 KLINE_GAP_S = 1.5
@@ -30,6 +32,15 @@ class WestockError(RuntimeError):
     pass
 
 
+def _run_cli(args: list[str], timeout: int) -> subprocess.CompletedProcess[str]:
+    command = [CLI, *args, "--raw"]
+    # The wrapper manages its own cross-process limit when SSH falls back locally.
+    if os.path.basename(CLI) == "westock-ssh" and os.environ.get("ALPHASIEVE_WESTOCK_HOST", "orbenchtest"):
+        return subprocess.run(command, capture_output=True, text=True, timeout=timeout)
+    with _LOCAL_SEMAPHORE:
+        return subprocess.run(command, capture_output=True, text=True, timeout=timeout)
+
+
 def to_westock(code: str) -> str:
     return code.replace(".", "")
 
@@ -39,7 +50,7 @@ def from_westock(code: str) -> str:
 
 
 def _call(args: list[str]):
-    proc = subprocess.run([CLI, *args, "--raw"], capture_output=True, text=True, timeout=CALL_TIMEOUT_S)
+    proc = _run_cli(args, CALL_TIMEOUT_S)
     out = proc.stdout.strip()
     try:
         return json.loads(out) if out else None
@@ -76,7 +87,7 @@ def report_call(args: list[str], retries: int = 4):
     """Report endpoint occasionally emits a preamble or times out during a long crawl."""
     for attempt in range(retries):
         try:
-            proc = subprocess.run([CLI, *args, "--raw"], capture_output=True, text=True, timeout=90)
+            proc = _run_cli(args, 90)
             out = proc.stdout.strip()
             pos = min((p for p in (out.find("["), out.find("{")) if p >= 0), default=-1)
             if pos >= 0:

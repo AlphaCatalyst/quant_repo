@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# Run only the vendor CLI remotely. The response stays in memory on the SSH host.
+set -u
+umask 077
+
+local_cli=${ALPHASIEVE_WESTOCK_LOCAL_CLI:-/usr/local/bin/westock-data}
+host=${ALPHASIEVE_WESTOCK_HOST-orbenchtest}
+remote_cli=${ALPHASIEVE_WESTOCK_REMOTE_CLI:-'~/.local/bin/westock-data'}
+limit=${ALPHASIEVE_WESTOCK_LOCAL_CONCURRENCY:-3}
+if [[ ! $limit =~ ^[1-9][0-9]*$ ]]; then
+    printf 'westock-ssh: invalid local concurrency: %s\n' "$limit" >&2
+    exit 2
+fi
+
+socket_base=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+if [[ ! -d $socket_base || ! -w $socket_base ]]; then
+    socket_base=$HOME/.ssh
+fi
+socket_dir=$socket_base/alphasieve-cm
+mkdir -p -m 700 -- "$socket_dir" && chmod 700 -- "$socket_dir" || exit 1
+
+run_local() {
+    local slot lock_fd
+    while :; do
+        for ((slot=0; slot<limit; slot++)); do
+            exec {lock_fd}>"$socket_dir/westock-local-$slot.lock" || return 1
+            if flock -n "$lock_fd"; then
+                "$local_cli" "$@"
+                local status=$?
+                flock -u "$lock_fd"
+                exec {lock_fd}>&-
+                return "$status"
+            fi
+            exec {lock_fd}>&-
+        done
+        sleep 0.05
+    done
+}
+
+if [[ -z $host ]]; then
+    run_local "$@"
+    exit $?
+fi
+
+# OpenSSH sends one command string to the remote login shell, so quote each argument.
+# A leading ~/ is expanded by the remote shell for the configured executable.
+if [[ $remote_cli == '~/'* ]]; then
+    command_string='"$HOME"/'
+    value=${remote_cli#\~/}
+else
+    command_string=''
+    value=$remote_cli
+fi
+printf -v quoted "'%s'" "${value//\'/\'\\\'\'}"
+command_string+=$quoted
+for value in "$@"; do
+    printf -v quoted "'%s'" "${value//\'/\'\\\'\'}"
+    command_string+=" $quoted"
+done
+
+stderr_file=$(mktemp "$socket_dir/westock-stderr.XXXXXXXX") || exit 1
+stdout_file=$(mktemp "$socket_dir/westock-stdout.XXXXXXXX") || exit 1
+trap 'rm -f -- "$stderr_file" "$stdout_file"' EXIT
+ssh -T -o BatchMode=yes -o ControlMaster=auto -o ControlPersist=10m \
+    -o "ControlPath=$socket_dir/cm-%r@%h:%p" "$host" "$command_string" \
+    >"$stdout_file" 2>"$stderr_file"
+status=$?
+if [[ $status -eq 255 ]] || grep -Eq '^(ssh: |kex_exchange_identification: |Connection (closed|reset|refused|timed out)|client_loop: |Host key verification failed|Permission denied \(|Could not resolve hostname)' "$stderr_file"; then
+    if mkdir -- "$socket_dir/fallback-reported" 2>/dev/null; then
+        printf 'westock-ssh: SSH transport failed; using local CLI\n' >&2
+    fi
+    run_local "$@"
+    exit $?
+fi
+rmdir -- "$socket_dir/fallback-reported" 2>/dev/null || true
+cat "$stdout_file"
+if [[ $status -ne 0 ]]; then
+    # Vendor diagnostics are useful; the SSH session banner is not.
+    grep -v '^authz success' "$stderr_file" >&2 || true
+fi
+exit "$status"

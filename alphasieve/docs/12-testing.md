@@ -1,5 +1,11 @@
 # 12 · 测试
 
+## 远端运行完整 pytest
+
+本机负载高时，在仓库根目录运行 `deploy/remote/pytest.sh`。脚本将已跟踪及未忽略的新文件同步至 `orbenchtest:~/alphasieve-ci/tree/`，按测试文件并行运行 pytest；可追加 pytest 参数，例如 `deploy/remote/pytest.sh -k forward`。默认最多 24 个测试文件同时运行，可用 `ALPHASIEVE_PYTEST_WORKERS` 调整。远端虚拟环境按 `uv.lock` 缓存，首次运行需下载依赖。
+
+脚本把热存储和持久存储指向远端临时目录，并关闭真实数据及网络测试；这些测试会按现有 pytest 标记跳过。远端环境没有本机被忽略的真实数据，也不会复制 `.git`、`.venv` 或 `node_modules`。若出现失败，脚本会打印对应测试文件的完整失败输出并返回非零码；需要核对环境差异时，在本机只重跑所列文件。
+
 AlphaSieve 里有两种“检验”，不要混淆：
 
 - **研究验证**：检验一个因子候选是否有效，即 L0–L5 分层 verifier（见 [04-research-core.md](04-research-core.md) §4）。

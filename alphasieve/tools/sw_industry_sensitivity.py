@@ -9,7 +9,14 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
+import re
+import shutil
 import sqlite3
+import subprocess
+import tarfile
+import tempfile
+import uuid
 from pathlib import Path
 
 import numpy as np
@@ -67,6 +74,15 @@ def _snapshot_map(raw: Path, codes: pd.Index) -> pd.Series:
     frame = pd.read_parquet(raw, columns=["code", "level", "sector_name"])
     frame = frame[frame["level"] == 1].drop_duplicates("code", keep="last")
     return frame.set_index("code")["sector_name"].reindex(codes).fillna("unknown")
+
+
+def _dev_end_map(history: pd.DataFrame, codes: pd.Index) -> pd.Series:
+    """Use only assignments both effective and last updated by dev end."""
+    eligible = history[(pd.to_datetime(history["effective_date"]) <= END)
+                       & (pd.to_datetime(history["updated_at"]) <= END)]
+    latest = eligible.sort_values(["code", "effective_date", "updated_at"]).drop_duplicates(
+        "code", keep="last")
+    return latest.set_index("code")["l1_name"].reindex(codes).fillna("unknown")
 
 
 def _official_at_rebalances(raw: Path, panel: pd.DataFrame, dates: pd.DatetimeIndex,
@@ -232,17 +248,21 @@ def run(args: argparse.Namespace) -> dict:
     panel["date"] = pd.to_datetime(panel["date"])
     codes = pd.Index(sorted(panel["code"].unique()))
     calendar = sorted(panel["date"].dt.strftime("%Y-%m-%d").unique())
-    history_path = hot / "data/raw/swsresearch/sw_industry_hist.parquet"
+    history_path = args.history_path or hot / "data/raw/swsresearch/sw_industry_hist.parquet"
     history = read_dev(history_path, ["code", "effective_date", "updated_at", "l1_name", "l2_name"],
                        "effective_date")
     csrc = panel.drop_duplicates("code", keep="last").set_index("code")["industry"].reindex(codes).fillna("unknown")
-    current = _snapshot_map(hot / "data/raw/westock/sw_industry/2026-10-03.parquet", codes)
-    official_path = hot / "data/raw/dolthub/index_weights/000905.SH.parquet"
     current_path = hot / "data/raw/westock/sw_industry/2026-10-03.parquet"
-    exposure_rows, input_hashes = [], {str(path): sha256(path) for path in
-                                      (history_path, panel_path, official_path, current_path)}
+    current = _dev_end_map(history, codes) if args.dev_snapshot else _snapshot_map(current_path, codes)
+    official_path = args.official_path or hot / "data/raw/dolthub/index_weights/000905.SH.parquet"
+    input_paths = (history_path, panel_path, official_path) if args.dev_snapshot else (
+        history_path, panel_path, official_path, current_path)
+    exposure_rows, input_hashes = [], {str(path): sha256(path) for path in input_paths}
     for key, (_trial, rel) in REFERENCE.items():
-        path = (Path(rel) if Path(rel).is_absolute() else store / "models" / rel) / "weights.parquet"
+        location = (store / "models" / Path(rel).parent.name / Path(rel).name
+                    if args.ray_worker and Path(rel).is_absolute()
+                    else Path(rel) if Path(rel).is_absolute() else store / "models" / rel)
+        path = location / "weights.parquet"
         if not path.exists():
             continue
         target = pd.read_parquet(path, filters=[("__index_level_0__", "<=", END)])
@@ -254,7 +274,8 @@ def run(args: argparse.Namespace) -> dict:
         sw_conservative = _labels(rows, history, calendar, True, dates, codes)
         industry_maps = {
             "csrc_current": pd.DataFrame(np.broadcast_to(csrc.to_numpy(), target.shape), index=dates, columns=codes),
-            "sw1_current": pd.DataFrame(np.broadcast_to(current.to_numpy(), target.shape), index=dates, columns=codes),
+            ("sw1_dev_end" if args.dev_snapshot else "sw1_current"):
+                pd.DataFrame(np.broadcast_to(current.to_numpy(), target.shape), index=dates, columns=codes),
             "sw1_as_effective": sw_effective, "sw1_conservative": sw_conservative,
         }
         member = _wide(rows[["date", "code", "in_zz500"]].copy(), "in_zz500", dates, codes).fillna(0).to_numpy(bool)
@@ -291,16 +312,123 @@ def run(args: argparse.Namespace) -> dict:
         factors.to_csv(out / "factor_neutral_ic.csv", index=False)
     result = {"window": [str(START.date()), str(END.date())], "trials": sorted(exposures.trial.unique()),
               "inputs_sha256": input_hashes, "warnings": warnings,
-              "outputs": ["active_industry.parquet", "portfolio_summary.csv", "industry_drivers.csv",
-                          "factor_neutral_ic.csv"]}
+              "outputs": ["active_industry.parquet", "portfolio_summary.csv", "industry_drivers.csv"]
+              + ([] if args.portfolio_only else ["factor_neutral_ic.csv"])}
     (out / "manifest.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
     return result
+
+
+def _dev_weights(source: Path, dest: Path) -> None:
+    frame = pd.read_parquet(source, filters=[("__index_level_0__", "<=", END)])
+    frame.index = pd.to_datetime(frame.index)
+    if frame.empty or (frame.index > END).any():
+        raise ValueError(f"refusing non-dev weights: {source}")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    frame.to_parquet(dest)
+
+
+def _remote_root() -> Path:
+    return Path(os.environ.get("ALPHASIEVE_REMOTE_ROOT", "/taijifs_zw35/r2/felixjjiang/alphasieve"))
+
+
+def _collect(job_id: str, output: Path) -> dict:
+    if not re.fullmatch(r"alphasieve-sw-sensitivity-[A-Za-z0-9_-]+", job_id):
+        raise ValueError("invalid SW sensitivity job ID")
+    source = _remote_root() / "runs" / job_id
+    result = json.loads((source / "result.json").read_text())
+    outputs = result.get("outputs", [])
+    output.mkdir(parents=True, exist_ok=True)
+    for name in [*outputs, "manifest.json"]:
+        if Path(name).name != name:
+            raise ValueError("invalid result file name")
+        shutil.copy2(source / name, output / name)
+    return {"job_id": job_id, "output": str(output), "result": result}
+
+
+def submit_ray(args: argparse.Namespace) -> dict:
+    if args.start < START or args.end > END or args.start > args.end:
+        raise ValueError("refusing Ray submission: only 2012-01-01..2022-12-31 dev period is allowed")
+    if args.start != START or args.end != END:
+        raise ValueError("this saved-artifact report supports only the full 2012-01-01..2022-12-31 dev window")
+    args.portfolio_only = True  # Remote factor specs/caches are incomplete.
+    remote = _remote_root()
+    hot = remote / "hot"
+    if (hot / "data/panel/holdout").exists() or (hot / "data/panel/fresh").exists():
+        raise ValueError("refusing Ray submission: holdout/fresh panel found remotely")
+    meta = json.loads((hot / "data/panel/dev/meta.json").read_text())
+    if meta.get("tier") != "dev" or meta["window"]["end"] > str(END.date()):
+        raise ValueError("refusing Ray submission: remote panel is not dev-only")
+    repo = Path(__file__).resolve().parents[1]
+    token = uuid.uuid4().hex
+    remote_tar = remote / "batch_inputs" / f"sw-sensitivity-{token}.tar"
+    with tempfile.TemporaryDirectory(prefix="alphasieve-sw-ray-") as temp:
+        staging = Path(temp)
+        history = pd.read_parquet(args.hot_root / "data/raw/swsresearch/sw_industry_hist.parquet")
+        history = history[(pd.to_datetime(history["effective_date"]) <= END)
+                          & (pd.to_datetime(history["updated_at"]) <= END)].copy()
+        if history.empty:
+            raise ValueError("no dev-only SW history rows")
+        staged_history = staging / "data/raw/swsresearch/sw_industry_hist.parquet"
+        staged_history.parent.mkdir(parents=True)
+        history.to_parquet(staged_history, index=False)
+        official = pd.read_parquet(args.hot_root / "data/raw/dolthub/index_weights/000905.SH.parquet")
+        official = official[pd.to_datetime(official["trade_date"]) <= END].copy()
+        if official.empty:
+            raise ValueError("no dev-only official CSI 500 weights")
+        staged_official = staging / "data/raw/dolthub/index_weights/000905.SH.parquet"
+        staged_official.parent.mkdir(parents=True)
+        official.to_parquet(staged_official, index=False)
+        for _key, (_trial, rel) in REFERENCE.items():
+            source = ((Path(rel) if Path(rel).is_absolute() else args.store_root / "models" / rel)
+                      / "weights.parquet")
+            if not source.exists():
+                raise ValueError(f"missing saved A weights: {source}")
+            target_rel = Path(rel).parent.name / Path(rel).name if Path(rel).is_absolute() else Path(rel)
+            _dev_weights(source, staging / "models" / target_rel / "weights.parquet")
+        local_tar = staging / "inputs.tar"
+        with tarfile.open(local_tar, "w") as archive:
+            archive.add(staging / "models", arcname="models")
+            archive.add(staging / "data", arcname="data")
+        remote_tar.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(local_tar, remote_tar)
+    command = [str(repo / "deploy/ray/submit_batch.sh"), "sw-sensitivity",
+               "tools/sw_industry_sensitivity.py", "--ray-worker", "--portfolio-only",
+               "--dev-snapshot", "--hot-root", str(hot), "--store-root", str(remote_tar.with_suffix("")),
+               "--history-path", str(remote_tar.with_suffix("") / "data/raw/swsresearch/sw_industry_hist.parquet"),
+               "--official-path", str(remote_tar.with_suffix("") / "data/raw/dolthub/index_weights/000905.SH.parquet")]
+    env = {**os.environ, "ALPHASIEVE_BATCH_INPUT_TAR": str(remote_tar)}
+    completed = subprocess.run(command, env=env, text=True, capture_output=True, check=True)
+    match = re.search(r"job (alphasieve-sw-sensitivity-[A-Za-z0-9_-]+);", completed.stdout)
+    if match is None:
+        raise RuntimeError(f"Ray submission did not report a job ID: {completed.stdout[-500:]}")
+    job_id = match.group(1)
+    if os.environ.get("ALPHASIEVE_NO_WAIT"):
+        return {"job_id": job_id, "collect": f"python tools/sw_industry_sensitivity.py --collect {job_id}"}
+    return _collect(job_id, args.output)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--hot-root", type=Path, default=Path("/data/alphasieve"))
     parser.add_argument("--store-root", type=Path, default=Path("/mnt/private_felixjjiang/alphasieve"))
+    parser.add_argument("--history-path", type=Path, default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--official-path", type=Path, default=None, help=argparse.SUPPRESS)
     parser.add_argument("--output", type=Path, default=Path("/data/alphasieve/reports/sw_sensitivity"))
     parser.add_argument("--portfolio-only", action="store_true", help="Refresh portfolio output; keep prior factor CSV")
-    print(json.dumps(run(parser.parse_args()), ensure_ascii=False, indent=2))
+    parser.add_argument("--ray", action="store_true", help="submit dev portfolio analysis to Ray")
+    parser.add_argument("--ray-worker", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--dev-snapshot", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--collect", metavar="JOB_ID", help="collect a completed Ray job")
+    parser.add_argument("--start", type=pd.Timestamp, default=START)
+    parser.add_argument("--end", type=pd.Timestamp, default=END)
+    args = parser.parse_args()
+    if args.collect:
+        result = _collect(args.collect, args.output)
+    elif args.ray:
+        result = submit_ray(args)
+    else:
+        if args.ray_worker:
+            job_id = os.environ["ALPHASIEVE_JOB_ID"]
+            args.output = _remote_root() / "runs" / job_id
+        result = run(args)
+    print(json.dumps(result, ensure_ascii=False, indent=2))

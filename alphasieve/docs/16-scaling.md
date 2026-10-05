@@ -141,3 +141,17 @@ deploy/ray/submit.sh strategy strategy backtest --universe csi800 --horizon 20 -
 | S-7 | 分钟线派生特征、事件数据、程序化搜索 | 新信息源 | S-4、S-6 |
 
 S-1 与 S-2 不改变系统结构，可以立即开始。S-3 之后的步骤会改变部署方式或数据契约，应逐项确认后再做。
+
+## 6. 算力放置（2026-10-05）
+
+本机只做调度、记账、状态库写入和看板；耗算力的工作放到 Ray 或 orbenchtest。约束是 D-23：holdout 与 fresh 数据不存放到本机以外。
+
+| 工作 | 位置 | 方式 |
+|---|---|---|
+| 训练、策略回测、因子评估 | Ray | `train submit`、`deploy/ray/submit.sh`、evalbridge |
+| 风险报告（dev trial） | Ray | `alphasieve risk submit --trial <id>`；`risk collect --job-id` 取回。只上传截到 2022-12-31 的申万历史和父产物 manifest/metrics |
+| 申万口径敏感性（组合部分） | Ray | `tools/sw_industry_sensitivity.py --ray`，`--collect <job>` 取回；因子部分仍在本机 |
+| 日更里的 westock-data 调用 | orbenchtest | `ALPHASIEVE_WESTOCK_CLI=deploy/remote/westock-ssh`：SSH 复用连接在远端执行，响应不落远端盘；SSH 失败时回退本机，最多 3 个并发。50 次调用本机 CPU 由 41.5 s 降到 1.3 s |
+| 日更其余步骤（BaoStock、巨潮、新浪、状态库登记） | 本机 | 单次 CPU 约 0.01–0.02 s，以等网络为主；unit 设 `Nice=10`、`CPUWeight=20` |
+| 排雷扫描 | 本机 | 读取 2022 年后的财报，不能上 Ray；`--jobs` 默认 2 |
+| 全量测试 | orbenchtest | `deploy/remote/pytest.sh [pytest 参数]`，约 2.6 分钟（本机 5 分 20 秒），本机 CPU 不到 1 s；见 [12-testing.md](12-testing.md) |

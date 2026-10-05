@@ -53,6 +53,10 @@ position_limit: 0.2
         public = list_alerts(conn, visibility="public")
         private = list_alerts(conn, visibility="private")
         assert any(a["kind"] == "manual_check" for a in public)
+        later = {a["alert_id"] for a in list_alerts(conn, visibility="public")}
+        run(settings, conn, "2026-10-05")
+        assert not [a for a in list_alerts(conn, visibility="public")
+                    if a["kind"] == "manual_check" and a["alert_id"] not in later]
         assert any(a["kind"] == "thesis_falsifier" and a["severity"] == "critical" for a in public)
         assert len([a for a in public if a["kind"] == "forecast"]) == 2
         assert any(a["kind"] == "position_cap" for a in private)

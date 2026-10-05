@@ -94,8 +94,11 @@ def evaluate(settings, conn, asof):
                         "thesis_falsifier", "critical", f"论点证伪条件触发：{thesis.title}",
                         f"{f.condition}；观测值 {observed:g}。建议：{f.action}", evidence + [source], "public"))
             else:
-                alerts.append(_alert(f"thesis-manual:{tid}:{f.id}", tid, asof, "manual_check", "info",
-                    f"论点待人工核查：{thesis.title}", f"{f.condition}；建议：{f.action}", evidence, "public"))
+                version = hashlib.sha256(canonical_json(
+                    [str(thesis.as_of), f.variable, f.condition, f.action]).encode()).hexdigest()[:12]
+                alerts.append(_alert(f"thesis-manual:{tid}:{f.id}", tid, version, "manual_check", "info",
+                    f"论点待人工核查：{thesis.title}（{f.id}）", f"{f.condition}；建议：{f.action}", evidence,
+                    "public"))
     for item in list_forecasts(conn, status="open")["forecasts"]:
         settle = date.fromisoformat(item["spec"]["resolver_params"]["settle_date"])
         delta = (settle - today).days

@@ -344,7 +344,8 @@ def cmd_data_daily_update(args, ctx) -> CommandResult:
     try:
         out["cb_universe"] = cb_sync.sync_cb_universe(settings, conn, today.isoformat())
         out["cb_quote"] = cb_sync.sync_cb_quote(settings, conn, today.isoformat())
-        out["cb_daily"] = cb_sync.sync_cb_daily(settings, conn, today.isoformat(), full=False, workers=4)
+        out["cb_daily"] = cb_sync.sync_cb_daily(settings, conn, today.isoformat(), full=False, workers=4,
+                                                day=today.isoformat())
     except Exception as exc:  # noqa: BLE001
         warnings.append(f"convertible bonds: {str(exc)[:200]}")
     from alphasieve.data.gpcw_sync import sync_gpcw

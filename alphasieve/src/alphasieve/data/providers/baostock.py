@@ -21,6 +21,8 @@ class ProviderError(RuntimeError):
 
 
 QUERY_TIMEOUT_S = 300
+LOGIN_TIMEOUT_S = 60
+LOGOUT_TIMEOUT_S = 30
 
 
 @contextlib.contextmanager
@@ -77,11 +79,16 @@ class BaoStockSession:
         return self
 
     def __exit__(self, *exc):
-        with contextlib.suppress(Exception), contextlib.redirect_stdout(io.StringIO()):
+        with contextlib.suppress(Exception), contextlib.redirect_stdout(io.StringIO()), _deadline(LOGOUT_TIMEOUT_S):
             self.bs.logout()
+        from baostock.common import context
+
+        with contextlib.suppress(Exception):
+            context.default_socket.close()
+        context.default_socket = None
 
     def _login(self):
-        with contextlib.redirect_stdout(io.StringIO()):
+        with contextlib.redirect_stdout(io.StringIO()), _deadline(LOGIN_TIMEOUT_S):
             result = self.bs.login()
         if result.error_code != "0":
             raise ProviderError(f"baostock login failed: {result.error_msg}")

@@ -183,3 +183,20 @@ def test_baostock_query_deadline():
         while True:
             pass
     assert time.monotonic() - start < 3
+
+
+def test_baostock_spinning_logout_is_bounded(monkeypatch):
+    import time
+
+    from alphasieve.data.providers import baostock as provider
+
+    def spin():
+        while True:
+            pass
+
+    monkeypatch.setattr(provider, "LOGOUT_TIMEOUT_S", 1)
+    session = provider.BaoStockSession.__new__(provider.BaoStockSession)
+    session.bs = type("FakeBaoStock", (), {"logout": staticmethod(spin)})
+    start = time.monotonic()
+    session.__exit__(None, None, None)
+    assert time.monotonic() - start < 3

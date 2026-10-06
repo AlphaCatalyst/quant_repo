@@ -10,6 +10,7 @@ from alphasieve.cli import (  # noqa: F401  (register commands)
     commands_approval,
     commands_book,
     commands_campaign,
+    commands_control,
     commands_core,
     commands_data,
     commands_factor,

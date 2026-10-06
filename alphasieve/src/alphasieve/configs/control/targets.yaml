@@ -1,0 +1,28 @@
+# Compute targets used by the job layer and the resources panel (docs/34, docs/16 §6).
+# Ray clusters are shared with other users; nodes or heads may be reclaimed at any time.
+ray_clusters:
+  - name: zw35-a
+    address: http://28.83.35.117:8081
+    r2: true          # mounts /taijifs_zw35/r2; required for jobs that read the dev panel or staged inputs
+    priority: 1
+  - name: zw35-b
+    address: http://21.234.200.155:8081
+    r2: true
+    priority: 2
+  - name: gpu-c
+    address: http://29.191.210.77:8081
+    r2: false         # self-contained jobs only
+    priority: 3
+  - name: h200-d
+    address: http://29.185.209.33:8081
+    r2: false
+    priority: 4
+ssh_hosts:
+  - name: orbenchtest
+    alias: orbenchtest
+    mounts: [/mnt/private_felixjjiang]
+llm_endpoints:
+  - name: codex-lb
+    url: http://127.0.0.1:2456/health
+    note: reverse SSH tunnel from the human's Mac; disappears when the Mac is offline
+remote_root: /taijifs_zw35/r2/felixjjiang/alphasieve

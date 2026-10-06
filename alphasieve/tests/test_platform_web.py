@@ -146,9 +146,9 @@ def test_platform_documents_are_whitelisted(platform_client):
     for name in ("26-personal-account.md", "27-broad-quant-platform.md",
                  "28-platform-implementation.md", "29-coverage-review.md",
                  "30-financial-red-flags.md", "31-announcements.md",
-                 "32-sw-industry-sensitivity.md", "33-monitoring.md"):
+                 "32-sw-industry-sensitivity.md", "33-monitoring.md", "34-control-plane.md"):
         assert client.get(f"/api/docs/{name}", auth=auth).status_code == 200
-    assert client.get("/api/docs/33-not-allowed.md", auth=auth).status_code == 404
+    assert client.get("/api/docs/35-not-allowed.md", auth=auth).status_code == 404
 
 
 def test_alert_visibility_requires_human_auth(platform_client, settings):

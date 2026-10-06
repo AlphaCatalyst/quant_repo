@@ -775,7 +775,7 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
         allowed = (r"(?:06-interfaces|10-decisions|17-data-vendors|23-forward-paper|"
                    r"24-mandate-campaigns|25-risk-model|26-personal-account|"
                    r"27-broad-quant-platform|28-platform-implementation|29-coverage-review|"
-                   r"30-financial-red-flags|31-announcements|32-sw-industry-sensitivity|33-monitoring)\.md")
+                   r"30-financial-red-flags|31-announcements|32-sw-industry-sensitivity|33-monitoring|34-control-plane)\.md")
         if not re.fullmatch(allowed, name):
             raise HTTPException(404, "document not found")
         path = Path(__file__).resolve().parents[3] / "docs" / name

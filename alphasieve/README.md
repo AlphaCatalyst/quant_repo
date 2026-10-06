@@ -60,10 +60,25 @@ alphasieve/
 ```bash
 cd alphasieve
 uv sync
-uv run pytest                                   # 合成数据上的全部测试
+deploy/remote/pytest.sh                         # 全部测试，在 orbenchtest 上运行
 ALPHASIEVE_RUN_REALDATA=1 ALPHASIEVE_RUN_NETWORK=1 uv run pytest tests/test_real_data.py   # 真实数据核对
 uv run ruff check src tests
 ```
+
+## 运行与发布
+
+本机只做控制面，计算放在 Ray 与 orbenchtest，见 [docs/34-control-plane.md](docs/34-control-plane.md) 与 [docs/16-scaling.md](docs/16-scaling.md) §6。
+
+```bash
+deploy/release.sh             # orbenchtest 全量测试通过后发布 HEAD 到 /data/alphasieve/deploy/current
+deploy/release.sh --rollback  # 回到上一个发布
+deploy/install.sh             # 安装或刷新 systemd unit（control timer、web、evalbridge、失败钩子）
+alphasieve health show        # 系统健康
+alphasieve jobs status --open # 远端与本机作业
+alphasieve control schedule   # 定时任务与下次触发时间
+```
+
+看板的“计算资源”“作业与调度”“系统健康”三页展示同样的信息。
 
 ## 快速上手（M0–M2）
 

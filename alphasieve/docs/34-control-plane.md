@@ -1,6 +1,6 @@
 # 34 · 控制面：断点续跑、可见性与新需求接入
 
-状态：规划，2026-10-06。未实现。算力放置规则见 [16-scaling.md](16-scaling.md) §6。
+状态：C-1 至 C-6 已实现并上线，2026-10-06。与规划不同的地方见 §8。算力放置规则见 [16-scaling.md](16-scaling.md) §6；决策见 D-41。
 
 本机是控制面：调度、记账、状态库、看板。计算在 Ray 和 orbenchtest 上，模型调用经过 Mac 上的 codex-lb。这三者都会断：
 
@@ -98,3 +98,28 @@ alphasieve jobs cancel <job_id>
 | C-6 | 两个 skill | C-2–C-5 |
 
 C-1 和 C-2 风险低，可以先做。C-3 会改训练与 trial 记账的契约，改之前需要 human 确认“基础设施失败不计入策略试验预算”这条规则。
+
+## 8. 实现状态（2026-10-06）
+
+上线方式：`deploy/release.sh` 在 orbenchtest 跑全量测试后发布到 `/data/alphasieve/deploy/current`，`deploy/install.sh` 安装 unit。所有 alphasieve 服务从 `current` 运行。
+
+| 部分 | 实现 |
+|---|---|
+| 控制面入口 | 一个 `alphasieve-control.timer`，每分钟运行 `alphasieve control tick`。依次：触发到点的调度、`jobs reconcile`、codex-lb 探测与续跑、资源快照（每 2 分钟）、系统健康提醒（每 10 分钟）。输出追加到 `logs/control.jsonl` |
+| 作业层 | `src/alphasieve/control/jobs.py` 与 `control/kinds/`。已注册 `train`、`risk_report`、`sw_sensitivity`、`local_command`。基础设施失败最多重试 3 次，退避 2、8、30 分钟，可切换到同类集群；任务失败不重试 |
+| 训练续跑 | Ray 上的训练把每个重训点写到 `runs/<trial>/units/<date>.json`，内容带 bundle 哈希；重提时跳过已完成且哈希一致的重训点。节点回收时同一 trial 的 `attempt` 加一，不新开 trial |
+| 调度 | `configs/control/schedule.yaml`：`daily-update`（周一至周六 18:40，超时 3 小时，westock 走 orbenchtest）、`state-backup`（每小时）、`forward-daily`（未启用，依赖日更）。本机作业以 transient unit `alphasieve-job-<id>` 运行，`Nice=10`、`CPUWeight=20`。新登记的条目从下一个时间点开始，不补跑登记前的时间点 |
+| codex-lb | `control/llm.py`。连续 2 次不可达就暂停 agent 工作并写系统提醒；中断的回合记为 `interrupted`，不计入 campaign 预算（token 用量仍计入）；恢复后 campaign 继续，论点 run 最多自动续跑 3 次 |
+| 健康与资源 | `alphasieve health show`、`alphasieve resources show [--probe]`。资源快照写到 `control/resources.json` 和 `resources-history.jsonl`，包括本机负载与 unit、四个 Ray 集群的节点与 CPU/GPU 用量、orbenchtest 的挂载、codex-lb 延迟 |
+| 失败钩子 | 所有 unit 带 `OnFailure=alphasieve-failure@%n.service`，写一条 system 提醒 |
+| 看板 | 新增“计算资源”“作业与调度”“系统健康”三页，总览页顶部有状态条；提醒页可按 system 类过滤。API 为 `/api/control/{resources,health,jobs,schedule,llm}`，只读 |
+| Skill | `~/.cursor/skills/alphasieve-control-plane/` 与 `~/.cursor/skills/alphasieve-new-capability/` |
+
+与规划不同的地方：
+
+- 旧入口直接删除，没有保留薄包装：`train submit/collect`、`risk submit/collect`、`sw_industry_sensitivity --ray/--collect`、`deploy/ray/submit_batch.sh`，以及日更、备份、forward 各自的 systemd timer 和 evalworker unit。
+- `jobs reconcile` 由 control tick 每分钟运行，不是每 5 分钟。
+- 日更超时是 3 小时，运行超过 2 小时就在健康页告警。
+- evalbridge 在没有远端 worker 时会撤掉自己的心跳，所以健康检查看 unit 是否运行，以及“有待评估任务但没有远端 worker”这种情况，不再单看心跳。
+- 常驻服务（web、evalbridge）不设运行时长上限。设了上限的话，到期停止会被记成失败并每周误报一次。
+- Codex lane 中断后的续跑仍由人或 agent 手动执行 `codex-companion task --resume`，步骤写在 control-plane skill 里。

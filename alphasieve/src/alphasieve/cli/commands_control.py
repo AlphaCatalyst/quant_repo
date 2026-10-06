@@ -123,11 +123,9 @@ def cmd_control_tick(args, ctx):
         guarded("jobs", lambda: jobs.reconcile(ctx.settings, ctx.conn))
         from alphasieve.control import health, llm, resources
 
-        if hasattr(llm, "check_and_resume"):
-            guarded("llm", lambda: llm.check_and_resume(ctx.settings, ctx.conn))
-        if hasattr(resources, "write_snapshot"):
-            guarded("resources", lambda: _periodic(ctx, "control_resources", 2,
-                                                    lambda: resources.write_snapshot(ctx.settings)))
+        guarded("llm", lambda: llm.check_and_resume(ctx.settings, ctx.conn))
+        guarded("resources", lambda: _periodic(ctx, "control_resources", 2,
+                                                lambda: resources.write_snapshot(ctx.settings)))
 
         def insert_alerts():
             alerts = health.system_alerts(ctx.settings, ctx.conn, datetime.now(UTC).date().isoformat())

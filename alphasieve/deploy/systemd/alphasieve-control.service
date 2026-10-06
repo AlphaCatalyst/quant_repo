@@ -10,6 +10,5 @@ Environment=ALPHASIEVE_USER=systemd
 ExecStart=/data/alphasieve/deploy/current/.venv/bin/alphasieve control tick --json
 Nice=5
 TimeoutStartSec=120
-RuntimeMaxSec=120
 StandardOutput=append:/data/alphasieve/logs/control.jsonl
 StandardError=append:/data/alphasieve/logs/control.err

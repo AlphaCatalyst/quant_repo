@@ -17,7 +17,6 @@ StandardError=append:/data/alphasieve/logs/web.log
 Restart=on-failure
 RestartSec=5
 TimeoutStartSec=120
-RuntimeMaxSec=7d
 
 [Install]
 WantedBy=multi-user.target

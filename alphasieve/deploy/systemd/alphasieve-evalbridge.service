@@ -16,4 +16,3 @@ StandardError=append:/data/alphasieve/logs/evalbridge.err
 Restart=on-failure
 RestartSec=10
 TimeoutStartSec=120
-RuntimeMaxSec=7d

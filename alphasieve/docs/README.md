@@ -39,7 +39,7 @@
 | [31-announcements.md](31-announcements.md) | 巨潮公告：接口与字段、事件分类与重要性、PDF 原文与页内定位、时间口径与许可说明 |
 | [32-sw-industry-sensitivity.md](32-sw-industry-sensitivity.md) | 申万行业口径敏感性：已保存 A 组合在证监会与申万历史行业下的行业偏离、行业中性化因子诊断，以及默认口径建议 |
 | [33-monitoring.md](33-monitoring.md) | 监控告警 v1：输入、规则、级别、公开与私有可见性、日更调度及限制 |
-| [34-control-plane.md](34-control-plane.md) | 控制面规划：Ray/orbenchtest/codex-lb 断联的分类与续跑、通用作业层、发布目录与系统健康、新需求接入单与 skill |
+| [34-control-plane.md](34-control-plane.md) | 控制面（已实现）：Ray/orbenchtest/codex-lb 断联的分类与续跑、通用作业层、发布目录与系统健康、新需求接入单与 skill |
 | [acceptance-training.md](acceptance-training.md) | 训练任务与四个 mandate 的 dev 验收记录：结果、作废的 trial、平台实测、阻塞项 |
 | [acceptance-m0-m2.md](acceptance-m0-m2.md) | M0–M2 验收记录：真实数据同步结果、测试、端到端评估、gate 校准 |
 | [acceptance-scaling.md](acceptance-scaling.md) | 扩容 S-1 至 S-7 验收记录：评估性能、常驻服务、程序化搜索、策略回测、全 A 与事件、日内数据 |

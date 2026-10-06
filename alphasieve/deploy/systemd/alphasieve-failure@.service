@@ -8,4 +8,3 @@ Environment=ALPHASIEVE_ROLE=system
 Environment=ALPHASIEVE_USER=systemd
 ExecStart=/data/alphasieve/deploy/current/.venv/bin/alphasieve control unit-failed %i
 TimeoutStartSec=30
-RuntimeMaxSec=30

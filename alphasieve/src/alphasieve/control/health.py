@@ -6,7 +6,6 @@ import hashlib
 import json
 import subprocess
 from datetime import UTC, date, datetime
-from pathlib import Path
 
 from alphasieve.control import resources
 from alphasieve.control.targets import load_targets
@@ -66,18 +65,6 @@ def _daily(settings, conn, latest):
                           since=at, evidence=[str(log)])
     except (OSError, ValueError):
         pass
-    try:
-        result = subprocess.run(['systemctl', 'show', 'alphasieve-daily-update.service',
-                                 '-p', 'Result', '-p', 'InactiveEnterTimestamp'],
-                                capture_output=True, text=True, timeout=2)
-        values = dict(line.split('=', 1) for line in result.stdout.splitlines() if '=' in line)
-        if result.returncode == 0 and values.get('Result'):
-            state = values['Result']
-            return _check('daily_update', 'fail' if state != 'success' else 'warn', '每日更新',
-                          f'systemd 结果 {state}；缺少作业或日志完成记录',
-                          since=values.get('InactiveEnterTimestamp'))
-    except (OSError, subprocess.TimeoutExpired):
-        pass
     return _check('daily_update', 'warn', '每日更新', '没有可核验的最近运行记录')
 
 
@@ -92,16 +79,38 @@ def _calendar_day(settings):
 
 def _release_check(settings):
     current = settings.hot_root / 'deploy' / 'current'
-    repo = Path(__file__).resolve().parents[3]
     try:
         deployed = subprocess.run(['git', '-C', str(current), 'rev-parse', 'HEAD'],
                                   capture_output=True, text=True, timeout=2, check=True).stdout.strip()
-        head = subprocess.run(['git', '-C', str(repo), 'rev-parse', 'HEAD'],
-                              capture_output=True, text=True, timeout=2, check=True).stdout.strip()
+        # Releases are worktrees; the first worktree entry is the development checkout.
+        listing = subprocess.run(['git', '-C', str(current), 'worktree', 'list', '--porcelain'],
+                                 capture_output=True, text=True, timeout=2, check=True).stdout
+        head = next(line.split()[1] for line in listing.splitlines() if line.startswith('HEAD '))
         return _check('release', 'ok' if deployed == head else 'warn', '发布版本',
                       f'已部署 {deployed[:12]}；仓库 HEAD {head[:12]}', evidence=[deployed, head])
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError, StopIteration):
         return _check('release', 'warn', '发布版本', '未找到可核验的发布目录')
+
+
+def _evalbridge(settings, snap):
+    unit = snap.get('local', {}).get('units', {}).get('alphasieve-evalbridge.service', {})
+    queue = settings.state_db.parent / 'evalq'
+    now = datetime.now(UTC).timestamp()
+    workers = 0
+    for path in (queue / 'workers').glob('bridge-*.json'):
+        try:
+            if now - path.stat().st_mtime < 90:
+                workers += int(json.loads(path.read_text()).get('remote_workers', 0))
+        except (OSError, ValueError):
+            continue
+    pending = len(list((queue / 'pending').glob('*.json')))
+    # The bridge withdraws its heartbeat while no remote worker is alive; only queued work makes that a problem.
+    if unit.get('state') != 'active':
+        status = 'fail'
+    else:
+        status = 'warn' if pending and not workers else 'ok'
+    return _check('evalbridge', status, '评估桥接',
+                  f"服务 {unit.get('state', '未知')}；远端 worker {workers} 个；待评估 {pending} 个")
 
 
 def collect(settings, conn):
@@ -128,14 +137,10 @@ def collect(settings, conn):
     checks.append(_check('backup', 'ok' if age is not None and age < 2 else 'warn', '状态备份',
                          f'最近备份 {age:.1f} 小时前' if age is not None else '没有备份',
                          evidence=[str(backups[-1])] if backups else []))
-    worker_root = settings.state_db.parent / 'evalq' / 'workers'
-    beats = list(worker_root.glob('bridge-*.json'))
-    recent = [p for p in beats if datetime.now(UTC).timestamp() - p.stat().st_mtime < 90]
-    checks.append(_check('evalbridge', 'ok' if recent else 'warn', '评估桥接心跳',
-                         f'{len(recent)} 个最近心跳', evidence=[str(p) for p in recent]))
     snap = resources.read_snapshot(settings)
     if snap is None:
         snap = resources.snapshot(settings)
+    checks.append(_evalbridge(settings, snap))
     targets = load_targets(settings)
     for endpoint in targets.llm_endpoints:
         item = snap.get('llm_endpoints', {}).get(endpoint.name, {})

@@ -7,3 +7,8 @@ def collect(settings, conn):
 
 def system_alerts(settings, conn, asof):
     return []
+
+
+def record_system_alert(settings, conn, *, rule, subject, title, detail, severity="warning", evidence=(),
+                        dedupe_key=None):
+    return False

@@ -15,6 +15,7 @@ from alphasieve.cli import (  # noqa: F401  (register commands)
     commands_data,
     commands_factor,
     commands_forecast,
+    commands_health,
     commands_fresh,
     commands_monitor,
     commands_redflag,

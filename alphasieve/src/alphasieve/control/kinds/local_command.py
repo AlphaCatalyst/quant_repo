@@ -26,6 +26,10 @@ def executable() -> list[str]:
     return [sys.executable, "-m", "alphasieve.cli.main"]
 
 
+def _log_path(settings, job_id: str) -> Path:
+    return settings.hot_root / "logs" / "jobs" / f"{job_id}.log"
+
+
 @dataclass(frozen=True)
 class LocalCommand(Kind):
     name: str = "local_command"
@@ -53,7 +57,7 @@ class LocalCommand(Kind):
         unit = f"alphasieve-job-{job['job_id']}"
         if not re.fullmatch(r"alphasieve-job-[A-Za-z0-9_-]+", unit):
             raise validation_error("invalid local job ID")
-        log = Path("/data/alphasieve/logs/jobs") / f"{job['job_id']}.log"
+        log = _log_path(ctx.settings, job["job_id"])
         log.parent.mkdir(parents=True, exist_ok=True)
         # A shell is needed only for appending stderr/stdout to the requested log.
         import shlex
@@ -106,7 +110,7 @@ class LocalCommand(Kind):
         return "task"
 
     def collect(self, ctx, job: dict) -> dict:
-        return {"log": str(Path("/data/alphasieve/logs/jobs") / f"{job['job_id']}.log")}
+        return {"log": str(_log_path(ctx.settings, job["job_id"]))}
 
     def stop(self, ctx, job: dict, handle: dict) -> None:
         result = systemd_run(["systemctl", "stop", handle["unit"]], timeout=10)

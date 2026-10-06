@@ -1,6 +1,7 @@
 """Schedule slot, missed-run and overlap behavior without starting systemd units."""
 
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 from alphasieve.control import scheduler
 from alphasieve.state import connect
@@ -68,7 +69,7 @@ def test_schedule_env_reaches_systemd_run(settings, monkeypatch):
                         lambda argv, timeout=10: calls.append(argv) or type("R", (), {"returncode": 0})())
     kind = local_command.LocalCommand()
     params, _ = kind.prepare(settings, None, {"name": "x", "argv": ["version"], "env": env})
-    kind.submit(None, {"job_id": "J-env", "params": params}, 1)
+    kind.submit(SimpleNamespace(settings=settings), {"job_id": "J-env", "params": params}, 1)
     assert f"--setenv=ALPHASIEVE_WESTOCK_CLI={env['ALPHASIEVE_WESTOCK_CLI']}" in calls[0]
 
 

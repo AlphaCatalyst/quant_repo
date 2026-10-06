@@ -74,3 +74,37 @@ def test_idempotent_submission(tmp_path, monkeypatch):
     two = jobs.submit(settings, conn, "fake", {}, actor="system", idempotency_key="same")
     assert one["job_id"] == two["job_id"]
     assert len(kind.submissions) == 1
+
+
+def _train_ledger(monkeypatch, kind):
+    from alphasieve.training import run as tr
+    from alphasieve.training import task as training_task
+
+    recorded = []
+
+    def own_transaction(kind_name):
+        def append(conn, settings, task, trial_id, payload):
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute("COMMIT")
+            recorded.append((kind_name, trial_id))
+        return append
+
+    monkeypatch.setattr(tr, "complete_trial", own_transaction("completed"))
+    monkeypatch.setattr(tr, "fail_trial", own_transaction("failed"))
+    monkeypatch.setattr(tr, "load_bundle", lambda path: {"task": {}})
+    monkeypatch.setattr(training_task, "parse_task", lambda data: "task")
+    kind.collect = lambda ctx, job: {"data": {"bundle": {"task": {}}, "manifest": {"trial_id": job["trial_id"]}}}
+    return recorded
+
+
+def test_train_results_reach_the_ledger_outside_the_job_transaction(tmp_path, monkeypatch):
+    conn, settings, kind = _setup(tmp_path, monkeypatch)
+    recorded = _train_ledger(monkeypatch, kind)
+    ok = jobs.submit(settings, conn, "train", {"bundle": "b.json"}, actor="system", trial_id="S-ok")
+    bad = jobs.submit(settings, conn, "train", {"bundle": "b.json"}, actor="system", trial_id="S-bad")
+    kind.polls += [("succeeded", {}), ("failed", {"message": "ValueError"})]
+    result = jobs.reconcile(settings, conn)
+    assert result["errors"] == []
+    status = {j["job_id"]: j["status"] for j in jobs.list_jobs(conn)}
+    assert status == {ok["job_id"]: "succeeded", bad["job_id"]: "failed"}
+    assert sorted(recorded) == [("completed", "S-ok"), ("failed", "S-bad")]

@@ -157,8 +157,26 @@ def _alert(settings, conn, job):
                         severity="warning", dedupe_key=f"{job['job_id']}:{job['attempt']}")
 
 
+def _record_trial(settings, conn, job, *, result=None, error=None):
+    """Ledger appends own their transaction, so this runs before the job update; an existing result is kept."""
+    from alphasieve.training import run as tr
+    from alphasieve.training.task import parse_task
+
+    if conn.execute("SELECT 1 FROM trials WHERE trial_id=? AND record_kind IN ('completed','failed')",
+                    (job["trial_id"],)).fetchone():
+        return
+    if result is not None:
+        tr.complete_trial(conn, settings, parse_task(result["bundle"]["task"]), job["trial_id"], result)
+    else:
+        task = parse_task(tr.load_bundle(job["params"]["bundle"])["task"])
+        tr.fail_trial(conn, settings, task, job["trial_id"], error)
+
+
 def _failure(settings, conn, job_id, failure_class, detail):
     now = utcnow_iso()
+    job = _get(conn, job_id)
+    if job["kind"] == "train" and failure_class == "task" and job["status"] in ("submitted", "running"):
+        _record_trial(settings, conn, job, error=detail)
     conn.execute("BEGIN IMMEDIATE")
     try:
         job = _get(conn, job_id)
@@ -174,12 +192,6 @@ def _failure(settings, conn, job_id, failure_class, detail):
             _change(settings, conn, job_id, "retry_wait", failure_class="infra", error=detail[:2000],
                     next_retry_at=retry)
         else:
-            if job["kind"] == "train" and failure_class == "task":
-                from alphasieve.training import run as tr
-                from alphasieve.training.task import parse_task
-
-                task = parse_task(tr.load_bundle(job["params"]["bundle"])["task"])
-                tr.fail_trial(conn, settings, task, job["trial_id"], detail)
             _change(settings, conn, job_id, "failed", failure_class=failure_class, error=detail[:2000])
         conn.execute("COMMIT")
     except Exception:
@@ -189,7 +201,7 @@ def _failure(settings, conn, job_id, failure_class, detail):
         _alert(settings, conn, _get(conn, job_id))
 
 
-def _success(settings, conn, job_id, output):
+def _success(settings, conn, job_id):
     job = _get(conn, job_id)
     conn.execute("BEGIN IMMEDIATE")
     try:
@@ -197,13 +209,6 @@ def _success(settings, conn, job_id, output):
         if current["status"] not in ("submitted", "running"):
             conn.execute("ROLLBACK")
             return
-        if job["kind"] == "train":
-            from alphasieve.training import run as tr
-            from alphasieve.training.task import parse_task
-
-            result = output.get("data", output) if isinstance(output, dict) else output
-            task = parse_task(result["bundle"]["task"])
-            tr.complete_trial(conn, settings, task, job["trial_id"], result)
         conn.execute("UPDATE job_attempts SET ended_at=?,outcome='succeeded' WHERE job_id=? AND attempt=?",
                      (utcnow_iso(), job_id, job["attempt"]))
         _change(settings, conn, job_id, "succeeded", heartbeat_at=utcnow_iso(), error=None, failure_class=None)
@@ -242,11 +247,13 @@ def reconcile(settings, conn) -> dict:
             elif state in ("succeeded", "success"):
                 try:
                     output = definition.collect(SimpleNamespace(settings=settings, conn=conn, target=target), job)
+                    if job["kind"] == "train":
+                        _record_trial(settings, conn, job, result=output.get("data", output))
                 except Exception as exc:
                     _failure(settings, conn, job["job_id"], "task", f"collect failed: {exc}")
                     result["failed"] += 1
                     continue
-                _success(settings, conn, job["job_id"], output)
+                _success(settings, conn, job["job_id"])
                 result["succeeded"] += 1
             elif state in ("unreachable", "unknown"):
                 last = datetime.fromisoformat(job["heartbeat_at"] or job["submitted_at"])

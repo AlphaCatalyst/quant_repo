@@ -148,9 +148,9 @@ S-1 与 S-2 不改变系统结构，可以立即开始。S-3 之后的步骤会�
 
 | 工作 | 位置 | 方式 |
 |---|---|---|
-| 训练、策略回测、因子评估 | Ray | `train submit`、`deploy/ray/submit.sh`、evalbridge |
-| 风险报告（dev trial） | Ray | `alphasieve risk submit --trial <id>`；`risk collect --job-id` 取回。只上传截到 2022-12-31 的申万历史和父产物 manifest/metrics |
-| 申万口径敏感性（组合部分） | Ray | `tools/sw_industry_sensitivity.py --ray`，`--collect <job>` 取回；因子部分仍在本机 |
+| 训练、策略回测、因子评估 | Ray | 训练用 `alphasieve jobs submit train --task <task>`；其余既有入口用 `deploy/ray/submit.sh`、evalbridge |
+| 风险报告（dev trial） | Ray | `alphasieve jobs submit risk_report --trial <id> --output <path>`；`jobs reconcile` 自动取回。只上传截到 2022-12-31 的申万历史和父产物 manifest/metrics |
+| 申万口径敏感性（组合部分） | Ray | `alphasieve jobs submit sw_sensitivity --output <dir>`；`jobs reconcile` 自动取回；因子部分仍在本机 |
 | 日更里的 westock-data 调用 | orbenchtest | `ALPHASIEVE_WESTOCK_CLI=deploy/remote/westock-ssh`：SSH 复用连接在远端执行，响应不落远端盘；SSH 失败时回退本机，最多 3 个并发。50 次调用本机 CPU 由 41.5 s 降到 1.3 s |
 | 日更其余步骤（BaoStock、巨潮、新浪、状态库登记） | 本机 | 单次 CPU 约 0.01–0.02 s，以等网络为主；unit 设 `Nice=10`、`CPUWeight=20` |
 | 排雷扫描 | 本机 | 读取 2022 年后的财报，不能上 Ray；`--jobs` 默认 2 |

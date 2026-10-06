@@ -243,8 +243,9 @@ def test_cost_aware_trial_positions_and_single_start(panel_settings, monkeypatch
 
 
 def test_cost_aware_cost_digest_is_fixed_before_bundle(panel_settings, tmp_path):
-    from dataclasses import replace
     import shutil
+    from dataclasses import replace
+
     import yaml
 
     assert len(tr._costs_hash(panel_settings)) == 64

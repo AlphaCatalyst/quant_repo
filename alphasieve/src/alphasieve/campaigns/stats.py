@@ -1,6 +1,7 @@
 import json
 import sqlite3
 from collections import Counter
+from datetime import datetime
 
 from alphasieve.campaigns.service import completed_trials, elapsed_hours, get_campaign
 from alphasieve.gates.l3 import search_intensity_curve
@@ -49,8 +50,9 @@ def funnel(conn: sqlite3.Connection, campaign_id: str, include_holdout: bool = T
 def budget_status(conn: sqlite3.Connection, campaign_id: str) -> dict:
     campaign = get_campaign(conn, campaign_id)
     spec = campaign["spec"]
-    turns = [dict(r) for r in conn.execute("SELECT * FROM turns WHERE campaign_id = ? ORDER BY turn_index",
-                                           (campaign_id,))]
+    all_turns = [dict(r) for r in conn.execute("SELECT * FROM turns WHERE campaign_id = ? ORDER BY turn_index",
+                                               (campaign_id,))]
+    turns = [t for t in all_turns if t["status"] != "interrupted"]
     no_improvement = 0
     for t in reversed(turns):
         if t["status"] != "completed" or (t["robust_passed_new"] or 0) > 0:
@@ -63,16 +65,20 @@ def budget_status(conn: sqlite3.Connection, campaign_id: str) -> dict:
             break
         failed_streak += 1
     tokens = {"input": 0, "output": 0, "cost_usd": 0.0}
-    for t in turns:
+    for t in all_turns:  # interrupted turns do not use turn budget but their tokens were still spent
         usage = json.loads(t["usage_json"] or "{}")
         tokens["input"] += usage.get("input_tokens", 0) or 0
         tokens["output"] += usage.get("output_tokens", 0) or 0
         tokens["cost_usd"] += usage.get("cost_usd", 0.0) or 0.0
     trials = len(completed_trials(conn, campaign_id))
+    paused_seconds = campaign["stats"].get("paused_seconds", 0.0)
+    if paused_at := campaign["stats"].get("paused_at"):
+        paused_seconds += max(0.0, (datetime.now().astimezone() - datetime.fromisoformat(paused_at)).total_seconds())
     return {
         "trials": {"used": trials, "budget": spec.budgets.trials},
         "turns": {"used": len(turns), "budget": spec.budgets.turns},
-        "hours": {"used": round(elapsed_hours(campaign), 2), "budget": spec.budgets.max_hours},
+        "hours": {"used": round(max(0.0, elapsed_hours(campaign) - paused_seconds / 3600), 2),
+                  "budget": spec.budgets.max_hours},
         "no_improvement_turns": {"current": no_improvement, "limit": spec.stop.no_improvement_turns},
         "failed_turns_streak": {"current": failed_streak, "limit": spec.stop.max_consecutive_failed_turns},
         "usage": tokens,

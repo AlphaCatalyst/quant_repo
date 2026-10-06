@@ -52,6 +52,12 @@ class AgentExecutor(Protocol):
 - 并发默认 2；每周额度与费用预算用尽时暂停调度。
 - 模型：Claude Code 与 Codex 各配置一个默认模型（待定，见 [10-decisions.md](10-decisions.md) Q-4）；同一 campaign 可交替使用两种 harness 以增加探索多样性，trial 记录 harness 与模型。
 
+### codex-lb 断联与续跑
+
+Codex 回合开始前探测配置中的 codex-lb `/health`。连接失败时不启动回合；连续两次探测失败后暂停相关 campaign，并发送一次系统提醒。运行中的回合若因模型连接中断，标为 `interrupted`，不计入失败次数或回合预算。论点研究或复核 run 同样标为 `interrupted`，保留 workspace。
+
+控制面定时探测恢复后，将因 `llm_unavailable` 暂停的 campaign 重新启动，并在同一 workspace 和输入上重跑被中断的论点 run，单个 run 最多自动续跑三次。Claude 使用独立端点，不受 codex-lb 探测结果阻断；可识别的 Claude 网络故障也按基础设施中断处理。
+
 ## 5. Nexus Cloud 执行（阶段二）
 
 参考 scicomp-foundry 的 authoring factory（`/data/codebase/scicomputing/scicomp-foundry/docs/22-authoring-factory.md`）：云端并发执行，本机做权威重验与唯一写入。
@@ -105,7 +111,7 @@ planner（本机）：按覆盖矩阵选 K 个格子，生成 K 个 MinerTask
 
 ```bash
 cd /data/codebase/quant_repo/alphasieve
-deploy/ray/submit.sh calib gate calibrate --random 2000     # 任意 alphasieve 命令
+deploy/ray/submit.sh calib gate calibrate --random 2000     # 手动 dev 命令；训练和报告使用 jobs submit
 ls /taijifs_zw35/r2/felixjjiang/alphasieve/runs/             # 每个任务的 result.json
 ray job list --address http://28.83.35.117:8081              # 任务状态；日志用 ray job logs <job_id>
 ```

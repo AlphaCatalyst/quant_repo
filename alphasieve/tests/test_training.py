@@ -10,7 +10,7 @@ from alphasieve.data.access import load_panel
 from alphasieve.errors import AlphaSieveError
 from alphasieve.ledger import verify_ledger
 from alphasieve.state import connect
-from alphasieve.training import holdout, samples
+from alphasieve.training import engine, holdout, samples
 from alphasieve.training import run as tr
 from alphasieve.training.engine import retrain_points, walk_forward
 from alphasieve.training.task import parse_task
@@ -106,6 +106,66 @@ def test_training_scores_do_not_see_future_labels(panel_settings):
     table2, second = run(dev)
     rows = (table.date_pos >= start) & (table.date_pos < stop) & table.predict
     np.testing.assert_allclose(first["score"][rows], second["score"][rows])
+
+
+def test_walk_forward_resumes_completed_retrain_units_bit_identically(panel_settings, tmp_path, monkeypatch):
+    panel = load_panel(panel_settings, "dev", role="system")
+    task = parse_task(task_dict())
+    frames = {f: panel.wide(f) for f in task.features.panel_fields}
+    beta = samples.rolling_beta(panel, samples.benchmark_returns(panel, "zz500"))
+    table = samples.build_cross_sectional(panel, frames, task, beta)
+    window = panel.window_mask().to_numpy()
+
+    class InlinePool:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def map(self, fn, jobs, chunksize=1):
+            return map(fn, jobs)
+
+    monkeypatch.setattr(engine, "_pool", lambda _processes: InlinePool())
+    expected = walk_forward(table, panel.dates, window, task, processes=1, threads=1)
+    original = engine._refit_job
+    seen = []
+
+    def interrupted(args):
+        if args[0] not in seen:
+            seen.append(args[0])
+        if len(seen) == 3:
+            raise RuntimeError("worker interrupted")
+        return original(args)
+
+    monkeypatch.setattr(engine, "_refit_job", interrupted)
+    units = tmp_path / "runs" / "S-test" / "units"
+    with pytest.raises(RuntimeError, match="worker interrupted"):
+        walk_forward(table, panel.dates, window, task, processes=1, threads=1,
+                     units_dir=units, bundle_hash="same-frozen-bundle")
+    written = sorted(units.glob("*.json"))
+    assert len(written) == 2
+    assert all(json.loads(p.read_text())["bundle_sha256"] == "same-frozen-bundle" for p in written)
+    resumed_calls = []
+
+    def counted(args):
+        resumed_calls.append(args[0])
+        return original(args)
+
+    monkeypatch.setattr(engine, "_refit_job", counted)
+    resumed = walk_forward(table, panel.dates, window, task, processes=1, threads=1,
+                           units_dir=units, bundle_hash="same-frozen-bundle")
+    assert len(set(resumed_calls)) == resumed["retrain_points"] - 2
+    assert resumed["fits"] == expected["fits"]
+    assert resumed["skipped_retrains"] == expected["skipped_retrains"]
+    assert resumed["train_rows_median"] == expected["train_rows_median"]
+    assert resumed["score"].tobytes() == expected["score"].tobytes()
+    for h in task.label.horizons:
+        assert resumed["per_horizon"][h].tobytes() == expected["per_horizon"][h].tobytes()
+    resumed_calls.clear()
+    walk_forward(table, panel.dates, window, task, processes=1, threads=1,
+                 units_dir=units, bundle_hash="different-bundle")
+    assert len(set(resumed_calls)) == resumed["retrain_points"]
 
 
 def write_task(tmp_path, data):

@@ -3,14 +3,18 @@ Description=AlphaSieve orchestrator for campaign %i
 After=network-online.target
 RequiresMountsFor=/mnt/private_felixjjiang
 
+OnFailure=alphasieve-failure@%n.service
+
 [Service]
 Type=simple
-WorkingDirectory=/data/codebase/quant_repo/alphasieve
+WorkingDirectory=/data/alphasieve/deploy/current
 Environment=ALPHASIEVE_ROLE=system
 Environment=ALPHASIEVE_USER=orchestrator
-ExecStart=/data/codebase/quant_repo/alphasieve/.venv/bin/alphasieve orchestrator run %i --json
+ExecStart=/data/alphasieve/deploy/current/.venv/bin/alphasieve orchestrator run %i --json
 StandardOutput=append:/data/alphasieve/logs/orchestrator-%i.jsonl
 StandardError=append:/data/alphasieve/logs/orchestrator-%i.err
 Restart=no
 KillMode=control-group
 TimeoutStopSec=60
+TimeoutStartSec=120
+RuntimeMaxSec=24h

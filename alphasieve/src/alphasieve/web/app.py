@@ -20,6 +20,8 @@ from fastapi.staticfiles import StaticFiles
 from alphasieve import __version__
 from alphasieve.campaigns import memory, service, stats
 from alphasieve.config import Settings, get_settings, load_config
+from alphasieve.control import health, jobs, llm, resources, scheduler
+from alphasieve.control.targets import load_targets
 from alphasieve.data.access import read_meta
 from alphasieve.data.sync import load_calendar, raw_root
 from alphasieve.errors import AlphaSieveError
@@ -213,6 +215,65 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
         rows = list_alerts(conn, visibility="public", open_only=open, kind=kind)
         return {"alerts": rows, "count": len(rows)}
 
+    @app.get("/api/control/resources")
+    def control_resources():
+        snapshot = resources.read_snapshot(settings)
+        try:
+            r2 = {target.name: target.r2 for target in load_targets(settings).ray_clusters}
+        except (OSError, ValueError, KeyError):
+            r2 = {}
+        age_s = None
+        if snapshot:
+            stamp = (snapshot.get("at") or snapshot.get("checked_at") or
+                     snapshot.get("captured_at") or snapshot.get("timestamp"))
+            if stamp:
+                try:
+                    captured = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+                    age_s = max(0, (datetime.now(UTC) - captured).total_seconds())
+                except (TypeError, ValueError):
+                    pass
+        return {"snapshot": snapshot, "history": resources.read_history(settings, hours=24),
+                "age_s": age_s, "stale": age_s is None or age_s > 300, "ray_r2": r2}
+
+    @app.get("/api/control/health")
+    def control_health(conn=Depends(db)):
+        return health.collect(settings, conn)
+
+    @app.get("/api/control/jobs")
+    def control_jobs(open: bool = False, kind: str | None = None, conn=Depends(db)):
+        public_fields = ("job_id", "kind", "status", "placement", "target", "attempt",
+                         "max_attempts", "failure_class", "error", "submitted_at",
+                         "heartbeat_at", "finished_at")
+        rows = [{key: row[key] for key in public_fields if key in row}
+                for row in jobs.list_jobs(conn, open_only=open, kind=kind)]
+        if rows:
+            ids = [row["job_id"] for row in rows]
+            try:
+                attempts = conn.execute(
+                    f"SELECT job_id, attempt, target, started_at, ended_at, outcome, "
+                    f"failure_class, error FROM job_attempts WHERE job_id IN "
+                    f"({','.join('?' for _ in ids)}) ORDER BY attempt", ids)
+                by_job = {job_id: [] for job_id in ids}
+                for attempt in attempts:
+                    by_job[attempt["job_id"]].append(dict(attempt))
+                rows = [{**row, "attempts": by_job[row["job_id"]]} for row in rows]
+            except sqlite3.OperationalError:
+                pass
+        summary = jobs.job_summary(conn)
+        if "recent_failures" in summary:
+            summary = {**summary, "recent_failures": [
+                {key: row[key] for key in public_fields if key in row}
+                for row in summary["recent_failures"]]}
+        return {"jobs": rows, "summary": summary}
+
+    @app.get("/api/control/schedule")
+    def control_schedule(conn=Depends(db)):
+        return scheduler.list_schedule(settings, conn)
+
+    @app.get("/api/control/llm")
+    def control_llm():
+        return llm.state(settings)
+
     @app.get("/api/alerts/private")
     def private_alerts_view(open: bool = False, kind: str | None = None,
                             user: str = Depends(auth), conn=Depends(db)):
@@ -391,7 +452,8 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
             "trade_calendar_source": trade_calendar_source,
             "latest_backup": latest_backup,
             "inbox": {
-                "open_requests": conn.execute("SELECT COUNT(*) FROM agent_requests WHERE status = 'open'").fetchone()[0],
+                "open_requests": conn.execute(
+                    "SELECT COUNT(*) FROM agent_requests WHERE status = 'open'").fetchone()[0],
                 "request_campaigns": [r[0] for r in conn.execute(
                     "SELECT DISTINCT campaign_id FROM agent_requests WHERE status = 'open' ORDER BY campaign_id")],
                 "pending_factor_holdout": conn.execute(
@@ -420,7 +482,8 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
             for row in conn.execute(f"SELECT * FROM {table} WHERE status = ? ORDER BY created_at DESC", (state,)):
                 item = {"id": row[id_col], "kind": kind, "title": title, "target": row[target],
                         "created_at": row["created_at"], "detail": dict(row)}
-                decisions = ("rejected", "needs_repair", "approved_for_shadow") if kind == "review" else ("approve", "reject")
+                decisions = (("rejected", "needs_repair", "approved_for_shadow") if kind == "review"
+                             else ("approve", "reject"))
                 item["signing"] = [{"decision": decision,
                     "challenge_command": f"alphasieve approval challenge {kind} {row[id_col]} --decision {decision}",
                     "note": "先通过 CLI 生成含 nonce 和有效期的待签文件，再在笔记本签名。"}
@@ -468,17 +531,20 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
         latest = None
         if backups:
             try:
-                latest = datetime.strptime(backups[-1].stem.removeprefix("alphasieve-"), "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC)
+                latest = datetime.strptime(
+                    backups[-1].stem.removeprefix("alphasieve-"), "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC)
             except ValueError:
                 pass
         if latest is None or datetime.now(UTC) - latest > timedelta(hours=24):
             items.append({"id": "backup-stale", "kind": "stale", "title": "状态库备份过旧",
-                          "target": "状态库", "detail": latest.isoformat() if latest else "暂无备份", "created_at": None})
+                          "target": "状态库", "detail": latest.isoformat() if latest else "暂无备份",
+                          "created_at": None})
         daily = _last_daily_update()
         lag, _ = _trade_days_lag(settings, daily.get("end") if daily else None)
         if lag is None or lag > 3:
             items.append({"id": "data-stale", "kind": "stale", "title": "数据日更过旧",
-                          "target": "交易数据", "detail": f"落后 {lag} 个交易日" if lag is not None else "暂无有效日更", "created_at": None})
+                          "target": "交易数据", "detail": f"落后 {lag} 个交易日" if lag is not None else "暂无有效日更",
+                          "created_at": None})
         return {"items": items, "history": sorted(history, key=lambda x: x["decided_at"] or "", reverse=True)[:15],
                 "decisions": _pending_decisions(settings)}
 
@@ -515,7 +581,8 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
                                 " AND record_kind='started' AND evidence_tier='dev'", (mandate,)).fetchone()[0]
             best = None
             for row in conn.execute("SELECT trial_id, metrics_json FROM trials WHERE layer='strategy' AND scope=?"
-                                    " AND record_kind='completed' AND evidence_tier='dev' ORDER BY seq DESC", (mandate,)):
+                                    " AND record_kind='completed' AND evidence_tier='dev' ORDER BY seq DESC",
+                                    (mandate,)):
                 metrics = _loads(row["metrics_json"], {})
                 value = metrics.get("information_ratio", metrics.get("sharpe"))
                 if isinstance(value, (int, float)) and (best is None or value > best["value"]):

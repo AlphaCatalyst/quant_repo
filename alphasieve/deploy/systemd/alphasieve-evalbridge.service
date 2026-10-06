@@ -3,13 +3,17 @@ Description=AlphaSieve evaluation bridge to platform workers (taijifs queue)
 After=network-online.target
 RequiresMountsFor=/taijifs_zw35/r2
 
+OnFailure=alphasieve-failure@%n.service
+
 [Service]
 Type=simple
-WorkingDirectory=/data/codebase/quant_repo/alphasieve
+WorkingDirectory=/data/alphasieve/deploy/current
 Environment=ALPHASIEVE_ROLE=system
 Environment=ALPHASIEVE_USER=evalbridge
-ExecStart=/data/codebase/quant_repo/alphasieve/.venv/bin/alphasieve evalsvc bridge --remote /taijifs_zw35/r2/felixjjiang/alphasieve/evalq --json
+ExecStart=/data/alphasieve/deploy/current/.venv/bin/alphasieve evalsvc bridge --remote /taijifs_zw35/r2/felixjjiang/alphasieve/evalq --json
 StandardOutput=append:/data/alphasieve/logs/evalbridge.jsonl
 StandardError=append:/data/alphasieve/logs/evalbridge.err
 Restart=on-failure
 RestartSec=10
+TimeoutStartSec=120
+RuntimeMaxSec=7d

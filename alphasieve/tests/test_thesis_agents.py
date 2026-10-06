@@ -8,7 +8,7 @@ import yaml
 from alphasieve.agents.executors import FakeExecutor
 from alphasieve.cli.main import main
 from alphasieve.config import get_settings
-from alphasieve.thesis.agent_run import list_runs, run_draft, run_review
+from alphasieve.thesis.agent_run import list_runs, resume_interrupted, run_draft, run_review
 
 SAMPLE = Path(__file__).resolve().parents[1] / "theses" / "hog-cycle-muyuan.yaml"
 
@@ -112,3 +112,43 @@ def test_review_without_output_fails(tmp_path, monkeypatch):
     run = run_review(settings, SAMPLE, "fake", fake_script=script)
     assert run["status"] == "failed"
     assert "without writing under reviews/" in run["error"]
+
+
+def test_codex_outage_keeps_workspace_and_resumes_once(tmp_path, monkeypatch):
+    settings = _roots(tmp_path, monkeypatch)
+    from alphasieve.control.llm import LlmUnavailable
+
+    available = False
+
+    def availability(_settings):
+        if not available:
+            raise LlmUnavailable()
+
+    def script(ctx, env, run_cli, result):
+        (ctx.workspace / "drafts" / "proposal.yaml").write_text(SAMPLE.read_text(encoding="utf-8"))
+        return "drafted"
+
+    monkeypatch.setattr("alphasieve.thesis.agent_run.require_available", availability)
+    monkeypatch.setattr("alphasieve.thesis.agent_run.make_executor",
+                        lambda _settings, harness, fake_script=None: FakeExecutor(settings, script))
+    run = run_draft(settings, "hog cycle", "codex", run_id="thesis-outage")
+    assert run["status"] == "interrupted"
+    assert Path(run["workspace"]).exists()
+    assert run["resume_count"] == 0
+    available = True
+    resumed = resume_interrupted(settings, run["run_id"])
+    assert resumed is not None and resumed["status"] == "completed"
+    assert resumed["workspace"] == run["workspace"]
+    assert resumed["resume_count"] == 1
+    assert resume_interrupted(settings, run["run_id"]) is None
+
+
+def test_claude_network_failure_is_interrupted(tmp_path, monkeypatch):
+    settings = _roots(tmp_path, monkeypatch)
+
+    def network_failure(ctx, env, run_cli, result):
+        raise ConnectionResetError("connection reset by peer")
+
+    run = run_review(settings, SAMPLE, "fake", fake_script=network_failure)
+    assert run["status"] == "interrupted"
+    assert list_runs(settings)[0]["status"] == "interrupted"

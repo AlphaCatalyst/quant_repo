@@ -1,8 +1,5 @@
 import json
 import os
-import re
-import subprocess
-from pathlib import Path
 
 from alphasieve.cli.registry import CommandResult, command
 from alphasieve.errors import AlphaSieveError, validation_error
@@ -10,7 +7,6 @@ from alphasieve.errors import AlphaSieveError, validation_error
 ALL = ("agent", "human", "system")
 HUMAN = ("human",)
 HUMAN_SYSTEM = ("human", "system")
-REMOTE_ROOT = os.environ.get("ALPHASIEVE_REMOTE_ROOT", "/taijifs_zw35/r2/felixjjiang/alphasieve")
 
 
 def _progress(stage, done, total):
@@ -74,7 +70,8 @@ def cmd_train_screen_derived(args, ctx) -> CommandResult:
 
 def _configure_run(p):
     p.add_argument("--task", default=None, help="task id or YAML path (local run: records a strategy trial)")
-    p.add_argument("--bundle", default=None, help="frozen bundle from 'train submit' (platform run, no ledger)")
+    p.add_argument("--bundle", default=None, help="frozen bundle from 'jobs submit train' (platform run, no ledger)")
+    p.add_argument("--units-dir", default=None, help="shared checkpoint directory for a platform bundle")
     p.add_argument("--processes", type=int, default=None)
     p.add_argument("--threads", type=int, default=None)
 
@@ -87,10 +84,13 @@ def cmd_train_run(args, ctx) -> CommandResult:
 
     if bool(args.task) == bool(args.bundle):
         raise validation_error("pass exactly one of --task or --bundle")
+    if args.units_dir and not args.bundle:
+        raise validation_error("--units-dir requires --bundle")
     if args.bundle:
         bundle = tr.load_bundle(args.bundle)
         task = parse_task(bundle["task"])
-        result, outputs = tr.execute(ctx.settings, bundle, args.processes, args.threads, _progress)
+        result, outputs = tr.execute(ctx.settings, bundle, args.processes, args.threads, _progress,
+                                     units_dir=args.units_dir)
         run_id = os.environ.get("ALPHASIEVE_JOB_ID") or bundle["trial_id"]
         result["outputs"] = str(tr.write_outputs(ctx.settings, task.task_id, run_id, result, outputs, bundle))
         return CommandResult(data=result)
@@ -107,74 +107,6 @@ def cmd_train_run(args, ctx) -> CommandResult:
     result["artifact_id"] = tr.complete_trial(ctx.conn, ctx.settings, task, trial_id, result)
     result["trial_id"] = trial_id
     return CommandResult(data=result)
-
-
-def _configure_submit(p):
-    p.add_argument("--task", required=True)
-    p.add_argument("--cluster", default=None, help="Ray address (default: the task's platform.cluster)")
-    p.add_argument("--cpus", type=int, default=None, help="entrypoint CPUs reserved on one node")
-    p.add_argument("--processes", type=int, default=None)
-    p.add_argument("--threads", type=int, default=4)
-
-
-@command("train submit", HUMAN_SYSTEM, configure=_configure_submit,
-         help="record a strategy trial locally and run the task as a Ray job on the platform")
-def cmd_train_submit(args, ctx) -> CommandResult:
-    from alphasieve.training import run as tr
-    from alphasieve.training.task import load_task
-
-    task = load_task(ctx.settings, args.task)
-    trial_id = tr.new_trial_id()
-    bundle = tr.make_bundle(task, tr.resolve_features(ctx.conn, task), trial_id, ctx.settings)
-    bundle_dir = Path(REMOTE_ROOT) / "runs" / "bundles"
-    bundle_dir.mkdir(parents=True, exist_ok=True)
-    bundle_path = bundle_dir / f"{trial_id}.json"
-    bundle_path.write_text(json.dumps(bundle, ensure_ascii=False), encoding="utf-8")
-    processes = args.processes or task.platform.processes
-    cpus = args.cpus or processes * args.threads
-    tr.start_trial(ctx.conn, ctx.settings, task, trial_id)
-    script = Path(__file__).resolve().parents[3] / "deploy" / "ray" / "submit.sh"
-    env = {**os.environ, "RAY_ADDRESS": args.cluster or task.platform.cluster,
-           "ALPHASIEVE_ENTRYPOINT_CPUS": str(cpus), "ALPHASIEVE_NO_WAIT": "1"}
-    cmd = [str(script), f"train-{trial_id}", "train", "run", "--bundle", str(bundle_path),
-           "--processes", str(processes), "--threads", str(args.threads)]
-    proc = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=600)
-    match = re.search(r"job (alphasieve-\S+);", proc.stdout)
-    if proc.returncode != 0 or not match:
-        detail = f"submit failed: {proc.stdout[-300:]}{proc.stderr[-300:]}"
-        tr.fail_trial(ctx.conn, ctx.settings, task, trial_id, detail)
-        raise AlphaSieveError("INTERNAL", "Ray submission failed", details={"stderr": proc.stderr[-500:]})
-    job_id = match.group(1)
-    return CommandResult(data={"trial_id": trial_id, "job_id": job_id, "bundle": str(bundle_path),
-                               "result": f"{REMOTE_ROOT}/runs/{job_id}/result.json", "cpus": cpus})
-
-
-def _configure_collect(p):
-    p.add_argument("--trial-id", required=True)
-    p.add_argument("--result", required=True, help="result.json written by the platform job")
-
-
-@command("train collect", HUMAN_SYSTEM, configure=_configure_collect, needs_store=True,
-         help="record the result of a platform training run in the local ledger")
-def cmd_train_collect(args, ctx) -> CommandResult:
-    from alphasieve.training import run as tr
-    from alphasieve.training.task import parse_task
-
-    text = Path(args.result).read_text(encoding="utf-8")
-    envelope = json.loads(text[text.find("{"):])
-    if envelope.get("status") != "ok":
-        raise AlphaSieveError("INTERNAL", "the platform run failed", details={"error": envelope.get("error")})
-    result = envelope["data"]
-    if result["manifest"]["trial_id"] != args.trial_id:
-        raise validation_error("result belongs to another trial", found=result["manifest"]["trial_id"])
-    started = ctx.conn.execute("SELECT 1 FROM trials WHERE trial_id = ? AND record_kind = 'started'"
-                               " AND layer = 'strategy'", (args.trial_id,)).fetchone()
-    if started is None:
-        raise validation_error(f"trial {args.trial_id} was not started through 'train submit'")
-    task = parse_task(result["bundle"]["task"])
-    artifact_id = tr.complete_trial(ctx.conn, ctx.settings, task, args.trial_id, result)
-    return CommandResult(data={"trial_id": args.trial_id, "artifact_id": artifact_id,
-                               "metrics": tr.summary_metrics(result), "acceptance": result.get("acceptance")})
 
 
 def _configure_trial(p):

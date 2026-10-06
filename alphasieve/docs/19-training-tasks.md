@@ -237,7 +237,7 @@ platform: {cluster: http://21.234.200.155:8081, remote_root: /taijifs_zw35/r2/fe
 
 ## 8. Ray、存储和复现
 
-训练可提交到 `http://28.83.35.117:8081` 或 `http://21.234.200.155:8081`，按任务配置选择；两集群都挂载 `/taijifs_zw35/r2`，节点无互联网且不能访问 westock，因此 westock/期货原始同步必须在本机完成并只上传截断到 dev 的面板或 artifact。平台上只允许存在 dev panel，`deploy/ray/submit.sh` 的 holdout/fresh 检查保持为硬拒绝。
+训练通过 `alphasieve jobs submit train --task <task>` 提交到登记的 Ray 集群；两集群都挂载 `/taijifs_zw35/r2`，节点无互联网且不能访问 westock，因此 westock/期货原始同步必须在本机完成并只上传截断到 dev 的面板或 artifact。平台上只允许存在 dev panel，作业 kind 与 `deploy/ray/submit.sh` 均硬拒绝 holdout/fresh。每个重训点原子落盘到 `runs/<trial_id>/units/<retrain_date>.json`；基础设施失败重提同一 trial、同一 bundle，已完成单元按 bundle 哈希复用。达到重试上限后 trial 仍为 started，可用 `jobs resume <job_id>` 继续。
 
 模型和分数存于 `/taijifs_zw35/r2/felixjjiang/alphasieve/models/<task_id>/<run_id>/`，至少包含 `model.bin`、`scores.parquet`、`manifest.json`、`feature_stats.json` 和 `metrics.json`。RunLab 使用 entity `felixjjiang`、project `alphasieve`；API key 只从远端 `secrets/runlab.env` 读取，不能出现在任务参数或日志。manifest 必须记录 git/code version、panel signature、配置 hash、训练日期、特征版本、依赖锁、随机种子、集群地址和输入 artifact hash。任务失败或跳过重训也要写状态和原因，不能用空分数代替。
 
@@ -278,8 +278,9 @@ platform: {cluster: http://21.234.200.155:8081, remote_root: /taijifs_zw35/r2/fe
 ```text
 alphasieve train list | train validate <task>
 alphasieve train run --task <task>            # 本机运行，直接记 trial
-alphasieve train submit --task <task>         # 本机记 started，任务包写到 taijifs，提交 Ray 任务
-alphasieve train collect --trial-id <id> --result <result.json>
+alphasieve jobs submit train --task <task>     # 本机记 started，任务包写到 taijifs，提交 Ray 作业
+alphasieve jobs status --kind train
+alphasieve jobs reconcile                     # 查询 Ray，成功后自动登记 trial
 alphasieve train abandon --trial-id <id> --reason ...        # 平台任务因缺陷停止时如实记为失败
 alphasieve train holdout-request --trial-id <id>             # 人工
 alphasieve train holdout-approve <request_id> --reason ...   # 人工，每个 mandate 一次

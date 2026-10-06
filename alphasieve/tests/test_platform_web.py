@@ -181,3 +181,56 @@ def test_book_check_persists_report(settings, tmp_path, monkeypatch, capsys):
     assert json.loads(capsys.readouterr().out)["data"]["report"] == report
     assert load_report(snapshot_id, settings) == report
     assert (settings.hot_root / "book" / "reports" / f"{snapshot_id}.json").is_file()
+
+
+def test_control_endpoints_public_read_only(settings, monkeypatch):
+    """Public control data never needs credentials or a resource probe."""
+    from datetime import UTC, datetime
+
+    from alphasieve.control import health, jobs, llm, resources, scheduler
+
+    settings.state_db.parent.mkdir(parents=True, exist_ok=True)
+    with connect(settings.state_db):
+        pass
+    stamp = datetime.now(UTC).isoformat()
+    snapshot = {"at": stamp, "local": {"cpu_count": 8, "loadavg": [1.5, 1, 1]},
+                "ssh_hosts": {}, "ray_clusters": {}, "llm_endpoints": {}}
+    monkeypatch.setattr(resources, "read_snapshot", lambda s: snapshot)
+    monkeypatch.setattr(resources, "read_history", lambda s, hours: [{"at": stamp}])
+    monkeypatch.setattr(resources, "snapshot", lambda s: pytest.fail("probe in GET"))
+    monkeypatch.setattr(health, "collect", lambda s, c: {"overall": "ok", "checks": [{"id": "backup", "status": "ok"}]})
+    monkeypatch.setattr(jobs, "list_jobs", lambda c, **kw: [
+        {"job_id": "test-job", "kind": "train", "status": "running",
+         "params": {"holdings": "secret"}}])
+    monkeypatch.setattr(jobs, "job_summary", lambda c: {"by_status": {"running": 1}})
+    monkeypatch.setattr(scheduler, "list_schedule", lambda s, c: [{"name": "daily", "enabled": True}])
+    monkeypatch.setattr(llm, "state", lambda s: {"available": True, "paused_since": None})
+    client = TestClient(create_app(settings, require_auth=False))
+    result = client.get("/api/control/resources")
+    assert result.status_code == 200
+    assert result.json()["snapshot"] == snapshot
+    assert result.json()["history"] == [{"at": stamp}]
+    assert result.json()["stale"] is False
+    assert result.json()["age_s"] < 5
+    assert client.get("/api/control/health").json()["overall"] == "ok"
+    assert client.get("/api/control/jobs?open=true&kind=train").json()["jobs"][0]["job_id"] == "test-job"
+    assert client.get("/api/control/schedule").json()[0]["name"] == "daily"
+    assert client.get("/api/control/llm").json()["available"] is True
+    for path in ("resources", "health", "jobs", "schedule", "llm"):
+        assert "holdings" not in json.dumps(client.get(f"/api/control/{path}").json()).lower()
+    assert client.post("/api/control/jobs").status_code == 405
+    assert client.get("/api/book").status_code == 403
+    assert client.get("/api/alerts/private").status_code == 403
+
+
+def test_control_resource_snapshot_missing_or_stale(settings, monkeypatch):
+    from alphasieve.control import resources
+
+    monkeypatch.setattr(resources, "read_history", lambda s, hours: [])
+    monkeypatch.setattr(resources, "read_snapshot", lambda s: None)
+    client = TestClient(create_app(settings, require_auth=False))
+    assert client.get("/api/control/resources").json()["stale"] is True
+    assert client.get("/api/control/resources").json()["age_s"] is None
+    monkeypatch.setattr(resources, "read_snapshot", lambda s: {"at": "2020-01-01T00:00:00+00:00"})
+    stale = client.get("/api/control/resources").json()
+    assert stale["stale"] is True and stale["age_s"] > 300

@@ -9,8 +9,15 @@ from alphasieve.approvals import create_challenge, verify_records
 from alphasieve.config import PACKAGE_CONFIG_DIR, Settings
 from alphasieve.contracts.forward import ForwardConfig
 from alphasieve.errors import AlphaSieveError
-from alphasieve.fresh.service import (active_cohorts, approve_cohort, approve_paper,
-                                      pause_or_close, policy, prepare_cohort, read_model)
+from alphasieve.fresh.service import (
+    active_cohorts,
+    approve_cohort,
+    approve_paper,
+    pause_or_close,
+    policy,
+    prepare_cohort,
+    read_model,
+)
 from alphasieve.state import connect
 from alphasieve.util import canonical_json, sha256_hex, utcnow_iso
 

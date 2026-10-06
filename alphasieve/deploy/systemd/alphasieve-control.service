@@ -1,0 +1,15 @@
+[Unit]
+Description=AlphaSieve control-plane tick
+OnFailure=alphasieve-failure@%n.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/data/alphasieve/deploy/current
+Environment=ALPHASIEVE_ROLE=system
+Environment=ALPHASIEVE_USER=systemd
+ExecStart=/data/alphasieve/deploy/current/.venv/bin/alphasieve control tick --json
+Nice=5
+TimeoutStartSec=120
+RuntimeMaxSec=120
+StandardOutput=append:/data/alphasieve/logs/control.jsonl
+StandardError=append:/data/alphasieve/logs/control.err

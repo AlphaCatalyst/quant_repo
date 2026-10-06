@@ -23,7 +23,7 @@ from alphasieve.factors import library as lib
 from alphasieve.factors.registry import get_factor
 from alphasieve.ledger.ledger import append_trial, strategy_trial_count
 from alphasieve.training import mandates
-from alphasieve.training.engine import score_diagnostics, to_grid, walk_forward
+from alphasieve.training.engine import _CHECKPOINT, score_diagnostics, to_grid, walk_forward
 from alphasieve.training.samples import (
     BENCHMARK_OF,
     benchmark_returns,
@@ -239,7 +239,9 @@ def run_cross_sectional(settings: Settings, task: TrainingTask, bundle: dict, pa
 
 
 def execute(settings: Settings, bundle: dict, processes=None, threads=None, progress=None,
-            tier: str = "dev") -> tuple[dict, dict]:
+            tier: str = "dev", *, units_dir: str | Path | None = None) -> tuple[dict, dict]:
+    if units_dir is not None and tier != "dev":
+        raise validation_error("training checkpoint units are dev-only")
     task = parse_task(bundle["task"])
     _check_cost_aware_registration(task)
     if task.task_id in COST_AWARE_TASKS:
@@ -250,14 +252,18 @@ def execute(settings: Settings, bundle: dict, processes=None, threads=None, prog
     panel = load_panel(settings, tier, role="system", universe=panel_universe(task))
     if tier == "dev" and panel.tier != "dev":
         raise validation_error("training runs read the dev tier only")
-    if task.mandate in ("A", "D"):
-        result, outputs = run_cross_sectional(settings, task, bundle, panel, processes, threads, progress)
-    elif task.mandate == "C":
-        from alphasieve.training.events import run_event_task
-        result, outputs = run_event_task(settings, task, bundle, panel, processes, threads, progress)
-    else:
-        from alphasieve.training.etf import run_etf_task
-        result, outputs = run_etf_task(settings, task, bundle, panel, processes, threads, progress)
+    token = _CHECKPOINT.set((Path(units_dir), sha256_hex(canonical_json(bundle))) if units_dir is not None else None)
+    try:
+        if task.mandate in ("A", "D"):
+            result, outputs = run_cross_sectional(settings, task, bundle, panel, processes, threads, progress)
+        elif task.mandate == "C":
+            from alphasieve.training.events import run_event_task
+            result, outputs = run_event_task(settings, task, bundle, panel, processes, threads, progress)
+        else:
+            from alphasieve.training.etf import run_etf_task
+            result, outputs = run_etf_task(settings, task, bundle, panel, processes, threads, progress)
+    finally:
+        _CHECKPOINT.reset(token)
     result["bundle"] = bundle
     result["manifest"] = {"task_id": task.task_id, "mandate": task.mandate, "config_hash": bundle["config_hash"],
                           "feature_version": bundle["feature_version"], "trial_id": bundle["trial_id"],

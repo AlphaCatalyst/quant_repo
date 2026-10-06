@@ -6,10 +6,14 @@ trailing window that ends ``purge_days`` before it, with every declared seed. Ho
 group and combined with the declared weights. Jobs run in a fork-based process pool that shares the sample arrays.
 """
 
+import json
 import math
 import os
+import tempfile
 import warnings
 from concurrent.futures import ProcessPoolExecutor
+from contextvars import ContextVar
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -21,6 +25,7 @@ RIDGE_DEFAULT_ALPHA = 10.0
 LGBM_BASE = {"n_estimators": 300, "learning_rate": 0.05, "num_leaves": 31, "min_child_samples": 200,
              "subsample": 0.8, "subsample_freq": 1, "colsample_bytree": 0.8, "reg_lambda": 1.0, "verbose": -1}
 _STATE: dict = {}
+_CHECKPOINT: ContextVar[tuple[Path, str] | None] = ContextVar("training_checkpoint", default=None)
 
 
 def retrain_points(dates: pd.DatetimeIndex, window: np.ndarray, every: str, warmup_years: float) -> list[int]:
@@ -149,8 +154,55 @@ def _pool(processes: int):
     return ProcessPoolExecutor(max_workers=processes, mp_context=mp.get_context("fork"))
 
 
+def _read_unit(path: Path, bundle_hash: str, point: int, stop: int, horizons: list[int], nrows: int):
+    if not path.exists():
+        return None
+    try:
+        unit = json.loads(path.read_text(encoding="utf-8"))
+        if (unit["bundle_sha256"] != bundle_hash or unit["point"] != point or unit["stop"] != stop
+                or set(unit["horizons"]) != {str(h) for h in horizons}):
+            return None
+        results = []
+        for h in horizons:
+            item = unit["horizons"][str(h)]
+            test = np.asarray(item["test"], dtype=np.int64)
+            pred = None if item["pred"] is None else np.asarray(item["pred"], dtype=float)
+            if ((test < 0).any() or (test >= nrows).any() or
+                    (pred is not None and len(pred) != len(test))):
+                return None
+            results.append((point, h, test, pred, int(item["train_rows"])))
+        return results
+    except (OSError, ValueError, TypeError, KeyError):
+        return None
+
+
+def _write_unit(path: Path, bundle_hash: str, point: int, stop: int, results: list[tuple]) -> None:
+    unit = {"bundle_sha256": bundle_hash, "point": point, "stop": stop,
+            "horizons": {str(h): {"test": test.tolist(), "pred": None if pred is None else pred.tolist(),
+                                   "train_rows": n_rows}
+                         for _, h, test, pred, n_rows in results}}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
+                                         prefix=f".{path.name}.", suffix=".tmp", delete=False) as f:
+            tmp = Path(f.name)
+            json.dump(unit, f, ensure_ascii=False, allow_nan=True, separators=(",", ":"))
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    finally:
+        if tmp is not None:
+            tmp.unlink(missing_ok=True)
+
+
 def walk_forward(table: SampleTable, dates: pd.DatetimeIndex, window: np.ndarray, task, processes: int | None = None,
-                 threads: int | None = None, progress=None) -> dict:
+                 threads: int | None = None, progress=None, *, units_dir: Path | None = None,
+                 bundle_hash: str | None = None) -> dict:
+    if units_dir is None and bundle_hash is None and (checkpoint := _CHECKPOINT.get()) is not None:
+        units_dir, bundle_hash = checkpoint
+    if (units_dir is None) != (bundle_hash is None):
+        raise ValueError("units_dir and bundle_hash must be supplied together")
     split, sample = task.split, task.sample
     horizons = task.label.horizons
     candidates = task.candidates()
@@ -194,15 +246,28 @@ def walk_forward(table: SampleTable, dates: pd.DatetimeIndex, window: np.ndarray
         per_h = {h: np.full(len(table.date_pos), np.nan) for h in horizons}
         fits = skipped = 0
         train_rows = []
-        for i, (_p, h, test, pred, n_rows) in enumerate(pool.map(_refit_job, jobs, chunksize=1), start=1):
-            if pred is None:
-                skipped += 1
-                continue
-            per_h[h][test] = pred
-            fits += 1
-            train_rows.append(n_rows)
-            if progress and i % 20 == 0:
-                progress("refit", i, len(jobs))
+        if units_dir is None:
+            result_iter = pool.map(_refit_job, jobs, chunksize=1)
+        else:
+            def checkpointed_results():
+                for point_index, (p, stop) in enumerate(zip(points, bounds, strict=True), start=1):
+                    path = Path(units_dir) / f"{dates[p].date().isoformat()}.json"
+                    results = _read_unit(path, bundle_hash, p, stop, horizons, len(table.date_pos))
+                    if results is None:
+                        point_jobs = jobs[(point_index - 1) * len(horizons):point_index * len(horizons)]
+                        results = list(pool.map(_refit_job, point_jobs, chunksize=1))
+                        _write_unit(path, bundle_hash, p, stop, results)
+                    yield from results
+            result_iter = checkpointed_results()
+        for i, (_p, h, test, pred, n_rows) in enumerate(result_iter, start=1):
+                if pred is None:
+                    skipped += 1
+                else:
+                    per_h[h][test] = pred
+                    fits += 1
+                    train_rows.append(n_rows)
+                if progress and i % 20 == 0:
+                    progress("refit", i, len(jobs))
     weights = task.ensemble.horizon_weights or {h: 1.0 / len(horizons) for h in horizons}
     combo = np.zeros(len(table.date_pos))
     have = np.zeros(len(table.date_pos), dtype=bool)

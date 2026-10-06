@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from alphasieve.config import Settings
+from alphasieve.control.llm import require_available
 
 CODEX_BIN = shutil.which("codex") or "/usr/local/bin/codex"
 CLAUDE_BIN = shutil.which("claude") or "/root/.local/bin/claude"
@@ -209,6 +210,7 @@ class CodexExecutor:
         ]
 
     def run(self, ctx: TurnContext) -> TurnResult:
+        require_available(self.settings)
         env = agent_env(self.settings, ctx, "codex")
         env.update({"CODEX_HOME": CODEX_HOME, "HOME": str(ctx.workspace)})
         result = TurnResult(status="running")

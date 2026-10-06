@@ -16,6 +16,7 @@ from alphasieve.agents.executors import TurnContext, TurnResult, make_executor
 from alphasieve.audit import record_event
 from alphasieve.campaigns import lifecycle, memory, service, stats
 from alphasieve.config import Settings
+from alphasieve.control.llm import LlmUnavailable, probe, require_available, state
 from alphasieve.errors import AlphaSieveError
 from alphasieve.state import connect
 from alphasieve.util import canonical_json, utcnow_iso
@@ -52,6 +53,22 @@ def next_recovery(agents, disabled: dict) -> float | None:
     return min(times) if times else None
 UNAVAILABLE = re.compile(r"UserBudgetExhausted|Failed to authenticate|invalid[ _-]?api[ _-]?key|API key|secrets\.env"
                          r"|\b40[12]\b", re.I)
+NETWORK_FAILURE = re.compile(
+    r"connection (?:refused|reset|closed|aborted)|tunnel (?:closed|lost)|network (?:unreachable|error)"
+    r"|dns|name resolution|econnrefused|econnreset|socket hang up|timed? out connecting"
+    r"|upstream.*(?:50[0234]|429)|(?:50[0234]|429).*(?:upstream|retries exhausted)", re.I,
+)
+REPEATED_POOL_FAILURE = re.compile(r"\b(?:HTTP\s*)?(429|50[0234])\b[\s\S]*\b(?:HTTP\s*)?\1\b", re.I)
+
+
+def llm_failure(settings: Settings, harness: str, result: TurnResult) -> bool:
+    if result.status == "interrupted":
+        return True
+    if result.status not in ("failed", "timeout"):
+        return False
+    if NETWORK_FAILURE.search(result.error or "") or REPEATED_POOL_FAILURE.search(result.error or ""):
+        return True
+    return harness == "codex" and not probe(settings)["reachable"]
 
 
 def turn_allowance(budget: dict) -> int:
@@ -125,9 +142,11 @@ def plan_round(conn, campaign_id: str, max_new: int | None = None) -> list[dict]
     disabled = campaign["stats"].get("disabled_agents", {})
     available = [a for a in spec.agents if is_available(a, disabled)]
     allowance = max(1, min(turn_allowance(budget), remaining_trials // lanes if lanes > 1 else remaining_trials))
+    last_index = conn.execute("SELECT COALESCE(MAX(turn_index), 0) FROM turns WHERE campaign_id = ?",
+                              (campaign_id,)).fetchone()[0]
     plans = []
     for k in range(lanes):
-        index = budget["turns"]["used"] + 1 + k
+        index = last_index + 1 + k
         cells = spec.cells[k::lanes] if spec.lanes > 1 else spec.cells
         plans.append({"index": index, "slot": available[(index - 1) % len(available)], "allowance": allowance,
                       "lane": k if spec.lanes > 1 else None, "cells": cells or spec.cells})
@@ -137,15 +156,23 @@ def plan_round(conn, campaign_id: str, max_new: int | None = None) -> list[dict]
 def run_turn(settings: Settings, campaign_id: str, plan: dict, executor_for: Callable) -> dict:
     conn = connect(settings.state_db)
     try:
-        return _run_turn(settings, conn, campaign_id, plan, executor_for)
+        try:
+            return _run_turn(settings, conn, campaign_id, plan, executor_for)
+        except LlmUnavailable as exc:
+            return {"turn_id": None, "status": "interrupted", "harness_status": "unavailable",
+                    "lane": plan["lane"], "trials": 0, "new_robust": 0, "error": str(exc)}
     finally:
         conn.close()
 
 
 def _run_turn(settings: Settings, conn, campaign_id: str, plan: dict, executor_for: Callable) -> dict:
     campaign = service.get_campaign(conn, campaign_id)
+    if campaign["status"] != "running":
+        raise AlphaSieveError("CONFLICT", f"campaign {campaign_id} is {campaign['status']}")
     spec = campaign["spec"]
     index, slot, allowance, lane = plan["index"], plan["slot"], plan["allowance"], plan["lane"]
+    if slot.harness == "codex":
+        require_available(settings)
     turn_id = f"{campaign_id}-t{index:03d}"
     ws = workspace.prepare(settings, conn, campaign_id, index, allowance, lane, plan["cells"])
     transcript = settings.transcripts_dir / campaign_id / f"{turn_id}.jsonl"
@@ -163,6 +190,8 @@ def _run_turn(settings: Settings, conn, campaign_id: str, plan: dict, executor_f
                       trial_allowance=allowance)
     try:
         result: TurnResult = executor_for(slot.harness).run(ctx)
+    except LlmUnavailable as exc:
+        result = TurnResult(status="interrupted", error=str(exc))
     except Exception as exc:  # noqa: BLE001
         result = TurnResult(status="failed", error=f"{type(exc).__name__}: {exc}")
     findings = integrity.compare(guard, integrity.snapshot(conn, settings))
@@ -171,7 +200,9 @@ def _run_turn(settings: Settings, conn, campaign_id: str, plan: dict, executor_f
     turn_trials = _turn_trials(conn, turn_id)
     trials_after = len(service.completed_trials(conn, campaign_id))
     new_robust = _turn_new_robust(conn, campaign_id, turn_id)
-    status = "failed" if result.status in ("failed", "timeout") and turn_trials == 0 else "completed"
+    unavailable = llm_failure(settings, slot.harness, result)
+    status = ("interrupted" if unavailable else
+              "failed" if result.status in ("failed", "timeout") and turn_trials == 0 else "completed")
     error = result.error
     if findings:
         status, error = "integrity_violation", "; ".join(findings)[:2000]
@@ -185,7 +216,12 @@ def _run_turn(settings: Settings, conn, campaign_id: str, plan: dict, executor_f
     workspace.commit(ws, f"turn {index} ({slot.harness}/{slot.model}): {status}")
     record_event(conn, settings, "turn.finished", object_type="campaign", object_id=campaign_id,
                  payload={"turn_id": turn_id, "status": status, "harness_status": result.status, "lane": lane,
-                          "trials": turn_trials, "new_robust": new_robust})
+                          "trials": turn_trials, "new_robust": new_robust,
+                          "failure_class": "llm_unavailable" if status == "interrupted" else None})
+    if status == "interrupted" and service.get_campaign(conn, campaign_id)["status"] == "running":
+        service.set_status(conn, settings, campaign_id, "paused", "llm_unavailable")
+        record_event(conn, settings, "campaign.llm_paused", object_type="campaign", object_id=campaign_id,
+                     payload={"turn_id": turn_id, "reason": "llm_unavailable"})
     if status == "failed" and result.error and (UNAVAILABLE.search(result.error) or TRANSIENT.search(result.error)):
         transient = not UNAVAILABLE.search(result.error)
         entry = {"reason": result.error[:300], "until": time.time() + COOLDOWN_S if transient else None}
@@ -226,8 +262,8 @@ def run_campaign(settings: Settings, campaign_id: str, max_turns: int | None = N
     executor_for = executor_for or default_executor
     conn = connect(settings.state_db)
     turns, outcome = [], None
-    stale = conn.execute("UPDATE turns SET status = 'failed', ended_at = ?,"
-                         " error = 'orchestrator stopped during the turn'"
+    stale = conn.execute("UPDATE turns SET status = 'interrupted', ended_at = ?,"
+                         " error = 'orchestrator stopped during the turn; cause unknown'"
                          " WHERE campaign_id = ? AND status = 'running'", (utcnow_iso(), campaign_id)).rowcount
     if stale:
         record_event(conn, settings, "turn.recovered", object_type="campaign", object_id=campaign_id,
@@ -265,6 +301,23 @@ def run_campaign(settings: Settings, campaign_id: str, max_turns: int | None = N
             else:
                 with ThreadPoolExecutor(max_workers=len(plans)) as pool:
                     turns += list(pool.map(lambda pl: run_turn(settings, campaign_id, pl, executor_for), plans))
+            if any(t["status"] == "interrupted" for t in turns[-len(plans):]):
+                # A failed start probe leaves no turn row. Confirm a second failure before pausing.
+                preflight = [t for t in turns[-len(plans):] if t["status"] == "interrupted" and not t["turn_id"]]
+                if preflight and not state(settings)["paused_since"]:
+                    try:
+                        require_available(settings)
+                    except LlmUnavailable:
+                        pass
+                    if not state(settings)["paused_since"]:
+                        turns = [t for t in turns if t["turn_id"]]
+                        continue
+                if service.get_campaign(conn, campaign_id)["status"] == "running":
+                    service.set_status(conn, settings, campaign_id, "paused", "llm_unavailable")
+                    record_event(conn, settings, "campaign.llm_paused", object_type="campaign", object_id=campaign_id,
+                                 payload={"reason": "llm_unavailable"})
+                outcome = {"paused": "llm_unavailable"}
+                break
             write_report(settings, conn, campaign_id)
         write_report(settings, conn, campaign_id)
         return {"campaign_id": campaign_id, "turns": turns, "outcome": json.loads(json.dumps(outcome, default=str))}

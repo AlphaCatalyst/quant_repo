@@ -1,0 +1,24 @@
+version: 1
+entries:
+  - name: daily-update
+    spec: daily 18:40 mon-sat
+    command: [data, daily-update, --json]
+    timeout: 10800
+    enabled: true
+    concurrency: skip
+    env:
+      ALPHASIEVE_USER: systemd
+      ALPHASIEVE_WESTOCK_CLI: /data/alphasieve/deploy/current/deploy/remote/westock-ssh
+  - name: state-backup
+    spec: hourly :00
+    command: [state, backup, --json]
+    timeout: 600
+    enabled: true
+    concurrency: skip
+  - name: forward-daily
+    spec: daily 20:00 mon-sat
+    command: [fresh, daily, --json]
+    timeout: 14400
+    enabled: false
+    concurrency: skip
+    after: daily-update

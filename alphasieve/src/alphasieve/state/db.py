@@ -418,6 +418,24 @@ MIGRATIONS: list[str] = [
     CREATE TRIGGER alert_acks_no_delete BEFORE DELETE ON alert_acks
     BEGIN SELECT RAISE(ABORT,'alert_acks is append-only'); END;
     """,
+    """
+    CREATE TABLE jobs (
+        job_id TEXT PRIMARY KEY, kind TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE,
+        placement TEXT NOT NULL, target TEXT, attempt INTEGER NOT NULL DEFAULT 0,
+        max_attempts INTEGER NOT NULL, status TEXT NOT NULL, input_ref TEXT, output_ref TEXT,
+        trial_id TEXT, submitted_at TEXT NOT NULL, heartbeat_at TEXT, finished_at TEXT,
+        failure_class TEXT, error TEXT, params_json TEXT NOT NULL, handle_json TEXT,
+        next_retry_at TEXT
+    );
+    CREATE INDEX jobs_status_retry ON jobs(status, next_retry_at);
+    CREATE INDEX jobs_kind_submitted ON jobs(kind, submitted_at DESC);
+    CREATE TABLE job_attempts (
+        job_id TEXT NOT NULL REFERENCES jobs(job_id), attempt INTEGER NOT NULL,
+        target TEXT, external_id TEXT, started_at TEXT NOT NULL, ended_at TEXT,
+        outcome TEXT, failure_class TEXT, error TEXT,
+        PRIMARY KEY(job_id, attempt)
+    );
+    """,
 ]
 
 

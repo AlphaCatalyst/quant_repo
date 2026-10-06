@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Run the current working tree's pytest suite on orbenchtest.
+# An immutable release runs this script from a detached worktree of the selected commit.
 set -euo pipefail
 
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -35,7 +36,6 @@ cleanup() {
 trap 'rm -f "$list"; cleanup' EXIT
 
 rsync -a --from0 --files-from="$list" -e 'ssh -o BatchMode=yes' ./ "$host:$stage/" 2> >(sed '/^authz success$/d' >&2)
-remote_ssh "rsync -a --delete-after '$stage/' ~/$base/tree/"
 
 # uv is copied once, so the remote does not need a system package installation.
 if ! remote_ssh 'test -x ~/.local/bin/uv'; then
@@ -46,10 +46,17 @@ quoted_args=
 if (( $# )); then
   quoted_args=$(printf '%q ' "$@")
 fi
-remote_ssh "bash -s -- $quoted_args" <<'REMOTE'
+remote_ssh "STAGE='$stage' bash -s -- $quoted_args" <<'REMOTE'
 set -euo pipefail
 base="$HOME/alphasieve-ci"
 tree="$base/tree"
+# Concurrent callers share one tree and venv; hold the lock from sync to the end of the run.
+exec 9>"$base/lock"
+if ! flock -n 9; then
+  echo 'remote: waiting for another pytest run' >&2
+  flock 9
+fi
+rsync -a --delete-after "$STAGE/" "$tree/"
 cd "$tree"
 export UV_INDEX_URL=https://mirrors.tencent.com/pypi/simple/
 export UV_PROJECT_ENVIRONMENT="$base/venv"

@@ -8,13 +8,15 @@ const severity: Record<string, string> = { critical: "紧急", warning: "关注"
 
 export default function Alerts() {
   const [openOnly, setOpenOnly] = useState(true);
-  const suffix = openOnly ? "?open=true" : "";
+  const [kind, setKind] = useState(() => new URLSearchParams(window.location.hash.split("?")[1] ?? "").get("kind") ?? "");
+  const suffix = `?open=${openOnly}${kind ? `&kind=${encodeURIComponent(kind)}` : ""}`;
   const publicAlerts = useApi<Response>(`/api/alerts${suffix}`, 30000);
   const privateAlerts = useApi<Response>(`/api/alerts/private${suffix}`, 30000);
   const rows = [...(publicAlerts.data?.alerts || []), ...(privateAlerts.data?.alerts || [])]
     .sort((a, b) => b.created_at.localeCompare(a.created_at));
   return <section className="card">
     <div className="intro-head"><h2>监控告警</h2><label><input type="checkbox" checked={openOnly} onChange={e => setOpenOnly(e.target.checked)} /> 只看未确认</label></div>
+    <div className="control-filters"><button className={kind === "" ? "active" : ""} onClick={() => setKind("")}>全部</button><button className={kind === "system" ? "active" : ""} onClick={() => setKind("system")}>系统</button></div>
     <p>每日数据更新后检查公告、财报、论点、预测和仓位。确认告警请使用人工身份运行 <code>monitor ack</code>。</p>
     {privateAlerts.error?.startsWith("403") && <p>持仓相关告警仅对已登录用户显示。</p>}
     {publicAlerts.error && <p>公开告警读取失败：{publicAlerts.error}</p>}

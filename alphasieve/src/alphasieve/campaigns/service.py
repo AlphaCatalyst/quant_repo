@@ -83,7 +83,15 @@ def set_status(conn: sqlite3.Connection, settings: Settings, campaign_id: str, t
     if target == "running":
         last = conn.execute("SELECT COALESCE(MAX(turn_index), 0) FROM turns WHERE campaign_id = ?",
                             (campaign_id,)).fetchone()[0]
-        updates["stats_json"] = canonical_json({**campaign["stats"], "resumed_after_turn": last})
+        prior = campaign["stats"].get("paused_seconds", 0.0)
+        paused_at = campaign["stats"].get("paused_at")
+        if paused_at:
+            prior += max(0.0, (datetime.fromisoformat(now) - datetime.fromisoformat(paused_at)).total_seconds())
+        updates["stats_json"] = canonical_json({**campaign["stats"], "resumed_after_turn": last,
+                                                 "pause_reason": None, "paused_at": None,
+                                                 "paused_seconds": prior})
+    if target == "paused" and reason:
+        updates["stats_json"] = canonical_json({**campaign["stats"], "pause_reason": reason, "paused_at": now})
     sets = ", ".join(f"{k} = ?" for k in updates)
     conn.execute(f"UPDATE campaigns SET {sets} WHERE campaign_id = ?", (*updates.values(), campaign_id))
     record_event(conn, settings, "campaign.status_changed", object_type="campaign", object_id=campaign_id,

@@ -114,3 +114,7 @@ gate 的阈值是否合理，需要用已知答案的数据来检验：
 | M4 | T4（holdout 链路）、T6（L3 校准）、T7（holdout 泄漏检查） |
 | M6 | T5（回测对照）、执行约束单元测试 |
 | M7 | T2（fresh 不回填）、T8 |
+
+## 不可变发布验证
+
+`deploy/release.sh <commit>` 从目标 commit 建临时 worktree，并在其中调用 `deploy/remote/pytest.sh`；远端测试通过后才建立发布 worktree。`--dry-run` 只打印动作。`--skip-tests` 只能显式使用并会警告。发布和安装 systemd unit 由运维人工执行。

@@ -156,6 +156,11 @@ def run(settings, conn, asof=None):
     asof = asof or date.today().isoformat()
     date.fromisoformat(asof)
     alerts, warnings = evaluate(settings, conn, asof)
+    try:
+        from alphasieve.control.health import system_alerts
+        alerts.extend(system_alerts(settings, conn, asof))
+    except Exception as exc:
+        warnings.append(f"system health: {str(exc)[:160]}")
     inserted = 0
     for item in alerts:
         cursor = conn.execute("INSERT OR IGNORE INTO alerts VALUES (?,?,?,?,?,?,?,?,?)",

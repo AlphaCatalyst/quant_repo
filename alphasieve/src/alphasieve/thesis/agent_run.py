@@ -15,6 +15,7 @@ from alphasieve.agents.integrity import scan_commands
 from alphasieve.agents.workspace import _git
 from alphasieve.audit import record_event
 from alphasieve.config import Settings, ensure_storage
+from alphasieve.control.llm import LlmUnavailable, probe, require_available
 from alphasieve.state import connect
 from alphasieve.thesis import Thesis, evaluate_scenarios, load_thesis
 
@@ -22,6 +23,16 @@ SAMPLE = Path(__file__).resolve().parents[3] / "theses" / "hog-cycle-muyuan.yaml
 DEFAULT_MODEL = "gpt-6-sol"
 DEFAULT_EFFORT = "high"
 DEFAULT_TIMEOUT = 30 * 60
+
+_NETWORK_ERRORS = ("connection refused", "connection reset", "connection closed", "tunnel closed",
+                   "network unreachable", "host unreachable", "econnrefused", "econnreset", "socket hang up",
+                   "upstream unavailable", "all providers unavailable", "no healthy upstream", "fetch failed")
+
+
+def _network_interruption(error: str | None) -> bool:
+    message = (error or "").lower()
+    return (any(marker in message for marker in _NETWORK_ERRORS) or
+            sum(message.count(marker) for marker in ("429", "500", "502", "503", "504")) >= 2)
 
 
 def _schema_summary() -> str:
@@ -86,17 +97,37 @@ def prepare_workspace(settings: Settings, kind: str, run_id: str, *, topic: str 
 
 def _run(settings: Settings, kind: str, run_id: str, prompt: str, harness: str, model: str,
          effort: str, timeout: int, *, fake_script: Callable | None = None,
-         topic: str | None = None, thesis_file: str | Path | None = None) -> dict:
-    ws = prepare_workspace(settings, kind, run_id, topic=topic, thesis_file=thesis_file)
+         topic: str | None = None, thesis_file: str | Path | None = None,
+         resume_count: int = 0, reuse_workspace: bool = False) -> dict:
+    ws = (settings.hot_root / "thesis_workspaces" / run_id if reuse_workspace else
+          prepare_workspace(settings, kind, run_id, topic=topic, thesis_file=thesis_file))
+    if reuse_workspace and not (ws / ".git").exists():
+        raise ValueError(f"thesis workspace missing for {run_id}")
     baseline = _git(ws, "rev-parse", "HEAD").stdout.strip()
     transcript = settings.store_root / "transcripts" / "thesis" / f"{run_id}.jsonl"
     ctx = TurnContext(campaign_id=run_id, turn_id=run_id, turn_index=0, workspace=ws, prompt=prompt,
                       model=model, effort=effort, timeout_s=timeout, transcript_path=transcript,
                       trial_allowance=0, profile=PROFILES["researcher" if kind == "draft" else "reviewer"])
-    executor = make_executor(settings, harness, fake_script)
-    result: TurnResult = executor.run(ctx)
+    result: TurnResult
+    try:
+        if harness == "codex":
+            require_available(settings)
+        executor = make_executor(settings, harness, fake_script)
+        result = executor.run(ctx)
+    except LlmUnavailable as exc:
+        result = TurnResult(status="interrupted", error=str(exc))
+    except Exception as exc:  # executor launch or transport failure is a run result
+        error = f"{type(exc).__name__}: {exc}"
+        result = TurnResult(status="interrupted" if _network_interruption(error) else "failed", error=error)
+    if result.status not in {"completed", "interrupted"} and _network_interruption(result.error):
+        result.status = "interrupted"
+    if result.status not in {"completed", "interrupted"} and harness == "codex":
+        # A turn may lose the SSH tunnel after its initial availability check.
+        if not probe(settings)["reachable"]:
+            result.status = "interrupted"
     _git(ws, "add", "-A")
-    _git(ws, "commit", "-q", "-m", f"{kind} thesis run")
+    if _git(ws, "status", "--porcelain").stdout.strip():
+        _git(ws, "commit", "-q", "-m", f"{kind} thesis run")
     changed = _git_paths(ws, baseline)
     writable = "drafts/" if kind == "draft" else "reviews/"
     violations = [p for p in changed if not p.startswith(writable) or (ws / p).is_symlink()]
@@ -114,17 +145,24 @@ def _run(settings: Settings, kind: str, run_id: str, prompt: str, harness: str, 
     produced = any(p.startswith(writable) for p in changed)
     if result.status == "completed" and not produced and not violations and not errors:
         error = f"agent finished without writing under {writable}"
-    status = ("rejected" if violations or errors else
-              ("failed" if result.status != "completed" or not produced else "completed"))
+    status = ("interrupted" if result.status == "interrupted" else
+              "rejected" if violations or errors else
+              "failed" if result.status != "completed" or not produced else "completed")
     data = {"run_id": run_id, "kind": kind, "harness": harness, "model": model, "status": status,
             "usage": result.usage, "summary": result.summary, "error": error,
             "transcript_path": str(transcript), "workspace": str(ws), "changed_files": changed,
-            "violations": violations, "validation_errors": errors, "drafts": drafts}
+            "violations": violations, "validation_errors": errors, "drafts": drafts,
+            "inputs": {"prompt": prompt, "topic": topic, "thesis_file": str(thesis_file) if thesis_file else None,
+                       "effort": effort, "timeout": timeout}, "resume_count": resume_count}
     ensure_storage(settings)
     conn = connect(settings.state_db)
     try:
         record_event(conn, settings, "thesis.run", status="error" if status in {"rejected", "failed"} else "ok",
                      command=f"thesis {kind}", object_type="thesis_run", object_id=run_id, payload=data)
+        if resume_count:
+            record_event(conn, settings, "thesis.run_resumed", command=f"thesis {kind}",
+                         object_type="thesis_run", object_id=run_id,
+                         payload={"resume_count": resume_count, "status": status})
         conn.commit()
     finally:
         conn.close()
@@ -165,3 +203,17 @@ def show_run(settings: Settings, run_id: str) -> dict:
     if not rows:
         raise ValueError(f"thesis run {run_id} not found")
     return rows[0]
+
+
+def resume_interrupted(settings: Settings, run_id: str) -> dict | None:
+    """Retry the latest interrupted run in its original workspace, at most three times."""
+    previous = show_run(settings, run_id)
+    if previous["status"] != "interrupted" or previous.get("resume_count", 0) >= 3:
+        return None
+    inputs = previous.get("inputs") or {}
+    if not inputs.get("prompt"):
+        return None  # Historical runs did not save the inputs needed for a faithful retry.
+    return _run(settings, previous["kind"], run_id, inputs["prompt"], previous["harness"],
+                previous["model"], inputs["effort"], inputs["timeout"],
+                topic=inputs.get("topic"), thesis_file=inputs.get("thesis_file"),
+                resume_count=previous.get("resume_count", 0) + 1, reuse_workspace=True)

@@ -14,4 +14,8 @@
 
 - Python ≥ 3.11，src 布局，依赖用 `uv` 管理。
 - CLI 命令都支持 `--json`，输出 machine-readable 的 status、metrics、artifact ids、error code；大结果写 artifact 并返回路径。
-- 提交前运行 `uv run pytest`。
+- 提交前运行 `deploy/remote/pytest.sh` 在 orbenchtest 执行全量测试；开发中允许本机定向运行。
+
+## 控制面
+
+控制面契约见 [docs/34-control-plane.md](docs/34-control-plane.md)。运维 skill：`~/.cursor/skills/alphasieve-control-plane`；新能力接入 skill：`~/.cursor/skills/alphasieve-new-capability`。新的定时工作登记在 `configs/control/schedule.yaml`，远端工作注册为 job kind，检查和告警接入 monitor/health；不要新增临时拼装的 systemd timer。

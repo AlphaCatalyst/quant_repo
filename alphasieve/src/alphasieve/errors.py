@@ -6,6 +6,7 @@ EXIT_CODES = {
     "NOT_FOUND": 6,
     "CONFLICT": 7,
     "STORAGE_UNAVAILABLE": 8,
+    "LLM_UNAVAILABLE": 9,
     "INTERNAL": 10,
 }
 

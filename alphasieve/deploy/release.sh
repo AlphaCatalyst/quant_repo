@@ -19,24 +19,30 @@ for arg in "$@"; do
   esac
 done
 cd "$repo"
+# The project may live in a subdirectory of the git repository; releases keep that layout.
+prefix=$(git rev-parse --show-prefix)
+prefix=${prefix%/}
+app() { echo "$root/releases/$1${prefix:+/$prefix}"; }
 if (( rollback )); then
   current=$(readlink -f "$root/current" || true)
-  previous=$(python3 - "$hot/control/releases.jsonl" "$root/releases" "$current" <<'PY'
+  previous=$(python3 - "$hot/control/releases.jsonl" "$root/releases" "$current" "$prefix" <<'PY'
 import json, pathlib, sys
 log, releases, current = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), pathlib.Path(sys.argv[3])
+prefix = sys.argv[4]
 if log.exists():
     for line in reversed(log.read_text().splitlines()):
         try:
-            candidate = releases / json.loads(line)['sha']
+            sha = json.loads(line)['sha']
         except (ValueError, KeyError):
             continue
+        candidate = releases / sha / prefix if prefix else releases / sha
         if candidate.is_dir() and candidate != current:
-            print(candidate)
+            print(sha)
             break
 PY
 )
   [[ -n $previous ]] || { echo 'no previous release' >&2; exit 1; }
-  sha=$(basename "$previous")
+  sha=$previous
 else
   sha=$(git rev-parse --verify "${commit}^{commit}")
 fi
@@ -45,7 +51,7 @@ if (( dry_run )); then
   if (( rollback )); then echo "rollback to $root/releases/$sha";
   elif (( skip_tests )); then echo 'WARNING: tests explicitly skipped';
   else echo "test exact commit $sha via deploy/remote/pytest.sh"; fi
-  echo "worktree $root/releases/$sha; uv sync --frozen; switch $root/current; restart alphasieve-web; health check; record release; keep 5"
+  echo "worktree $(app "$sha"); uv sync --frozen; switch $root/current; restart alphasieve-web; health check; record release; keep 5"
   exit 0
 fi
 summary=rollback
@@ -58,7 +64,7 @@ if (( ! rollback )); then
     trap 'git worktree remove --force "$temp" >/dev/null 2>&1 || true' EXIT
     git worktree add --detach "$temp" "$sha" >&2
     output=$(mktemp)
-    if "$temp/deploy/remote/pytest.sh" >"$output" 2>&1; then
+    if "$temp${prefix:+/$prefix}/deploy/remote/pytest.sh" >"$output" 2>&1; then
       summary=$(grep 'remote summary:' "$output" | tail -1 || true)
       cat "$output"
     else
@@ -74,10 +80,10 @@ if (( ! rollback )); then
     mkdir -p "$root/releases"
     git worktree add --detach "$root/releases/$sha" "$sha"
   fi
-  UV_INDEX_URL=https://mirrors.tencent.com/pypi/simple/ uv sync --frozen --directory "$root/releases/$sha"
+  UV_INDEX_URL=https://mirrors.tencent.com/pypi/simple/ uv sync --frozen --directory "$(app "$sha")"
 fi
 old=$(readlink -f "$root/current" || true)
-ln -sfn "$root/releases/$sha" "$root/.current-next"
+ln -sfn "$(app "$sha")" "$root/.current-next"
 mv -Tf "$root/.current-next" "$root/current"
 wait_web() {
   for _ in {1..15}; do
@@ -101,5 +107,5 @@ with open(sys.argv[1], 'a', encoding='utf-8') as f:
 PY
 mapfile -t old_releases < <(find "$root/releases" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' | sort -nr | cut -d' ' -f2- | tail -n +6)
 for path in "${old_releases[@]}"; do
-  [[ $(readlink -f "$root/current") == "$path" ]] || git worktree remove "$path"
+  [[ $(readlink -f "$root/current") == "$path${prefix:+/$prefix}" ]] || git worktree remove "$path"
 done

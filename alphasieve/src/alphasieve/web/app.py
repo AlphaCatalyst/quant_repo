@@ -282,6 +282,8 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
 
     @app.get("/api/forward")
     def forward_view(user: str = Depends(auth), conn=Depends(db)):
+        if not require_auth or user == "anonymous":
+            raise HTTPException(403, "forward requires human authentication")
         from alphasieve.fresh.service import read_model
 
         return read_model(conn)

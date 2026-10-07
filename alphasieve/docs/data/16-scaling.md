@@ -1,0 +1,157 @@
+# 16 · 扩大算力与数据量
+
+目标：在不削弱验证纪律的前提下，把每小时能完成的有效评估数提高 1–2 个数量级，并把数据从中证 800 日频扩到全 A、更长历史和更多数据种类。本文件只给出实测依据和建议方案；各项是否采纳在 [10-decisions.md](../overview/10-decisions.md) Q-16 中决定。分层（模型层、组合层）的调整见 [15-task-layers.md](../research/15-task-layers.md)。
+
+## 1. 现状与实测瓶颈（2026-09-27）
+
+| 环节 | 实测 |
+|---|---|
+| 单次评估（只到 L1） | 40–70 秒 |
+| 单次评估（到 L2） | 约 226 秒，峰值内存 5.5 GB |
+| 每次 CLI 调用载入 panel | 约 11 秒，常驻内存约 3 GB |
+| 本机可用内存 | 约 24 GB，因此最多同时跑 2 个评估 |
+| agent 一个 turn | 7–15 分钟，最多评估 6–7 个候选 |
+| 试点实际吞吐 | 约 25–30 个 trial / 小时 |
+| 门槛校准（200 个随机表达式） | 101 分钟 |
+| 种子库入库（18 个） | 约 200 秒 |
+
+一次跑到 L2 的评估的耗时拆分（cProfile，试点中通过 L2 的那个因子）：
+
+| 部分 | 秒 | 原因 |
+|---|---|---|
+| L2 边际贡献（滚动 ridge） | 72 | 按日期的 Python 循环（46 秒），另有特征准备 24 秒 |
+| L2 多头回测（B2） | 42 | 逐日 Python 循环，约 44 万次 pandas 索引 |
+| L1 与因子库的相关性 | 58 | 每次评估都对 18 个库因子重新做截面排名（67 次 rank，共 48 秒） |
+| 长表转宽表 | 16 | 每个进程每个字段都要做一次 |
+| L2 中性化 | 11 | 逐日回归 |
+| 其余（IC、分组、因子计算） | 约 27 | |
+
+结论：主要耗时不在计算本身，而在重复工作和 Python 循环上；单进程的评估实现决定了吞吐。
+
+## 2. 算力：三步走
+
+### 2.1 评估内核提速（单机，预计 5–10 倍）
+
+- **因子库预计算。** 库成员的截面排名矩阵只算一次，并按 panel 签名缓存，以后每次评估只对候选因子排名。预计节省 45 秒以上。
+- **向量化。**
+  - 多头回测改成矩阵运算：用排名掩码、调仓日持仓矩阵和换手矩阵来算，不再逐日循环。
+  - 滚动 ridge 改为按窗口批量求闭式解，或直接复用截面排名后的矩阵运算。
+  - 截面排名改用 numpy 或 bottleneck 实现，比 pandas 的 `rank` 快数倍；数据量更大时可以放到 GPU（torch）上。
+- **数据类型与载入。** 宽表统一用 float32；按需只载入表达式用到的字段；宽表缓存在进程内。
+- **验收。** 优化前后在同一 panel 上，对一组固定候选输出的全部指标逐项一致（容差 1e-6）；单次 L2 评估降到 30 秒以内。
+
+**S-1 实施结果（2026-09-27）：**
+- 截面排名、秩相关、带中心化的排名改为 numba 并行内核；中性化改为按行业聚合后批量求解正规方程。
+- 滚动 ridge 改为按日期的充分统计量加闭式解。基线部分的特征与统计量按“panel 签名 + 预测周期 + 基线成员”在进程内缓存，每次只计算候选相关的交叉项。
+- 多头回测的循环改用 numpy 行运算；宽表改为用整数索引直接填充；库因子值在进程内缓存。
+- 一致性：`tests/test_fastops.py` 在合成 panel 上对比冻结的 v1 实现（`tests/reference/`）。覆盖单项指标、完整的 L1 / L2 指标、缓存命中与空基线三种情况，差异都在 1e-6 以内；中性化残差与逐日 lstsq 的差距在 1e-15 量级。
+- 真实 panel 实测（机器负载约 20）：
+
+  | 场景 | 耗时 |
+  |---|---|
+  | 同进程第二个候选，跑到 L2 | 23 秒（原 226 秒） |
+  | 只到 L1 | 12 秒 |
+  | 新进程的第一个评估（含载入 panel、构建基线块） | 36 秒 |
+- float32 宽表作为选项实现（`ALPHASIEVE_WIDE_DTYPE=float32`），宽表缓存减半。但真实 panel 上一次 L2 评估的峰值内存只从 6.26 GB 降到 6.14 GB（峰值主要来自长表与 float64 中间数组），指标差异约 3e-7，因此默认仍用 float64，保持与 v1 逐项一致。内存问题靠常驻服务解决（每个 worker 约 6 GB）。
+
+### 2.2 常驻评估服务（本机或平台，吞吐再提高一个数量级）
+
+- 把 `evaluate_spec` 放进常驻的 worker 进程：panel、宽表和库矩阵只载入一次，之后按请求计算。
+- 记账仍由本机统一的评估入口完成：
+  - agent 的 `factor eval` 把请求写进本机 state 目录下的任务队列；
+  - worker 算完指标，结果回到本机，由本机统一写入 ledger（单一写入者，哈希链不变）。
+- worker 可以放在本机（受 24 GB 内存限制，2–3 个），也可以放在平台（D-23）。
+  - 平台单节点 376 核、2 TB 内存，按每个 worker 约 6 GB 计算，一个节点可以跑上百个 worker。
+  - 结果通过 taijifs 回传，也可以用 Ray actor 常驻 panel。
+- 需要先解决两件事：本机能否直接连平台上的 Ray actor（Ray Client 端口是否可达，待实测）；如果连不上，就用 taijifs 做队列目录，延迟是秒级。
+
+**S-3 实施结果**：见 [10-decisions.md](../overview/10-decisions.md) D-25。本机常驻 worker 已作为 systemd 服务运行；平台 worker 按需通过 `deploy/ray/start_workers.sh` 启动，配合 `systemctl start alphasieve-evalbridge` 使用。
+
+### 2.3 让搜索能用上算力
+
+评估变快以后，瓶颈转到 agent：一个 LLM turn 只评估几个候选。扩大搜索有三条路，可以组合使用：
+
+1. **并行 agent。** 同一个 campaign 按格子（领域 × 形式 × 尺度）把工作分给多个 agent 并行做，各自有独立的 turn 和配额，共享 ledger 与记忆。也可以同时跑多个 campaign。
+2. **agent 提出模板，系统批量展开。** agent 写出带参数槽位的表达式模板和假设，系统按 default-first 的规则在邻域里展开并批量评估。展开出来的每一个都计入 trial，L3 照常折扣。
+3. **程序化搜索作为补充。** 在平台上用遗传编程、枚举，或 AlphaGen 式的方法做大规模搜索，奖励用“对因子库的边际贡献”。这部分单独建 campaign、单独计试验数，与 LLM 的 campaign 分开记账，避免稀释各自的统计口径。
+
+### 2.4 模型层训练
+
+模型层（15 §4 P-3）的滚动训练放到平台：
+- LightGBM 与排序模型用 CPU 并行，按月份切分成独立任务；
+- 深度模型用 H20；
+- 模型与特征物化存放在 taijifs 的 `models/` 下，实验记录写到 RunLab。
+
+## 3. 数据量：先扩广度与历史，再扩频率与种类
+
+| 方向 | 做法 | 量级 | 收益 | 前提与风险 |
+|---|---|---|---|---|
+| 股票池：中证 800 → 全 A | BaoStock 提供全部 A 股日线；股票池改用“上市满一年、非 ST、流动性前 N%”这类规则定义，不依赖指数成分 | 每天约 3,000–5,000 只（现在 800） | 截面观测增加 4–6 倍，L1 到 L4 的统计功效都提高；holdout 的功效也随之提高 | 需要新的 PIT 流动性规则；指数增强仍以中证 500 / 800 为基准 |
+| 历史：2011 → 2005 | BaoStock 日线与财报可以回溯更早 | 多约 6 年 | dev 更长，子区间检验更有力 | 2005–2008 包含股改与极端行情，要单独标记 |
+| 财报与事件 | BaoStock 的业绩预告、业绩快报、分红送转等接口 | 每年数千到数万个事件 | 事件驱动（strategy-scope §2.2）所需的数据 | 必须按公告的实际发布时间对齐 |
+| 分钟线 → 日频特征 | BaoStock 的 5 / 15 / 30 / 60 分钟线，由系统聚合成日频派生字段（日内波动、尾盘成交占比、开盘冲击等） | 全 A 5 分钟线每年约 6,000 万行 | 量价类新信息源 | 可用年限与拉取速度待实测；原始数据只放 taijifs，在平台上聚合 |
+| 其他数据源 | westock-data（研报、新闻、公告、资金流、龙虎榜）、AKShare（融资融券、北向资金等） | 视数据集而定 | 情绪、资金面、预期修正 | 逐个核实 PIT 与授权；先作为对照信号源 |
+
+数据放在哪里：
+- 原始数据和大体量的中间产物放 taijifs，由平台任务同步和构建（平台能直接访问 BaoStock，本机写 taijifs 慢）；
+- 本机只保留评估需要的 panel；
+- 全 A、2005 年起的日频 panel 约 1,500 万行，内存宽表约 10–15 GB，适合在平台 worker 上用；本机需要按字段按需载入。
+
+### 3.1 实施进展（2026-09-27）
+
+- **S-4**：完成。全 A 日线已同步，dev panel 在平台构建，holdout 只在本机，全 A campaign 经平台 worker 评估跑通（见 [acceptance-scaling.md](../acceptance/acceptance-scaling.md)）。全 A 财报改用 westock 三大报表，另加资金流向（D-30）。
+- **S-5**：并行 lane 与模板展开已完成，并做过真实验证（D-27）。
+- **S-6**：`strategy backtest` 可以作为平台任务运行，结果写入 RunLab（D-28）。组合层补上了市值与行业约束，需要重跑。后来模型层与组合层由训练任务取代（D-31，[19-training-tasks.md](../mandates/19-training-tasks.md)），训练同样在平台 Ray 集群上运行。
+- **S-7**：完成。事件数据已纳入中证 800 panel；`hs300_2020` 日内 panel 已构建（15 分钟线）；程序化搜索在独立的 `program` campaign 中运行，400 个 trial 已完整结题（D-28）。稀疏的事件字段用 `fill_na` 把没有事件的日子填为中性值。
+
+常用命令：
+
+```bash
+alphasieve data sync --universe ashare_all --dataset core --workers 8      # 全 A 日线（本机）
+alphasieve data sync --universe ashare_all --dataset financials --workers 8
+alphasieve data sync --dataset events --workers 4                         # 业绩预告 / 快报
+alphasieve data sync --universe hs300_2020 --dataset intraday --start 2020-01-01 --workers 4
+alphasieve data build-panel --universe ashare_all --tiers holdout          # holdout 只在本机构建
+deploy/ray/submit.sh build-all data build-panel --universe ashare_all --tiers dev   # dev 在平台构建；原始数据用截断到 dev 区间的 tar（D-30）
+deploy/ray/start_workers.sh 8 && systemctl start alphasieve-evalbridge     # 平台 worker 与本机桥接进程
+alphasieve search run prog-evolve-001 --trials 400 --method evolve --concurrency 16
+deploy/ray/submit.sh strategy strategy backtest --universe csi800 --horizon 20 --model lgbm --jobs 32
+```
+
+## 4. 规模变大后，统计纪律必须同步
+
+- **试验数。** L3 的门槛随试验数上升（DSR 的期望最大值大致随 \(\sqrt{2\ln N}\) 增长）。从几百次扩到几万次后，只有很强的信号才能通过，这是正确的行为，不应为了通过率放松。
+- **holdout 是真正稀缺的资源。** 算力可以加，holdout 区间不会变长。对策：
+  1. 扩股票池来提高 holdout 的统计功效；
+  2. holdout 只在策略层检验（15 §4 P-4），读取次数严格按预算；
+  3. 前瞻验证（fresh）从 M7 开始持续积累，作为最终证据。
+- **分开记账。** 程序化搜索、LLM 搜索、模型层与组合层的试验分别记账，各自计算折扣，统一出现在 ledger 与 RunLab 中。
+- **隔离的外延。** taijifs 在本机也有挂载，而 Codex 的沙箱不限制读取。如果平台上存放了 holdout 区间的原始数据，本机的 agent 理论上能读到。完整性扫描需要把 taijifs 上的数据路径加入敏感路径列表；holdout panel 仍然只在本机构建、只由 system 角色读取。
+
+## 5. 建议顺序
+
+| 步骤 | 内容 | 预期效果 | 依赖 |
+|---|---|---|---|
+| S-1 | 评估内核提速（§2.1），加上一致性回归测试 | 单次 L2 从约 226 秒降到 30 秒以内 | 无 |
+| S-2 | 分层调整 P-1、P-2（预测周期、L2 口径） | 搜索方向正确 | 15 §4 的决定 |
+| S-3 | 常驻评估服务（§2.2），先在本机，再扩到平台 worker | 评估不再是瓶颈 | S-1 |
+| S-4 | 全 A 股票池与 2005 年起的历史（§3 第一、二行），在平台上同步和构建 | 统计功效提高 4–6 倍 | S-3（本机内存不够） |
+| S-5 | 并行 agent 与模板展开（§2.3 第 1、2 点） | 吞吐与探索面扩大 | S-3 |
+| S-6 | 最小模型层与组合层上平台（§2.4，15 §4 P-3） | 能按策略层评价 | S-2、S-3 |
+| S-7 | 分钟线派生特征、事件数据、程序化搜索 | 新信息源 | S-4、S-6 |
+
+S-1 与 S-2 不改变系统结构，可以立即开始。S-3 之后的步骤会改变部署方式或数据契约，应逐项确认后再做。
+
+## 6. 算力放置（2026-10-05）
+
+本机只做调度、记账、状态库写入和看板；耗算力的工作放到 Ray 或 orbenchtest。约束是 D-23：holdout 与 fresh 数据不存放到本机以外。
+
+| 工作 | 位置 | 方式 |
+|---|---|---|
+| 训练、策略回测、因子评估 | Ray | 训练用 `alphasieve jobs submit train --task <task>`；其余既有入口用 `deploy/ray/submit.sh`、evalbridge |
+| 风险报告（dev trial） | Ray | `alphasieve jobs submit risk_report --trial <id> --output <path>`；`jobs reconcile` 自动取回。只上传截到 2022-12-31 的申万历史和父产物 manifest/metrics |
+| 申万口径敏感性（组合部分） | Ray | `alphasieve jobs submit sw_sensitivity --output <dir>`；`jobs reconcile` 自动取回；因子部分仍在本机 |
+| 日更里的 westock-data 调用 | orbenchtest | `ALPHASIEVE_WESTOCK_CLI=deploy/remote/westock-ssh`：SSH 复用连接在远端执行，响应不落远端盘；SSH 失败时回退本机，最多 3 个并发。50 次调用本机 CPU 由 41.5 s 降到 1.3 s |
+| 日更其余步骤（BaoStock、巨潮、新浪、状态库登记） | 本机 | 单次 CPU 约 0.01–0.02 s，以等网络为主；unit 设 `Nice=10`、`CPUWeight=20` |
+| 排雷扫描 | 本机 | 读取 2022 年后的财报，不能上 Ray；`--jobs` 默认 2 |
+| 全量测试 | orbenchtest | `deploy/remote/pytest.sh [pytest 参数]`，约 2.6 分钟（本机 5 分 20 秒），本机 CPU 不到 1 s；见 [12-testing.md](../research/12-testing.md) |

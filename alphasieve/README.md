@@ -14,21 +14,21 @@ AlphaSieve 是一个由 agent 驱动的低频量化研究系统：agent 大量�
 
 | 文档 | 内容 |
 |---|---|
-| [01-product.md](docs/01-product.md) | 用户与角色、核心场景、范围、成功标准 |
-| [02-architecture.md](docs/02-architecture.md) | 组件、进程、存储、技术选型、隔离边界 |
-| [03-data.md](docs/03-data.md) | 数据源、panel、PIT、dev / holdout / fresh 区间 |
-| [04-research-core.md](docs/04-research-core.md) | 研究对象、因子 DSL、指标、gate 阈值、ledger、状态机、回测 |
-| [05-agent-harness.md](docs/05-agent-harness.md) | agent 循环、workspace、调度、记忆、可见性 |
-| [06-interfaces.md](docs/06-interfaces.md) | JSON CLI、HTTP API、事件流、artifact |
-| [07-frontend.md](docs/07-frontend.md) | 前端定位、页面、组件、技术栈 |
-| [08-progress-and-interaction.md](docs/08-progress-and-interaction.md) | 进展展示、停滞诊断、指令与审批流程、通知 |
-| [09-milestones.md](docs/09-milestones.md) | 里程碑、任务与验收 |
-| [10-decisions.md](docs/10-decisions.md) | 决策记录与待定问题 |
-| [11-factor-search-space.md](docs/11-factor-search-space.md) | 因子搜索空间：表达能力分级、派生变量、覆盖坐标 |
-| [12-testing.md](docs/12-testing.md) | 系统测试 T0–T8 与 gate 校准 |
-| [13-backtest.md](docs/13-backtest.md) | 回测 B1–B5 与 A 股成交规则 |
-| [14-agent-execution.md](docs/14-agent-execution.md) | agent 执行后端：本机 CLI、Cursor、Nexus Cloud |
-| [acceptance-m0-m2.md](docs/acceptance-m0-m2.md) | M0–M2 验收记录 |
+| [01-product.md](docs/overview/01-product.md) | 用户与角色、核心场景、范围、成功标准 |
+| [02-architecture.md](docs/overview/02-architecture.md) | 组件、进程、存储、技术选型、隔离边界 |
+| [03-data.md](docs/data/03-data.md) | 数据源、panel、PIT、dev / holdout / fresh 区间 |
+| [04-research-core.md](docs/research/04-research-core.md) | 研究对象、因子 DSL、指标、gate 阈值、ledger、状态机、回测 |
+| [05-agent-harness.md](docs/agent/05-agent-harness.md) | agent 循环、workspace、调度、记忆、可见性 |
+| [06-interfaces.md](docs/interfaces/06-interfaces.md) | JSON CLI、HTTP API、事件流、artifact |
+| [07-frontend.md](docs/interfaces/07-frontend.md) | 前端定位、页面、组件、技术栈 |
+| [08-progress-and-interaction.md](docs/interfaces/08-progress-and-interaction.md) | 进展展示、停滞诊断、指令与审批流程、通知 |
+| [09-milestones.md](docs/overview/09-milestones.md) | 里程碑、任务与验收 |
+| [10-decisions.md](docs/overview/10-decisions.md) | 决策记录与待定问题 |
+| [11-factor-search-space.md](docs/research/11-factor-search-space.md) | 因子搜索空间：表达能力分级、派生变量、覆盖坐标 |
+| [12-testing.md](docs/research/12-testing.md) | 系统测试 T0–T8 与 gate 校准 |
+| [13-backtest.md](docs/research/13-backtest.md) | 回测 B1–B5 与 A 股成交规则 |
+| [14-agent-execution.md](docs/agent/14-agent-execution.md) | agent 执行后端：本机 CLI、Cursor、Nexus Cloud |
+| [acceptance-m0-m2.md](docs/acceptance/acceptance-m0-m2.md) | M0–M2 验收记录 |
 
 设计论证在仓库的 [design/](../design/README.md)，调研依据在 [analysis/](../analysis/README.md)。
 
@@ -53,7 +53,7 @@ alphasieve/
   workspaces/     campaign 工作区（不入库）
 ```
 
-后续里程碑新增的模块（models、campaigns、agent、memory、review、fresh、api、orchestrator）与前端工程 `web/` 见 [docs/02-architecture.md](docs/02-architecture.md) §2。
+后续里程碑新增的模块（models、campaigns、agent、memory、review、fresh、api、orchestrator）与前端工程 `web/` 见 [docs/overview/02-architecture.md](docs/overview/02-architecture.md) §2。
 
 ## 开发
 
@@ -67,7 +67,7 @@ uv run ruff check src tests
 
 ## 运行与发布
 
-本机只做控制面，计算放在 Ray 与 orbenchtest，见 [docs/34-control-plane.md](docs/34-control-plane.md) 与 [docs/16-scaling.md](docs/16-scaling.md) §6。
+本机只做控制面，计算放在 Ray 与 orbenchtest，见 [docs/interfaces/34-control-plane.md](docs/interfaces/34-control-plane.md) 与 [docs/data/16-scaling.md](docs/data/16-scaling.md) §6。
 
 ```bash
 deploy/release.sh             # orbenchtest 全量测试通过后发布 HEAD 到 /data/alphasieve/deploy/current

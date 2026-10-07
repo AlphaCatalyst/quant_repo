@@ -37,6 +37,7 @@ from alphasieve.thesis import evaluate_scenarios, implied, load_thesis
 from alphasieve.thesis.formula import FormulaError
 
 DIST = Path(__file__).resolve().parent / "dist"
+DOCS = Path(__file__).resolve().parents[3] / "docs"
 ARTIFACT_ID = re.compile(r"^[0-9a-f]{24}$")
 security = HTTPBasic(auto_error=False)
 
@@ -103,7 +104,7 @@ def _pending_decisions(settings: Settings) -> list[dict]:
 
 
 def _recent_decisions(settings: Settings) -> list[dict]:
-    path = Path(__file__).resolve().parents[3] / "docs" / "10-decisions.md"
+    path = DOCS / "overview" / "10-decisions.md"
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except OSError:
@@ -112,7 +113,7 @@ def _recent_decisions(settings: Settings) -> list[dict]:
     for line in lines:
         match = re.match(r"^\*\*(D-(\d+)\s+[^*]+)\*\*", line)
         if match:
-            rows.append({"id": f"D-{match[2]}", "title": match[1], "evidence": "docs/10-decisions.md"})
+            rows.append({"id": f"D-{match[2]}", "title": match[1], "evidence": "docs/overview/10-decisions.md"})
     return rows[-5:][::-1]
 
 
@@ -836,8 +837,8 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
                    r"30-financial-red-flags|31-announcements|32-sw-industry-sensitivity|33-monitoring|34-control-plane)\.md")
         if not re.fullmatch(allowed, name):
             raise HTTPException(404, "document not found")
-        path = Path(__file__).resolve().parents[3] / "docs" / name
-        if not path.is_file():
+        path = next(DOCS.glob(f"*/{name}"), None)
+        if path is None:
             raise HTTPException(404, "document not found")
         return path.read_text(encoding="utf-8")
 

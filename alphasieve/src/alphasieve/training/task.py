@@ -1,4 +1,4 @@
-"""TrainingTask: the declarative definition of a model-training task for one mandate (docs/19-training-tasks.md).
+"""TrainingTask: the declarative definition of a model-training task for one mandate (docs/mandates/19-training-tasks.md).
 
 A task fixes the label, the sample, the features, the dev-only split, the candidate grid and the output contract
 before any result is seen. Every full run of a task is one strategy-layer trial; changing any field is a new trial.

@@ -1,6 +1,6 @@
 # AGENTS.md
 
-面向在本目录工作的 code agent（Claude Code、Codex 等）的约束。开发前先读 [docs/README.md](docs/README.md)；当前里程碑与验收标准见 [docs/09-milestones.md](docs/09-milestones.md)。
+面向在本目录工作的 code agent（Claude Code、Codex 等）的约束。开发前先读 [docs/README.md](docs/README.md)；当前里程碑与验收标准见 [docs/overview/09-milestones.md](docs/overview/09-milestones.md)。
 
 ## 边界
 
@@ -18,4 +18,4 @@
 
 ## 控制面
 
-控制面契约见 [docs/34-control-plane.md](docs/34-control-plane.md)。运维 skill：`~/.cursor/skills/alphasieve-control-plane`；新能力接入 skill：`~/.cursor/skills/alphasieve-new-capability`。新的定时工作登记在 `configs/control/schedule.yaml`，远端工作注册为 job kind，检查和告警接入 monitor/health；不要新增临时拼装的 systemd timer。
+控制面契约见 [docs/interfaces/34-control-plane.md](docs/interfaces/34-control-plane.md)。运维 skill：`~/.cursor/skills/alphasieve-control-plane`；新能力接入 skill：`~/.cursor/skills/alphasieve-new-capability`。新的定时工作登记在 `configs/control/schedule.yaml`，远端工作注册为 job kind，检查和告警接入 monitor/health；不要新增临时拼装的 systemd timer。

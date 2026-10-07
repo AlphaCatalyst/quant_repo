@@ -138,8 +138,7 @@ def test_book_analysis_endpoints_only_serve_saved_matching_reports(platform_clie
 
     open_client = TestClient(create_app(replace(settings), require_auth=False))
     for kind in reports:
-        assert open_client.get(f"/api/book/{kind}").status_code == 401
-        assert open_client.get(f"/api/book/{kind}", auth=auth).status_code == 200
+        assert open_client.get(f"/api/book/{kind}").status_code == 200
 
 
 def test_platform_documents_are_whitelisted(platform_client):
@@ -220,8 +219,8 @@ def test_control_endpoints_public_read_only(settings, monkeypatch):
     for path in ("resources", "health", "jobs", "schedule", "llm"):
         assert "holdings" not in json.dumps(client.get(f"/api/control/{path}").json()).lower()
     assert client.post("/api/control/jobs").status_code == 405
-    assert client.get("/api/book").status_code == 401
-    assert client.get("/api/alerts/private").status_code == 401
+    assert client.get("/api/book").status_code == 200
+    assert client.get("/api/alerts/private").status_code == 200
 
 
 def test_control_resource_snapshot_missing_or_stale(settings, monkeypatch):

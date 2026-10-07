@@ -72,7 +72,6 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .total-row td { font-weight: 600; border-top: 2px solid var(--line); }
 .risk-notes { margin: 10px 0 0; padding-left: 18px; color: var(--amber); line-height: 1.7; font-size: 13px; }
 .announcements { list-style: none; margin: 0; padding: 0; line-height: 1.9; font-size: 13px; }
-.login-prompt p { margin: 0 0 10px; line-height: 1.6; }
 .account-summary .stats-row { margin-top: 12px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
 .account-summary .stat { padding: 8px 12px; }
 .account-summary .stat-value { font-size: 18px; }

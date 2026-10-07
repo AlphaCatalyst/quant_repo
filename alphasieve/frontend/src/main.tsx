@@ -149,7 +149,7 @@ function App() {
       <main>
         {showGuide && <section className="card intro-guide" aria-label="看板怎么读">
           <div className="intro-head"><h3>第一次看？这样读看板</h3><button className="btn small" onClick={() => { localStorage.setItem("alphasieve-guide-seen", "1"); setShowGuide(false); }}>知道了</button></div>
-          <p>总览从上往下：<b>待你决定</b>的事项 → <b>我的持仓</b>（登录后可见）→ 四个<b>策略任务</b>是否通过验收、差在哪 → 因子研究进展 → 系统状态。</p>
+          <p>总览从上往下：<b>待你决定</b>的事项 → <b>我的持仓</b>→ 四个<b>策略任务</b>是否通过验收、差在哪 → 因子研究进展 → 系统状态。</p>
           <p>四个任务：A 中证 500 增强、B 行业 ETF 轮动、C 业绩超预期漂移、D 股指期货对冲。每个任务都有自己的验收条件和试验预算。</p>
           <p><b>dev</b> 用于开发和比较；<b>holdout</b> 是锁定配置后的留出验证。多次尝试中挑最好的一次会高估表现，“搜索折扣”用于校正这种偏差。holdout 读取次数有限，必须由人审批，避免反复试探留出集。</p>
         </section>}

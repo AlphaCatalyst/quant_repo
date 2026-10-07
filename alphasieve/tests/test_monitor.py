@@ -71,5 +71,7 @@ position_limit: 0.2
     open_client = TestClient(create_app(settings, require_auth=False))
     assert open_client.get("/api/alerts").status_code == 200
     assert all(a["visibility"] == "public" for a in open_client.get("/api/alerts").json()["alerts"])
-    assert open_client.get("/api/alerts/private").status_code == 401
-    assert open_client.get("/api/alerts/private", auth=_load_credentials(settings)).status_code == 200
+    assert open_client.get("/api/alerts/private").status_code == 200
+    client = TestClient(create_app(settings, require_auth=True))
+    assert client.get("/api/alerts/private").status_code == 401
+    assert client.get("/api/alerts/private", auth=_load_credentials(settings)).status_code == 200

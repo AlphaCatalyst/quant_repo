@@ -1,13 +1,11 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useApi, type BookAttributionReport, type BookAttributionResponse, type BookHistoryReport, type BookHistoryResponse, type BookRebalanceReport, type BookRebalanceResponse, type BookReport, type BookSnapshot } from "../api";
 import { Card, Chart, Empty, fmtNum, fmtPct, link, Loading } from "../components";
 
-const UNLOCK_KEY = "alphasieve-book-unlocked";
 const ANNOUNCEMENT_TYPE: Record<string, string> = {
   shareholding_change: "股东增减持", repurchase: "回购", earnings: "业绩", earnings_forecast: "业绩预告",
   dividend: "分红", litigation: "诉讼", regulatory: "监管", major_contract: "重大合同", restructuring: "重组",
 };
-const isAuthError = (error: string | null) => !!error && /^(401|403) /.test(error);
 const signed = (v: number | null | undefined, digits = 2) => v == null ? "—" : `${v > 0 ? "+" : ""}${fmtNum(v, digits)}`;
 const signedPct = (v: number | null | undefined, digits = 2) => v == null ? "—" : `${v > 0 ? "+" : ""}${fmtPct(v, digits)}`;
 const pnlClass = (v: number | null | undefined) => v == null || v === 0 ? "" : v > 0 ? "pnl-up" : "pnl-down";
@@ -103,24 +101,9 @@ function AccountSummary({ snapshot, compact = false }: { snapshot: BookSnapshot;
   </div>;
 }
 
-function LoginPrompt({ onUnlock, failed }: { onUnlock: () => void; failed?: boolean }) {
-  return <div className="login-prompt">
-    <p>持仓是个人数据，看板公开部分不显示。点击后浏览器会弹出登录框，使用 <code>web.credentials</code> 里的账号登录；同一浏览器会话内只需登录一次。</p>
-    {failed && <p className="small muted">上次登录未成功或已取消。</p>}
-    <button className="btn" onClick={onUnlock}>登录并查看持仓</button>
-  </div>;
-}
-
 export function BookSummary() {
-  const [unlocked, setUnlocked] = useState(() => localStorage.getItem(UNLOCK_KEY) === "1");
-  const [failed, setFailed] = useState(false);
-  const { data, error } = useApi<{ snapshots: BookSnapshot[] }>(unlocked ? "/api/book" : null, 60000);
-  useEffect(() => { if (data) localStorage.setItem(UNLOCK_KEY, "1"); }, [data]);
-  useEffect(() => {
-    if (isAuthError(error)) { localStorage.removeItem(UNLOCK_KEY); setUnlocked(false); setFailed(true); }
-  }, [error]);
+  const { data, error } = useApi<{ snapshots: BookSnapshot[] }>("/api/book", 60000);
   const extra = <a className="small" href={link("/book")}>完整体检 →</a>;
-  if (!unlocked) return <Card title="我的持仓" extra={extra}><LoginPrompt failed={failed} onUnlock={() => setUnlocked(true)} /></Card>;
   if (!data) return <Card title="我的持仓" extra={extra}><Loading error={error} /></Card>;
   const accounts = latestByAccount(data.snapshots);
   return <Card title="我的持仓" extra={extra}>
@@ -240,9 +223,6 @@ export default function Book() {
   const { data: history, error: historyError } = useApi<BookHistoryResponse>(data ? `/api/book/history${query ? `?${query}` : ""}` : null);
   const { data: attribution, error: attributionError } = useApi<BookAttributionResponse>(canCompare ? `/api/book/attribution?${query}&by=${by}` : null);
   const { data: rebalance, error: rebalanceError } = useApi<BookRebalanceResponse>(data ? "/api/book/rebalance" : null);
-  useEffect(() => { if (data) localStorage.setItem(UNLOCK_KEY, "1"); }, [data]);
-  if (isAuthError(error)) return <div className="page"><div className="page-head"><h2>我的持仓</h2></div>
-    <Card title="需要登录"><LoginPrompt failed onUnlock={() => window.location.reload()} /></Card></div>;
   if (!data) return <Loading error={error} />;
   const active = rows.find((row) => row.snapshot_id === selected) ?? latestByAccount(rows)[0];
   return <div className="page book-page"><div className="page-head"><div><h2>我的持仓</h2><p className="muted small">先看当前持仓和盈亏，再看风险体检；下方是历史净值、收益归因和偏离提示。数据只保存在本机，不进 git。</p></div></div>

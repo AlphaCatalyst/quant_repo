@@ -1,5 +1,7 @@
 # 扩容 S-1 至 S-7 验收记录
 
+状态：验收记录，内容截至 2026-09-27。2026-10-07 核对。
+
 日期：2026-09-27。方案见 [scaling.md](../data/scaling.md)，决定见 [decisions.md](../overview/decisions.md) D-24 至 D-28。
 
 ## 1. 结论

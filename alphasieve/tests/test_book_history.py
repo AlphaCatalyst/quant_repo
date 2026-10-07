@@ -171,3 +171,35 @@ def test_behavior_statistics(settings, monkeypatch):
     decision = report["switch_value_h"]["decisions"][0]
     assert decision["value"] == pytest.approx(0 - (rising.iloc[45] / 12.5 - 1))
     assert report["switch_value_h"]["verdict"] is None
+
+
+def test_virtual_account_requires_accepted_rule_and_rebalances(settings, monkeypatch, tmp_path):
+    import json
+
+    from alphasieve.errors import AlphaSieveError
+    from alphasieve.portfolio_book import virtual
+
+    days = pd.bdate_range("2026-09-01", periods=12).strftime("%Y-%m-%d").tolist()
+    monkeypatch.setattr(market, "history_closes", lambda *a: (
+        {"sh.600000": pd.Series(10.0, index=days), "sh.000300": pd.Series(100.0, index=days)},
+        {"source": "synthetic"}))
+    rule = {"target": "equal", "cap": 0.3, "band": 0.1, "review_days": 5}
+    report = {"run_id": "r1", "pools": [{"pool": "all", "rules": [
+        {"rule_id": "equal-cap30-b10-w", "rule": rule, "acceptance": {"pass": True}},
+        {"rule_id": "equal-nocap-b10-w", "rule": {**rule, "cap": None}, "acceptance": {"pass": False}}]}]}
+    path = settings.hot_root / "reports" / "decisions" / "p3-latest.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(report), encoding="utf-8")
+    with connect(settings.state_db) as conn:
+        _import(conn, tmp_path, days[0], 1000, 0)
+        with pytest.raises(AlphaSieveError):
+            virtual.create(conn, settings, "demo", "equal-nocap-b10-w", "test")
+        created = virtual.create(conn, settings, "demo", "equal-cap30-b10-w", "test")
+        result = virtual.advance(conn, settings, created["account"], days[-1], "test")
+        rows = conn.execute("SELECT as_of, source, positions_json FROM holdings_snapshots WHERE account=? "
+                            "ORDER BY as_of", (created["account"],)).fetchall()
+    assert {r["source"] for r in rows} == {"virtual"}
+    traded = json.loads(rows[1]["positions_json"])
+    assert rows[1]["as_of"] == days[6]  # reviewed at the day-5 close, filled at the next close
+    assert traded[0]["quantity"] == 300  # single name capped at 30%, the rest to cash
+    assert result["as_of"] == days[-1]

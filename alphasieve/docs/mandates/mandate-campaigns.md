@@ -1,4 +1,4 @@
-# 24 · 从属于 mandate 的因子 campaign
+# 从属于 mandate 的因子 campaign
 
 状态：设计，未实现、未运行。日期 2026-10-01。只交付本文，不改代码、配置、测试或索引，不运行 trial、Ray 或训练，不读取 holdout/fresh。本文落实 [mandate-specs.md](mandate-specs.md) §1；任务分层沿用 [task-layers.md](../research/task-layers.md)，预算纪律沿用 [a-portfolio.md](a-portfolio.md) §6。
 

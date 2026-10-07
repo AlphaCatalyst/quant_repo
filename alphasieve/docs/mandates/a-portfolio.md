@@ -1,4 +1,4 @@
-# 21 · A 的组合构建设计
+# A 的组合构建设计
 
 状态：已实现核心部分，四个配置已在运行前随代码一起提交（预注册），结果见 §7。日期 2026-09-30。用户已批准扩大 A 的策略层预算；本设计将累计上限从 9 个扩到 13 个。依据为 [mandate-specs.md](mandate-specs.md) §3、[training-tasks.md](training-tasks.md)、[training-round2.md](training-round2.md) §6、§8、[acceptance-training.md](../acceptance/acceptance-training.md) §2、§2a、§3 和 D-31、D-32。
 

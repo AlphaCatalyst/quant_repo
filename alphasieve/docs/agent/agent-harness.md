@@ -1,4 +1,6 @@
-# 05 · Agent Harness
+# Agent Harness
+
+状态：已实现（M3，见 acceptance-m3-m4-f1）。2026-10-07 核对。
 
 本文件定义 agent 循环怎么跑。原则来自 [design/agent-loop-verification.md](../../../design/agent-loop-verification.md)：agent 只提案、确定性后端裁决；agent 只在 dev 窗口（L0–L2）自由循环；L3–L5 按预算执行，结果对 agent 不可见。
 

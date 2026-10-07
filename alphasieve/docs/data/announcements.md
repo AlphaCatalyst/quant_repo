@@ -1,5 +1,7 @@
 # 公司公告首版管线
 
+状态：已实现；本机公告从 2026-07 起，dev 区间只回补了 2018-06 三天试点与 2019–2022（D-43）。2026-10-07 核对。
+
 来源：巨潮资讯公开 `POST https://www.cninfo.com.cn/new/hisAnnouncement/query`，PDF 来自 `https://static.cninfo.com.cn/`。`data sync --dataset cninfo_announcements --start YYYY-MM-DD --end YYYY-MM-DD` 按公告日回补，`data daily-update` 重查最近四个自然日。每日日表位于 `raw/cninfo/announcements/YYYY-MM-DD.parquet`，只含元数据；`announce list/show/watch` 读本地数据，`announce fetch ID` 才下载 PDF 至 `raw/cninfo/documents/ID/original.pdf` 并用新增依赖 `pypdf` 抽取 `text.json`。同步记录 `data_snapshots`，PDF 另记录 SHA-256。公告不进入研究 panel、holdout 或已有事件因子。
 
 字段：`announcement_id`、`code`、`name`、`title`、`published_at`（北京时间、带 `+08:00`）、`published_date`、`org_id`、`pdf_url`、`adjunct_size_kb`、`source`。标题分类另加 `event_type`、`importance`、`extract_text`；属于规则提示，不是结构化事实。`text.json` 按 PDF 原页保存 `page`、`start`、`end`、`text`；`evidence_pack` 给出页码及字符区间，供后续人工或 agent 引用 `ID#page=N`。扫描版 PDF 可能没有可提取文字，首版不做 OCR 或数值抽取。

@@ -1,4 +1,4 @@
-# 18 · 实际量化任务（mandate）：任务书与框架改动方案
+# 实际量化任务（mandate）：任务书与框架改动方案
 
 状态：已实现（D-31；第二轮 D-32，D 降级为 A 的风险管理模块），dev 结果见 [acceptance-training.md](../acceptance/acceptance-training.md)。起草日期 2026-09-28。
 

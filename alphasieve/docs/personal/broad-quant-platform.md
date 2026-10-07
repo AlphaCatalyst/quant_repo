@@ -1,6 +1,6 @@
-# 27 · 广义量化分析平台：面向 50 万–1000 万个人持仓的 agent 能力
+# 广义量化分析平台：面向 50 万–1000 万个人持仓的 agent 能力
 
-状态：构想，未实现，未立项。日期 2026-10-03。只交付本文，不改代码、配置或预算，不运行 trial，不读取 holdout/fresh。本文把 AlphaSieve 从"A 股日频因子研究系统"扩展为"个人持仓的广义量化分析平台"，列出可以结合 agent 的能力、各自的验证方式和优先级。是否立项及范围由 human 决定，立项后记入 [decisions.md](../overview/decisions.md)。资金体量相关的约束沿用 [personal-account.md](personal-account.md)，本文把范围放宽到 50 万–1000 万。文中收益区间是粗略经验值，不是验收结论，也不构成投资建议。
+状态：定位已采纳（D-43，2026-10-07）；已实现部分见 [platform-implementation](platform-implementation.md) §9，决策类任务见 [personal-decision-tasks](personal-decision-tasks.md)。初稿日期 2026-10-03。只交付本文，不改代码、配置或预算，不运行 trial，不读取 holdout/fresh。本文把 AlphaSieve 从"A 股日频因子研究系统"扩展为"个人持仓的广义量化分析平台"，列出可以结合 agent 的能力、各自的验证方式和优先级。是否立项及范围由 human 决定，立项后记入 [decisions.md](../overview/decisions.md)。资金体量相关的约束沿用 [personal-account.md](personal-account.md)，本文把范围放宽到 50 万–1000 万。文中收益区间是粗略经验值，不是验收结论，也不构成投资建议。
 
 ## 1. 为什么要扩展
 

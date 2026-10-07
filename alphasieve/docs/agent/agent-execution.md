@@ -1,4 +1,6 @@
-# 14 · Agent 执行后端
+# Agent 执行后端
+
+状态：部分实现：本机 Claude Code / Codex 执行器已实现并用于 M3 试点；Nexus Cloud 执行器未实现（见 milestones M5）。2026-10-07 核对。
 
 本文回答：用哪种 agent 执行任务。分两类任务讨论：
 

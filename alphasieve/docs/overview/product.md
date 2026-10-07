@@ -1,4 +1,6 @@
-# 01 · 产品定义
+# 产品定义
+
+状态：有效；范围扩展到个人账户见 D-43。2026-10-07 核对。
 
 ## 1. 一句话
 
@@ -65,6 +67,12 @@ agent 认为需要分钟级成交数据验证一个假设，提交 DataRequest�
 - 模型设计的自主循环、事件驱动策略、行业轮动（按 [design/strategy-scope.md](../../../design/strategy-scope.md) 后续引入）。
 - 多租户与复杂权限。
 - 自研 agent runtime（使用 Claude Code / Codex）。
+
+第二阶段增补（D-43）：
+
+- 个人账户的决策与选股任务 P1–P7（[personal-decision-tasks](../personal/personal-decision-tasks.md)）：“动”与“不动”都由事先登记的规则给出，在全 A 合成账户上对照同频随机评价。
+- 持仓跟踪、体检、交易行为统计与虚拟账户只服务本机的 human，数据不进 git；agent 仍不得访问持仓与交易日志。
+- 仍不接实盘执行。
 
 ## 6. 成功标准
 

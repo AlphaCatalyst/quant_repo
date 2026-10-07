@@ -1,4 +1,6 @@
-# 06 · 接口
+# 接口
+
+状态：已实现；新增命令以 `alphasieve --help` 为准。2026-10-07 核对。
 
 AlphaSieve 有两个入口：JSON CLI（agent 与人共用）和 HTTP API（前端使用）。两者调用同一套 service 层，权限与校验只实现一次。
 

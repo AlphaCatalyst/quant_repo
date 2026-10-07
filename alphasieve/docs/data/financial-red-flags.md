@@ -1,5 +1,7 @@
 # 财报排雷（2026-10-04）
 
+状态：已实现。2026-10-07 核对。
+
 入口：`uv run alphasieve redflag scan --asof 2026-10-04 --universe csi800 --json`、`redflag show <code> --asof <date>`、`redflag rules`、`redflag explain <code> [--asof <date>]`。`--codes sh.600000,sz.000001` 与 `--universe all` 也可用。`alphasieve.redflag.flags_for(settings, codes, asof)` 不写文件；扫描写入 `<hot_root>/redflag/<asof>/results.{parquet,json}`。后端计算数值和级别，agent 只解读证据，人决定是否采取行动。
 
 ## 规则和级别

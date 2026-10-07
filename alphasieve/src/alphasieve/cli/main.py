@@ -13,6 +13,7 @@ from alphasieve.cli import (  # noqa: F401  (register commands)
     commands_control,
     commands_core,
     commands_data,
+    commands_decision,
     commands_factor,
     commands_forecast,
     commands_fresh,

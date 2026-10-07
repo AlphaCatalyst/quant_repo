@@ -1,0 +1,32 @@
+version: 1
+task: P3
+description: >
+  Position sizing and rebalance bands for concentrated personal accounts (docs/personal/personal-decision-tasks §5).
+  Pre-registered 2026-10-07 before the first run; every rule in the grid is run and reported.
+accounts:
+  accounts: 10000
+  start_from: "2007-01-01"   # ashare_all dev starts 2006; one year of warm-up, keeps 2008 in the sample
+  horizon_days: 244          # one year
+  holdings: [2, 3, 4, 5]
+  dirichlet_alpha: 1.0       # concentrated starting weights
+  capital: 200000            # yuan; the minimum commission matters at this size
+  seed: 20261007
+pools: [all, large, growth]
+grid:                        # 2 x 2 x 3 x 2 = 24 rules
+  target: [equal, inverse_vol]
+  cap: [null, 0.30]          # above-cap weight goes to cash, so the cap also de-risks two- and three-name accounts
+  band: [0.05, 0.10, 0.20]
+  review_days: [5, 21]
+mechanical: {target: equal, cap: null, band: 0.0, review_days: 21}
+costs: {commission: 0.00025, min_commission: 5.0, stamp_sell: 0.001, slippage: 0.0005, lot: 100}
+random_reps: 200
+gammas: [2, 4]
+selection: ce_gamma4         # per pool, the grid rule with the highest gamma-4 certainty equivalent
+acceptance:
+  cohort_win_share: 0.70     # selected rule beats no action in at least 70% of start-year cohorts (gamma 4)
+  stress_cohorts: ["2008", "2015", "2018", "2021"]
+  stress_tolerance: 0.01     # in those cohorts the rule's CE may trail no action by at most 1 point
+  max_annual_cost: 0.005
+  random_alpha: 0.05         # Holm-adjusted across the 24 rules of a pool
+  mechanical_tolerance: 0.005
+trial_budget: 72             # 24 rules x 3 pools

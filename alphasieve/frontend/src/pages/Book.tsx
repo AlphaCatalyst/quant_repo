@@ -105,7 +105,7 @@ export function BookSummary() {
   const { data, error } = useApi<{ snapshots: BookSnapshot[] }>("/api/book", 60000);
   const extra = <a className="small" href={link("/book")}>完整体检 →</a>;
   if (!data) return <Card title="我的持仓" extra={extra}><Loading error={error} /></Card>;
-  const accounts = latestByAccount(data.snapshots);
+  const accounts = latestByAccount(data.snapshots.filter((s) => s.source !== "virtual"));
   return <Card title="我的持仓" extra={extra}>
     {accounts.length ? accounts.map((s) => <AccountSummary key={s.snapshot_id} snapshot={s} compact />)
       : <Empty text="还没有导入持仓；在本机运行 alphasieve book import。" />}
@@ -245,7 +245,9 @@ export default function Book() {
   const { data: rebalance, error: rebalanceError } = useApi<BookRebalanceResponse>(data ? "/api/book/rebalance" : null);
   const { data: behavior } = useApi<BookBehaviorResponse>(data ? "/api/book/behavior" : null);
   if (!data) return <Loading error={error} />;
-  const active = rows.find((row) => row.snapshot_id === selected) ?? latestByAccount(rows)[0];
+  const real = rows.filter((row) => row.source !== "virtual");
+  const virtualAccounts = latestByAccount(rows.filter((row) => row.source === "virtual"));
+  const active = rows.find((row) => row.snapshot_id === selected) ?? latestByAccount(real)[0];
   return <div className="page book-page"><div className="page-head"><div><h2>我的持仓</h2><p className="muted small">先看当前持仓和盈亏，再看风险体检；下方是历史净值、收益归因和偏离提示。数据只保存在本机，不进 git。</p></div></div>
     {active && <Card title={`持仓与盈亏 · ${active.account}`} extra={<span className="small muted">成本价、现价来自券商导出（{active.as_of}）</span>}>
       <AccountSummary snapshot={active} />
@@ -253,6 +255,9 @@ export default function Book() {
     <Card title={`持仓快照（${rows.length}）`}>{rows.length ? <div className="table-scroll"><table className="table"><thead><tr><th>账户</th><th>截至日期</th><th>来源</th><th>持仓数</th><th>总市值</th><th>体检报告</th></tr></thead><tbody>
       {rows.map((row) => <tr key={row.snapshot_id} className={active?.snapshot_id === row.snapshot_id ? "best-row" : ""}><td><button className="table-sort" onClick={() => setSelected(row.snapshot_id)}>{row.account}</button></td><td>{row.as_of}</td><td>{SOURCE[row.source ?? ""] ?? row.source ?? "—"}</td><td>{row.positions_count}</td><td>{fmtNum(row.total_value, 2)}</td><td>{row.report ? "已保存" : "暂无"}</td></tr>)}
     </tbody></table></div> : <Empty text="暂无已导入持仓" />}</Card>
+    {!!virtualAccounts.length && <Card title={`虚拟账户（${virtualAccounts.length}）`} extra={<span className="small muted">按通过 dev 验收的规则从真实持仓复制后前瞻记账，不是实际交易</span>}><div className="table-scroll"><table className="table"><thead><tr><th>账户</th><th>截至日期</th><th>持仓数</th><th>总市值</th></tr></thead><tbody>
+      {virtualAccounts.map((row) => <tr key={row.snapshot_id}><td><button className="table-sort" onClick={() => setSelected(row.snapshot_id)}>{row.account}</button></td><td>{row.as_of}</td><td>{row.positions_count}</td><td>{fmtNum(row.total_value, 2)}</td></tr>)}
+    </tbody></table></div></Card>}
     {active?.report && <><h3 className="section-title">风险体检 · {active.account} · {active.as_of}</h3><Report report={active.report} /></>}
     <Card title="历史区间"><div className="filters">
       <label>开始日期 <input aria-label="开始日期" type="date" value={start || effectiveStart} onChange={(event) => setStart(event.target.value)} /></label>

@@ -1,5 +1,7 @@
 # 训练任务与 mandate 验收记录（2026-09-29，第二轮 2026-09-30）
 
+状态：验收记录，内容截至 2026-10-02。2026-10-07 核对。
+
 对应 [mandate-specs.md](../mandates/mandate-specs.md)、[training-tasks.md](../mandates/training-tasks.md) 与 [training-round2.md](../mandates/training-round2.md)。所有结果都是 dev 区间（2012–2022）上的样本外滚动结果；holdout 没有读取。第二轮结果见 §2a。
 
 ## 1. 结论

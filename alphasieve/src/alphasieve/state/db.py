@@ -436,6 +436,18 @@ MIGRATIONS: list[str] = [
         PRIMARY KEY(job_id, attempt)
     );
     """,
+    """
+    CREATE TABLE decision_trials (
+        trial_id TEXT PRIMARY KEY, task TEXT NOT NULL, run_id TEXT NOT NULL, rule_id TEXT NOT NULL,
+        pool TEXT NOT NULL, tier TEXT NOT NULL, config_hash TEXT NOT NULL, metrics_json TEXT NOT NULL,
+        created_by TEXT NOT NULL, created_at TEXT NOT NULL
+    );
+    CREATE INDEX decision_trials_task ON decision_trials(task, created_at);
+    CREATE TRIGGER decision_trials_no_update BEFORE UPDATE ON decision_trials
+    BEGIN SELECT RAISE(ABORT,'decision_trials is append-only'); END;
+    CREATE TRIGGER decision_trials_no_delete BEFORE DELETE ON decision_trials
+    BEGIN SELECT RAISE(ABORT,'decision_trials is append-only'); END;
+    """,
 ]
 
 

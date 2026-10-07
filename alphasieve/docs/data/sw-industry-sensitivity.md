@@ -1,4 +1,6 @@
-# 32 · 申万行业口径敏感性（只读观察）
+# 申万行业口径敏感性（只读观察）
+
+状态：已运行（只读观察）。2026-10-07 核对。
 
 日期：2026-10-04。区间限定为 dev 2012-01-01—2022-12-31；A 目标权重实际覆盖 2016-01-04—2022-12-28，共 171 次调仓。没有运行策略、优化器、训练、模拟或评估入口；没有写 trial ledger。明细在 `/data/alphasieve/reports/sw_sensitivity/`，用 `uv run python tools/sw_industry_sensitivity.py` 重做。
 

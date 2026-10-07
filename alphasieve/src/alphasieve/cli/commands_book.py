@@ -57,6 +57,33 @@ def book_behavior(args, ctx):
     return CommandResult(data={"report": report, "report_path": str(path)})
 
 
+def _virtual_create_args(parser):
+    parser.add_argument("--base", required=True, help="real account whose latest snapshot seeds the copy")
+    parser.add_argument("--rule", required=True, help="a P3 rule id that passed dev acceptance")
+
+
+@command("book virtual-create", roles=("human",), configure=_virtual_create_args, needs_store=False)
+def book_virtual_create(args, ctx):
+    from alphasieve.portfolio_book import virtual
+    return CommandResult(data=virtual.create(ctx.conn, ctx.settings, args.base, args.rule, ctx.settings.user))
+
+
+def _virtual_advance_args(parser):
+    parser.add_argument("--account", help="one virtual account (default: all)")
+    parser.add_argument("--end", default=None, help="last date to simulate (default: today)")
+
+
+@command("book virtual-advance", roles=ROLES, configure=_virtual_advance_args, needs_store=False)
+def book_virtual_advance(args, ctx):
+    from datetime import date
+
+    from alphasieve.portfolio_book import virtual
+    accounts = [args.account] if args.account else sorted(virtual.load_registry(ctx.settings))
+    end = args.end or date.today().isoformat()
+    return CommandResult(data={"accounts": [virtual.advance(ctx.conn, ctx.settings, a, end, ctx.settings.user)
+                                            for a in accounts]})
+
+
 def _list_args(parser):
     parser.add_argument("--account")
 

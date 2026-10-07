@@ -205,7 +205,7 @@ def _configure_etf_industry_build(p):
 
 
 @command("data build-etf-industry", HUMAN_SYSTEM, configure=_configure_etf_industry_build,
-         help="industry- and basket-mapped features of the sector ETFs from the all-A panel (docs/mandates/training-round2 §4)")
+         help="industry- and basket-mapped features of the sector ETFs from the all-A panel (training-round2 §4)")
 def cmd_build_etf_industry(args, ctx) -> CommandResult:
     from alphasieve.training.etf_industry import build_etf_industry
 

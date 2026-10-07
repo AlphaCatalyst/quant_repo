@@ -1,4 +1,4 @@
-"""Sector-ETF data for mandate B (docs/mandates/mandate-specs §5, docs/mandates/training-tasks §4): westock daily bars and an ETF panel.
+"""Sector-ETF data for mandate B (mandate-specs §5, training-tasks §4): westock daily bars and an ETF panel.
 
 westock returns at most 250 bars per request, so bars are fetched one calendar year at a time. Its ETF volumes and
 amounts are zero before mid-2018, so the liquidity screen applies only once amounts exist; before that an ETF

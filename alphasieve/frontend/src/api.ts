@@ -126,7 +126,7 @@ export type BookReport = { snapshot_id: string; total_value: number; weights: Re
 export type BookAnnouncement = { code: string; type: string; title: string; date: string; url?: string; importance?: string };
 export type BookSnapshotPosition = { code: string; name?: string; quantity: number;
   cost_price: number | null; price: number | null; market_value: number };
-export type BookSnapshot = { snapshot_id: string; account: string; as_of: string; created_at?: string;
+export type BookSnapshot = { snapshot_id: string; account: string; as_of: string; source?: string; created_at?: string;
   positions: BookSnapshotPosition[]; positions_count: number; total_value: number; report: BookReport | null };
 export type BookHistoryDay = { date: string; nav: number | null; unit_nav: number | null;
   return: number | null; benchmark_return: number | null; excess_return: number | null;
@@ -156,3 +156,11 @@ export type BookRebalanceReport = { snapshot_id: string; account: string; as_of:
   limits: { single_name_max: number; industry_max: number; drift_absolute: number };
   summary: { flagged: number; suggested_trim_total: number }; method: string };
 export type BookRebalanceResponse = { report: BookRebalanceReport | null };
+export type BookBehaviorReport = { trades: number; buys: number; sells: number; horizon_days: number; method: string;
+  disposition: { pgr: number | null; plr: number | null; pgr_minus_plr: number | null };
+  repurchase_within_h: { count: number; share: number | null };
+  chasing: { mean_prior_excess_h: number | null; n: number };
+  switch_value_h: { n: number; mean: number | null; bootstrap_ci95: number[] | null; verdict: string | null;
+    decisions: { date: string; sold: string; bought: string[]; value: number }[] };
+  costs: { fees: number; gross_traded: number; fee_rate: number | null } };
+export type BookBehaviorResponse = { report: BookBehaviorReport | null };

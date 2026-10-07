@@ -109,3 +109,65 @@ def test_rebalance_add_requires_explicit_target(settings, monkeypatch, tmp_path)
         proposed = build_rebalance(conn, settings, snapshot["snapshot_id"])
     assert proposed["rows"][0]["action"] == "add"
     assert proposed["rows"][0]["suggested_add_value"] == pytest.approx(80)
+
+
+def test_reconstruct_snapshots_from_trades(settings, monkeypatch, tmp_path):
+    from alphasieve.errors import AlphaSieveError
+    from alphasieve.portfolio_book import reconstruct
+
+    days = ["2026-09-01", "2026-09-02", "2026-09-03"]
+    monkeypatch.setattr(
+        market,
+        "history_closes",
+        lambda *a: ({"sh.600000": pd.Series([10, 11, 12], index=days),
+                     "sh.000300": pd.Series([100, 101, 102], index=days)}, {"source": "synthetic"}),
+    )
+    trades = tmp_path / "trades.csv"
+    trades.write_text(
+        "account,date,code,name,type,price,quantity,amount,fee,note\n"
+        "demo,2026-09-01,600000,浦发银行,修改持仓,10,100,0,0,\n"
+        "demo,2026-09-02,600000,浦发银行,买入,11,50,550,5,\n",
+        encoding="utf-8",
+    )
+    with connect(settings.state_db) as conn:
+        _import(conn, tmp_path, days[2], 150, 45)
+        result = reconstruct.plan(conn, settings, "demo", reconstruct.parse_trades(trades))
+        assert [s["as_of"] for s in result["snapshots"]] == days[:2]
+        first, second = result["snapshots"]
+        assert first["positions"][0]["quantity"] == 100 and first["positions"][-1]["market_value"] == 600
+        assert second["positions"][0]["market_value"] == 1650 and second["positions"][-1]["market_value"] == 45
+        reconstruct.write(conn, result, "test")
+        report = build_history(conn, settings, account="demo")
+        assert [r["nav"] for r in report["rows"]] == [1600, 1695, 1845]
+        assert reconstruct.plan(conn, settings, "demo", reconstruct.parse_trades(trades))["snapshots"] == []
+        _import(conn, tmp_path, "2026-09-04", 200, 45)
+        with pytest.raises(AlphaSieveError):
+            reconstruct.plan(conn, settings, "demo", reconstruct.parse_trades(trades))
+
+
+def test_behavior_statistics(settings, monkeypatch):
+    from alphasieve.portfolio_book.behavior import build_behavior
+
+    days = pd.bdate_range("2026-08-03", periods=60).strftime("%Y-%m-%d").tolist()
+    rising = pd.Series([10 + 0.1 * i for i in range(60)], index=days)
+    flat = pd.Series([20.0] * 60, index=days)
+    monkeypatch.setattr(market, "history_closes", lambda *a: (
+        {"sh.600000": rising, "sh.600001": flat, "sh.000300": flat}, {"source": "synthetic"}))
+
+    def trade(day, code, kind, quantity, price):
+        return {"date": days[day], "code": code, "name": "", "type": kind, "price": price,
+                "quantity": quantity, "amount": quantity * price, "fee": 1.0}
+
+    report = build_behavior(settings, [
+        trade(0, "sh.600000", "修改持仓", 100, 10.0),
+        trade(25, "sh.600000", "卖出", 100, 12.5),
+        trade(25, "sh.600001", "买入", 50, 20.0),
+        trade(30, "sh.600000", "买入", 100, 13.0),
+    ])
+    assert report["disposition"]["counts"] == {"realized_gain": 1, "realized_loss": 0, "paper_gain": 0,
+                                               "paper_loss": 0}
+    assert report["repurchase_within_h"] == {"count": 1, "share": 1.0}
+    assert report["chasing"]["n"] == 2 and report["chasing"]["mean_prior_excess_h"] > 0
+    decision = report["switch_value_h"]["decisions"][0]
+    assert decision["value"] == pytest.approx(0 - (rising.iloc[45] / 12.5 - 1))
+    assert report["switch_value_h"]["verdict"] is None

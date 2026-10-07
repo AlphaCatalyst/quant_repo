@@ -226,7 +226,7 @@ def save_analysis_report(report: dict, settings: Settings, kind: str):
     from tempfile import NamedTemporaryFile
 
     if kind not in {"history", "attribution", "attribution-position", "attribution-industry",
-                    "attribution-thesis", "rebalance"}:
+                    "attribution-thesis", "rebalance", "behavior"}:
         raise validation_error("invalid book report kind")
     path = settings.hot_root / "book" / "reports" / f"{kind}-latest.json"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -239,7 +239,7 @@ def save_analysis_report(report: dict, settings: Settings, kind: str):
 
 def load_analysis_report(settings: Settings, kind: str) -> dict | None:
     if kind not in {"history", "attribution", "attribution-position", "attribution-industry",
-                    "attribution-thesis", "rebalance"}:
+                    "attribution-thesis", "rebalance", "behavior"}:
         raise validation_error("invalid book report kind")
     path = settings.hot_root / "book" / "reports" / f"{kind}-latest.json"
     return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None

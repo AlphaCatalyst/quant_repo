@@ -126,6 +126,7 @@ def test_book_analysis_endpoints_only_serve_saved_matching_reports(platform_clie
         "history": {"start": "2026-10-01", "end": "2026-10-03", "rows": [], "summary": {}},
         "attribution": {"start": "2026-10-01", "end": "2026-10-03", "by": "position", "rows": []},
         "rebalance": {"snapshot_id": snapshot_id, "rows": []},
+        "behavior": {"trades": 0, "switch_value_h": {"decisions": []}},
     }
     for kind, report in reports.items():
         save_analysis_report(report, settings, "attribution-position" if kind == "attribution" else kind)

@@ -30,6 +30,33 @@ def book_import(args, ctx):
     return CommandResult(data={"snapshot": snapshot, "created": created})
 
 
+def _reconstruct_args(parser):
+    parser.add_argument("--trades", required=True)
+    parser.add_argument("--account", required=True)
+    parser.add_argument("--write", action="store_true", help="append the derived snapshots (default: dry run)")
+
+
+@command("book reconstruct", roles=ROLES, configure=_reconstruct_args, needs_store=False)
+def book_reconstruct(args, ctx):
+    from alphasieve.portfolio_book import reconstruct
+    result = reconstruct.plan(ctx.conn, ctx.settings, args.account, reconstruct.parse_trades(Path(args.trades)))
+    if args.write:
+        result["snapshot_ids"] = reconstruct.write(ctx.conn, result, ctx.settings.user)
+    return CommandResult(data=result, warnings=result["warnings"])
+
+
+def _behavior_args(parser):
+    parser.add_argument("--trades", required=True)
+
+
+@command("book behavior", roles=ROLES, configure=_behavior_args, needs_store=False)
+def book_behavior(args, ctx):
+    from alphasieve.portfolio_book import behavior, reconstruct
+    report = behavior.build_behavior(ctx.settings, reconstruct.parse_trades(Path(args.trades)))
+    path = history.save_analysis_report(report, ctx.settings, "behavior")
+    return CommandResult(data={"report": report, "report_path": str(path)})
+
+
 def _list_args(parser):
     parser.add_argument("--account")
 

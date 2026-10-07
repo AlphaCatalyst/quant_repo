@@ -64,7 +64,7 @@ class ScoreSource(_Model):
 
 
 class EtfMapping(_Model):
-    """Current ETF holdings mapped to industries or used as a basket (docs/mandates/training-round2 §4.1); fixed at ``mapping_asof``."""
+    """ETF holdings mapped to industries or used as a basket (training-round2 §4.1); fixed at ``mapping_asof``."""
     mode: Literal["industry_map", "basket_map"]
     mapping_asof: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
 
@@ -218,7 +218,7 @@ class TrainingTask(_Model):
         return self
 
     def _portfolio_rules(self) -> list[str]:
-        """docs/mandates/a-portfolio §5: the construction mechanisms exist only in the LP and the frozen-score mode only for A."""
+        """a-portfolio §5: the construction mechanisms exist only in the LP and the frozen-score mode only for A."""
         pf, errors = self.portfolio, []
         uses_new = (pf.objective != "score" or pf.score_ema_half_life is not None
                     or pf.active_liquidity_adv_fraction is not None)

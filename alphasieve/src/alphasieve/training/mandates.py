@@ -1,6 +1,6 @@
-"""Portfolio construction, backtests and dev acceptance per mandate (docs/mandates/mandate-specs §3–6, docs/mandates/training-tasks §2.5, §5).
+"""Portfolio construction, backtests and dev acceptance per mandate (mandate-specs §3–6, training-tasks §2.5, §5).
 
-Acceptance thresholds are the dev thresholds written in docs/mandates/mandate-specs; results are reported against them, they never
+Acceptance thresholds are the dev thresholds written in mandate-specs; results are reported against them, they never
 change a gate. The futures-hedged mandate shorts index futures from Sina's contract bars (``data.futures``); there
 is no futures data before 2017, so those years use the index proxy and are reported but not judged.
 """
@@ -100,7 +100,7 @@ def _excess_stats(excess: pd.Series) -> dict:
 
 
 def robustness(main: dict, large: dict, base: dict) -> dict:
-    """Slices of one continuous simulation (docs/mandates/a-portfolio §4.2) and the extra screens of the docs/mandates/a-portfolio §4.3 winner rule."""
+    """Slices of one continuous simulation (a-portfolio §4.2) and the extra screens of its §4.3 winner rule."""
     excess = main["_daily"]["ret"] - main["_daily"]["bench"]
     periods = {k: _excess_stats(excess.loc[lo:hi]) for k, (lo, hi) in PERIODS.items()}
     large_excess = large["_daily"]["ret"] - large["_daily"]["bench"]
@@ -205,7 +205,7 @@ def futures_hedged(panel: Panel, long_result: dict, beta: np.ndarray, cfg, index
     """Long the A portfolio, short ``ratio x beta_hat`` index futures; capital also funds margin and a cash buffer.
 
     ``leg`` is the futures hedge leg (``data.futures.hedge_leg``). On days without futures data the short leg is
-    the total-return member proxy, which omits the basis. Only the exact single-contract span is judged (docs/mandates/training-round2
+    the total-return member proxy, which omits the basis. Only the exact single-contract span is judged (training-round2
     §5.4); the ratio 1.0 is the headline, the other ``cfg.hedge_ratios`` are pre-registered and reported.
     """
     daily = long_result["_daily"]

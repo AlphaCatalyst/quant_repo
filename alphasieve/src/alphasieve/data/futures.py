@@ -1,4 +1,4 @@
-"""CFFEX index futures for mandate D (docs/mandates/mandate-specs §6, docs/mandates/training-round2 §4): Sina contract bars and a hedge-leg series.
+"""CFFEX index futures for mandate D (mandate-specs §6, training-round2 §4): Sina contract bars and a hedge-leg series.
 
 Coverage of the free source decides what can be claimed:
 - from 2019-04 every listed contract has its own bars, so the held contract, its return, basis and rolls are exact;

@@ -383,6 +383,10 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
             raise HTTPException(400, "invalid attribution dimension")
         return _saved_book(f"attribution-{by or 'position'}", start, end, by)
 
+    @app.get("/api/book/behavior")
+    def book_behavior_view(user: str = Depends(auth)):
+        return _saved_book("behavior")
+
     @app.get("/api/book/rebalance")
     def book_rebalance_view(user: str = Depends(auth)):
         return _saved_book("rebalance")

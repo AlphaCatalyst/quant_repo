@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useApi, type BookAttributionReport, type BookAttributionResponse, type BookHistoryReport, type BookHistoryResponse, type BookRebalanceReport, type BookRebalanceResponse, type BookReport, type BookSnapshot } from "../api";
+import { useApi, type BookAttributionReport, type BookAttributionResponse, type BookBehaviorReport, type BookBehaviorResponse, type BookHistoryReport, type BookHistoryResponse, type BookRebalanceReport, type BookRebalanceResponse, type BookReport, type BookSnapshot } from "../api";
 import { Card, Chart, Empty, fmtNum, fmtPct, link, Loading } from "../components";
 
 const ANNOUNCEMENT_TYPE: Record<string, string> = {
@@ -181,6 +181,26 @@ function Rebalance({ report }: { report: BookRebalanceReport | null }) {
   </Card>;
 }
 
+const VERDICT: Record<string, string> = { positive: "换仓整体有正价值", negative: "换仓整体有负价值", inconclusive: "无法区分于零" };
+const SOURCE: Record<string, string> = { broker_export: "券商导出", derived_trades: "交易推算", virtual: "虚拟账户" };
+function Behavior({ report, names }: { report: BookBehaviorReport; names: Record<string, string> }) {
+  const sw = report.switch_value_h;
+  const label = (code: string) => names[code] || code;
+  return <Card title="交易行为" extra={<span className="small muted">{report.trades} 条记录 · 买 {report.buys} 卖 {report.sells} · 观察期 {report.horizon_days} 个交易日</span>}>
+    <div className="stats-row">
+      <div className="stat"><div className="stat-value">{sw.mean == null ? "—" : fmtPct(sw.mean, 1)}</div><div className="stat-label">换仓的事后价值（买入减卖出，{sw.n} 次）</div></div>
+      <div className="stat"><div className="stat-value">{report.repurchase_within_h.share == null ? "—" : fmtPct(report.repurchase_within_h.share, 0)}</div><div className="stat-label">卖出后 {report.horizon_days} 日内买回</div></div>
+      <div className="stat"><div className="stat-value">{report.chasing.mean_prior_excess_h == null ? "—" : fmtPct(report.chasing.mean_prior_excess_h, 1)}</div><div className="stat-label">买入前 {report.horizon_days} 日超额（正值为追涨）</div></div>
+      <div className="stat"><div className="stat-value">{report.disposition.pgr_minus_plr == null ? "—" : fmtNum(report.disposition.pgr_minus_plr, 2)}</div><div className="stat-label">处置效应 PGR − PLR</div></div>
+      <div className="stat"><div className="stat-value">{report.costs.fee_rate == null ? "—" : fmtPct(report.costs.fee_rate, 3)}</div><div className="stat-label">费用占成交额</div></div>
+    </div>
+    {!!sw.decisions.length && <div className="table-scroll"><table className="table"><thead><tr><th>日期</th><th>卖出</th><th>买入</th><th>{report.horizon_days} 日后差值</th></tr></thead><tbody>
+      {sw.decisions.map((d) => <tr key={d.date + d.sold}><td>{d.date}</td><td>{label(d.sold)}</td><td>{d.bought.map(label).join("、")}</td><td className={`num ${pnlClass(d.value)}`}>{signedPct(d.value)}</td></tr>)}
+    </tbody></table></div>}
+    <p className="small muted">{sw.verdict ? `结论：${VERDICT[sw.verdict] ?? sw.verdict}。` : `决策数不足 30，只报告数字，不判断有无判断力。`}{sw.bootstrap_ci95 ? ` 均值 95% 区间 ${fmtPct(sw.bootstrap_ci95[0], 1)} 至 ${fmtPct(sw.bootstrap_ci95[1], 1)}。` : ""}</p>
+  </Card>;
+}
+
 function Weights({ title, weights }: { title: string; weights: Record<string, number> }) {
   const rows = Object.entries(weights).sort((a, b) => b[1] - a[1]);
   return <Card title={title}>{rows.length ? <div className="bars">{rows.map(([name, value]) => <div className="bar-row" key={name}><span className="bar-label" title={name}>{name}</span><span className="bar-track"><span className="bar-fill" style={{ width: `${Math.max(0, Math.min(100, value * 100))}%` }} /></span><span className="bar-value">{fmtPct(value, 1)}</span></div>)}</div> : <Empty text="暂无权重" />}</Card>;
@@ -223,14 +243,15 @@ export default function Book() {
   const { data: history, error: historyError } = useApi<BookHistoryResponse>(data ? `/api/book/history${query ? `?${query}` : ""}` : null);
   const { data: attribution, error: attributionError } = useApi<BookAttributionResponse>(canCompare ? `/api/book/attribution?${query}&by=${by}` : null);
   const { data: rebalance, error: rebalanceError } = useApi<BookRebalanceResponse>(data ? "/api/book/rebalance" : null);
+  const { data: behavior } = useApi<BookBehaviorResponse>(data ? "/api/book/behavior" : null);
   if (!data) return <Loading error={error} />;
   const active = rows.find((row) => row.snapshot_id === selected) ?? latestByAccount(rows)[0];
   return <div className="page book-page"><div className="page-head"><div><h2>我的持仓</h2><p className="muted small">先看当前持仓和盈亏，再看风险体检；下方是历史净值、收益归因和偏离提示。数据只保存在本机，不进 git。</p></div></div>
     {active && <Card title={`持仓与盈亏 · ${active.account}`} extra={<span className="small muted">成本价、现价来自券商导出（{active.as_of}）</span>}>
       <AccountSummary snapshot={active} />
     </Card>}
-    <Card title={`持仓快照（${rows.length}）`}>{rows.length ? <div className="table-scroll"><table className="table"><thead><tr><th>账户</th><th>截至日期</th><th>持仓数</th><th>总市值</th><th>体检报告</th></tr></thead><tbody>
-      {rows.map((row) => <tr key={row.snapshot_id} className={active?.snapshot_id === row.snapshot_id ? "best-row" : ""}><td><button className="table-sort" onClick={() => setSelected(row.snapshot_id)}>{row.account}</button></td><td>{row.as_of}</td><td>{row.positions_count}</td><td>{fmtNum(row.total_value, 2)}</td><td>{row.report ? "已保存" : "暂无"}</td></tr>)}
+    <Card title={`持仓快照（${rows.length}）`}>{rows.length ? <div className="table-scroll"><table className="table"><thead><tr><th>账户</th><th>截至日期</th><th>来源</th><th>持仓数</th><th>总市值</th><th>体检报告</th></tr></thead><tbody>
+      {rows.map((row) => <tr key={row.snapshot_id} className={active?.snapshot_id === row.snapshot_id ? "best-row" : ""}><td><button className="table-sort" onClick={() => setSelected(row.snapshot_id)}>{row.account}</button></td><td>{row.as_of}</td><td>{SOURCE[row.source ?? ""] ?? row.source ?? "—"}</td><td>{row.positions_count}</td><td>{fmtNum(row.total_value, 2)}</td><td>{row.report ? "已保存" : "暂无"}</td></tr>)}
     </tbody></table></div> : <Empty text="暂无已导入持仓" />}</Card>
     {active?.report && <><h3 className="section-title">风险体检 · {active.account} · {active.as_of}</h3><Report report={active.report} /></>}
     <Card title="历史区间"><div className="filters">
@@ -240,6 +261,7 @@ export default function Book() {
     </div>{!canCompare && <p className="small muted">至少需要一个已导入日期才能查看历史；归因需选择有效区间。</p>}</Card>
     {historyError ? <Card title="净值与收益"><Loading error={historyError} /></Card> : history ? <History report={history.report} /> : canCompare && <Card title="净值与收益"><Loading /></Card>}
     {attributionError ? <Card title="收益归因"><Loading error={attributionError} /></Card> : attribution ? <Attribution report={attribution.report} by={by} /> : canCompare && <Card title="收益归因"><Loading /></Card>}
+    {behavior?.report && <Behavior report={behavior.report} names={Object.fromEntries(rows.flatMap((row) => row.positions.map((p) => [p.code, p.name ?? ""])))} />}
     {rebalanceError ? <Card title="持仓偏离提示"><Loading error={rebalanceError} /></Card> : rebalance ? <Rebalance report={rebalance.report} /> : <Card title="持仓偏离提示"><Loading /></Card>}
   </div>;
 }

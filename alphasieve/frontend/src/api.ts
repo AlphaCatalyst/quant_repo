@@ -120,9 +120,14 @@ export type BookReport = { snapshot_id: string; total_value: number; weights: Re
   top_n_concentration: number; hhi: number;
   portfolio_beta_60d: number | null; benchmark: string; stress_returns: {
     benchmark_down_10pct: number | null; industry_down_20pct: Record<string, number>;
-    largest_position_down_30pct: number | null }; stress_note?: string };
-export type BookSnapshot = { snapshot_id: string; account: string; as_of: string;
-  positions_count: number; total_value: number; report: BookReport | null };
+    largest_position_down_30pct: number | null }; stress_note?: string;
+  red_flags?: { holdings?: { code: string; name?: string; flags?: string[] }[]; flagged_weight?: number } | null;
+  announcements?: { since?: string; as_of?: string; items?: BookAnnouncement[] } | null };
+export type BookAnnouncement = { code: string; type: string; title: string; date: string; url?: string; importance?: string };
+export type BookSnapshotPosition = { code: string; name?: string; quantity: number;
+  cost_price: number | null; price: number | null; market_value: number };
+export type BookSnapshot = { snapshot_id: string; account: string; as_of: string; created_at?: string;
+  positions: BookSnapshotPosition[]; positions_count: number; total_value: number; report: BookReport | null };
 export type BookHistoryDay = { date: string; nav: number | null; unit_nav: number | null;
   return: number | null; benchmark_return: number | null; excess_return: number | null;
   drawdown: number | null; cash_flow?: number; snapshot_id?: string | null;

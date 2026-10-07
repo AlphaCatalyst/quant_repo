@@ -182,8 +182,7 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
     settings = replace(settings or get_settings(), role="human")
     if require_auth is None:
         require_auth = os.environ.get("ALPHASIEVE_WEB_AUTH", "basic") != "none"
-    if require_auth:
-        ensure_credentials(settings)
+    ensure_credentials(settings)
     app = FastAPI(title="AlphaSieve", version=__version__, docs_url=None, redoc_url=None)
     task_labels = _task_labels(settings)
 
@@ -191,9 +190,7 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
     def artifact_metrics(artifact_id: str) -> dict:
         return json.loads((settings.artifacts_dir / artifact_id / "metrics.json").read_text(encoding="utf-8"))
 
-    def auth(creds: HTTPBasicCredentials | None = Depends(security)) -> str:
-        if not require_auth:
-            return "anonymous"
+    def check_credentials(creds: HTTPBasicCredentials | None) -> str:
         if creds is None:
             raise HTTPException(401, "login required", headers={"WWW-Authenticate": "Basic"})
         user, password = _load_credentials(settings)
@@ -202,6 +199,13 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
         if not ok:
             raise HTTPException(401, "invalid credentials", headers={"WWW-Authenticate": "Basic"})
         return creds.username
+
+    def auth(creds: HTTPBasicCredentials | None = Depends(security)) -> str:
+        return check_credentials(creds) if require_auth else "anonymous"
+
+    def private(creds: HTTPBasicCredentials | None = Depends(security)) -> str:
+        """Personal data (holdings, private alerts, forward) always needs credentials, even on a public board."""
+        return check_credentials(creds)
 
     def db():
         conn = _ro_connect(settings)
@@ -276,16 +280,12 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
 
     @app.get("/api/alerts/private")
     def private_alerts_view(open: bool = False, kind: str | None = None,
-                            user: str = Depends(auth), conn=Depends(db)):
-        if not require_auth or user == "anonymous":
-            raise HTTPException(403, "private alerts require human authentication")
+                            user: str = Depends(private), conn=Depends(db)):
         rows = list_alerts(conn, visibility="private", open_only=open, kind=kind)
         return {"alerts": rows, "count": len(rows)}
 
     @app.get("/api/forward")
-    def forward_view(user: str = Depends(auth), conn=Depends(db)):
-        if not require_auth or user == "anonymous":
-            raise HTTPException(403, "forward requires human authentication")
+    def forward_view(user: str = Depends(private), conn=Depends(db)):
         from alphasieve.fresh.service import read_model
 
         return read_model(conn)
@@ -355,9 +355,7 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
         return {**forecast_service.list_forecasts(conn), "score": forecast_service.score_forecasts(conn)}
 
     @app.get("/api/book")
-    def book_view(user: str = Depends(auth), conn=Depends(db)):
-        if not require_auth or user == "anonymous":
-            raise HTTPException(403, "book requires human authentication")
+    def book_view(user: str = Depends(private), conn=Depends(db)):
         snapshots = []
         for item in importer.list_snapshots(conn):
             snapshot = importer.show_snapshot(conn, item["snapshot_id"])
@@ -367,13 +365,8 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
                               "report": checkup.load_report(item["snapshot_id"], settings)})
         return {"snapshots": snapshots, "count": len(snapshots)}
 
-    def _private_book(user: str) -> None:
-        if not require_auth or user == "anonymous":
-            raise HTTPException(403, "book requires human authentication")
-
-    def _saved_book(kind: str, user: str, start: str | None = None, end: str | None = None,
+    def _saved_book(kind: str, start: str | None = None, end: str | None = None,
                     by: str | None = None) -> dict:
-        _private_book(user)
         report = book_history.load_analysis_report(settings, kind)
         if report and ((start and report.get("start") != start) or (end and report.get("end") != end)
                        or (by and report.get("by") != by)):
@@ -381,19 +374,19 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
         return {"report": report}
 
     @app.get("/api/book/history")
-    def book_history_view(start: str | None = None, end: str | None = None, user: str = Depends(auth)):
-        return _saved_book("history", user, start, end)
+    def book_history_view(start: str | None = None, end: str | None = None, user: str = Depends(private)):
+        return _saved_book("history", start, end)
 
     @app.get("/api/book/attribution")
     def book_attribution_view(start: str | None = None, end: str | None = None,
-                              by: str | None = None, user: str = Depends(auth)):
+                              by: str | None = None, user: str = Depends(private)):
         if by is not None and by not in {"position", "industry", "thesis"}:
             raise HTTPException(400, "invalid attribution dimension")
-        return _saved_book(f"attribution-{by or 'position'}", user, start, end, by)
+        return _saved_book(f"attribution-{by or 'position'}", start, end, by)
 
     @app.get("/api/book/rebalance")
-    def book_rebalance_view(user: str = Depends(auth)):
-        return _saved_book("rebalance", user)
+    def book_rebalance_view(user: str = Depends(private)):
+        return _saved_book("rebalance")
 
     @app.exception_handler(AlphaSieveError)
     async def _err(request, exc: AlphaSieveError):

@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from alphasieve.monitor import acknowledge, list_alerts, run
 from alphasieve.state import connect
-from alphasieve.web.app import create_app
+from alphasieve.web.app import _load_credentials, create_app
 
 
 def test_monitor_rules_visibility_and_idempotence(settings, tmp_path, monkeypatch):
@@ -71,4 +71,5 @@ position_limit: 0.2
     open_client = TestClient(create_app(settings, require_auth=False))
     assert open_client.get("/api/alerts").status_code == 200
     assert all(a["visibility"] == "public" for a in open_client.get("/api/alerts").json()["alerts"])
-    assert open_client.get("/api/alerts/private").status_code == 403
+    assert open_client.get("/api/alerts/private").status_code == 401
+    assert open_client.get("/api/alerts/private", auth=_load_credentials(settings)).status_code == 200

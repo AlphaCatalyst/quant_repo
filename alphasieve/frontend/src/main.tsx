@@ -30,21 +30,11 @@ function useHashPath(): string {
   return path;
 }
 
-const NAV: [string, string][] = [
-  ["/", "总览"],
-  ["/inbox", "待你决定"],
-  ["/mandates", "策略"],
-  ["/factors", "因子"],
-  ["/ledger", "试验记录"],
-  ["/forward", "前瞻"],
-  ["/theses", "论点"],
-  ["/forecasts", "预测"],
-  ["/book", "持仓体检"],
-  ["/alerts", "监控告警"],
-  ["/resources", "计算资源"],
-  ["/jobs", "作业与调度"],
-  ["/health", "系统健康"],
-  ["/data", "数据"],
+const NAV: [string, [string, string][]][] = [
+  ["", [["/", "总览"], ["/inbox", "待你决定"]]],
+  ["我的账户", [["/book", "持仓"], ["/theses", "论点"], ["/forecasts", "预测"], ["/alerts", "告警"]]],
+  ["研究", [["/mandates", "策略任务"], ["/factors", "因子"], ["/ledger", "试验记录"], ["/forward", "前瞻"]]],
+  ["系统", [["/resources", "资源"], ["/jobs", "作业"], ["/health", "健康"], ["/data", "数据"]]],
 ];
 
 function useTableOverflow() {
@@ -137,20 +127,29 @@ function App() {
     <>
       <nav className="nav">
         <a className="brand" href="#/">AlphaSieve</a>
-        {NAV.map(([p, label]) => (
-          <a key={p} href={`#${p}`} className={active === p ? "active" : ""}>{label}{counts[p] != null && <span className="nav-count" title={p === "/mandates" ? "任务书数量" : p === "/factors" ? "因子库数量" : "已完成试验数"}>{counts[p]}</span>}</a>
+        {NAV.map(([group, items]) => (
+          <span className="nav-group" key={group || "home"}>
+            {group && <span className="nav-group-label">{group}</span>}
+            {items.map(([p, label]) => (
+              <a key={p} href={`#${p}`} className={active === p ? "active" : ""}>{label}{counts[p] != null && <span className="nav-count" title={p === "/mandates" ? "任务数量" : p === "/factors" ? "因子库数量" : "已完成试验数"}>{counts[p]}</span>}</a>
+            ))}
+          </span>
         ))}
-        <span className="nav-note top-chip">{paused ? "已暂停" : statusError ? "刷新失败" : `实时 · ${age(updatedAt, now)}`}</span>
-        <span className="nav-meta" title="运行中的研究">运行中 {status?.running_campaigns ?? "—"}</span>
-        <span className="nav-meta" title="最近交易日">交易日 {status?.latest_trade_date ?? "—"}</span>
-        <span className="nav-meta" title="最近状态库备份">备份 {age(status?.latest_backup?.created_at, now)}</span>
-        <button className="nav-button" onClick={() => { setRefreshPaused(!refreshPaused()); if (paused) reload(); }}>{paused ? "继续" : "暂停"}</button>
+        <span className="nav-spacer" />
         <button className="nav-button theme-button" title={theme === "dark" ? "切换浅色" : "切换深色"} aria-label="切换主题" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>◐</button>
         <Glossary />
       </nav>
+      <div className="status-bar">
+        <span className={paused ? "" : statusError ? "status-bad" : "status-ok"}>● {paused ? "自动刷新已暂停" : statusError ? "刷新失败" : `数据 ${age(updatedAt, now)}更新`}</span>
+        <button className="link-button" onClick={() => { setRefreshPaused(!refreshPaused()); if (paused) reload(); }}>{paused ? "恢复刷新" : "暂停刷新"}</button>
+        <span title="运行中的研究">运行中研究 {status?.running_campaigns ?? "—"}</span>
+        <span title="最近交易日">最新交易日 {status?.latest_trade_date ?? "—"}</span>
+        <span title="最近状态库备份">状态库备份 {age(status?.latest_backup?.created_at, now)}</span>
+      </div>
       <main>
         {showGuide && <section className="card intro-guide" aria-label="看板怎么读">
           <div className="intro-head"><h3>第一次看？这样读看板</h3><button className="btn small" onClick={() => { localStorage.setItem("alphasieve-guide-seen", "1"); setShowGuide(false); }}>知道了</button></div>
+          <p>总览从上往下：<b>待你决定</b>的事项 → <b>我的持仓</b>（登录后可见）→ 四个<b>策略任务</b>是否通过验收、差在哪 → 因子研究进展 → 系统状态。</p>
           <p>四个任务：A 中证 500 增强、B 行业 ETF 轮动、C 业绩超预期漂移、D 股指期货对冲。每个任务都有自己的验收条件和试验预算。</p>
           <p><b>dev</b> 用于开发和比较；<b>holdout</b> 是锁定配置后的留出验证。多次尝试中挑最好的一次会高估表现，“搜索折扣”用于校正这种偏差。holdout 读取次数有限，必须由人审批，避免反复试探留出集。</p>
         </section>}

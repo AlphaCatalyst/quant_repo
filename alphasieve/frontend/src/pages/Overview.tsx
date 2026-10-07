@@ -1,10 +1,10 @@
 import { useApi, type Json } from "../api";
-import { Badge, Card, DataTable, Empty, fmtNum, fmtPct, fmtTime, link, Loading, Progress } from "../components";
+import { Badge, Card, DataTable, Empty, fmtNum, fmtTime, link, Loading } from "../components";
 import { InboxSummary } from "./Inbox";
 import ResearchProgress from "./Progress";
 import { ControlStrip } from "./Control";
-
-const TITLES: Record<string, string> = { A: "中证 500 增强", B: "行业 ETF 轮动", C: "业绩超预期漂移", D: "股指期货对冲" };
+import { MandateSummary } from "./Mandates";
+import { BookSummary } from "./Book";
 const FAILURE_LABELS: Record<string, string> = {
   "l0.structure": "L0 · 结构检查未通过",
   "l0.campaign_horizon": "L0 · 预测周期不符",
@@ -30,38 +30,35 @@ export default function Overview() {
   const mandates = useApi<Json>("/api/mandates", 30000).data?.mandates ?? [];
   const activity = useApi<Json>("/api/ledger?limit=8", 30000).data?.trials ?? [];
   if (!data) return <Loading error={error} />;
+  const passed = mandates.filter((m: Json) => m.trials.some((t: Json) => t.acceptance?.passed)).length;
+  const exhausted = mandates.filter((m: Json) => m.dev_trials >= m.budget).length;
   return (
     <div className="page">
-      <ControlStrip />
       <InboxSummary />
+
+      <h3 className="section-title">我的账户</h3>
+      <BookSummary />
+
+      <h3 className="section-title">策略任务
+        <span className="section-sub">{mandates.length} 个任务 · {passed} 个有试验通过验收 · {exhausted} 个开发期预算已用完</span>
+        <a className="small" href={link("/mandates")}>全部明细 →</a>
+      </h3>
+      <div className="mandate-grid">
+        {mandates.map((m: Json) => <section className="card" key={m.mandate}><MandateSummary m={m} compact /></section>)}
+      </div>
+
+      <h3 className="section-title">因子研究</h3>
       <ResearchProgress />
       <div className="metric-strip">
-        <Stat label="dev trial 总数" value={data.ledger.completed_trials} />
+        <Stat label="已完成试验" value={data.ledger.completed_trials} />
         <Stat label="不同候选" value={data.ledger.distinct_candidates} />
         <Stat label="因子库" value={data.library_size} />
         <Stat label="待回复请求" value={data.inbox.open_requests} tone={data.inbox.open_requests ? "amber" : undefined} />
-        <Stat label="待批准 holdout" value={data.inbox.pending_holdout} tone={data.inbox.pending_holdout ? "amber" : undefined} />
+        <Stat label="待批准留出集" value={data.inbox.pending_holdout} tone={data.inbox.pending_holdout ? "amber" : undefined} />
         <Stat label="待评审" value={data.inbox.open_reviews} tone={data.inbox.open_reviews ? "amber" : undefined} />
       </div>
 
-      <div className="mandate-strip">
-        {mandates.map((m: Json) => {
-          const dev = m.trials.filter((t: Json) => t.tier === "dev" && t.status === "completed");
-          const ranked = [...dev].filter((t: Json) => typeof (t.metrics?.information_ratio ?? t.metrics?.sharpe) === "number")
-            .sort((a: Json, b: Json) => (b.metrics?.information_ratio ?? b.metrics?.sharpe) - (a.metrics?.information_ratio ?? a.metrics?.sharpe));
-          const best = ranked[0];
-          const pending = m.holdout_requests.filter((q: Json) => q.status === "pending").length;
-          return <div className="stat" key={m.mandate}>
-            <div><a href={link(`/mandates?mandate=${m.mandate}`)}><strong>{m.mandate} · {TITLES[m.mandate]}</strong></a></div>
-            <Progress label="dev trial 预算" used={m.dev_trials} budget={m.budget} />
-            <div className="small">最佳 dev {best ? <a href={link(`/strategy/${best.trial_id}`)}>{best.trial_id}</a> : "—"}</div>
-            <div className="small muted">{best ? `${best.metrics?.information_ratio != null ? "IR" : "夏普"} ${fmtNum(best.metrics?.information_ratio ?? best.metrics?.sharpe, 2)} · 净超额 ${fmtPct(best.metrics?.annual_excess ?? best.metrics?.annual_return, 1)} · ${dev.length} 次中择优` : "暂无已完成的 dev trial"}</div>
-            <div className="small muted">holdout：已批准 {m.holdout_reads.used} / {m.holdout_reads.budget}，待批准 {pending}</div>
-          </div>;
-        })}
-      </div>
-
-      <Card title={`因子研究（${data.campaigns.length}）`}>
+      <Card title={`研究活动（${data.campaigns.length}）`}>
         <DataTable rows={data.campaigns as Json[]} filename="campaigns.csv" searchPlaceholder="搜索研究"
           filters={[{ label: "状态", value: (c: Json) => c.status, options: Array.from(new Set((data.campaigns as Json[]).map((c) => c.status))).map((v: string) => ({ value: v, label: v })) }]}
           columns={[
@@ -94,6 +91,9 @@ export default function Overview() {
           <FailureList reasons={data.ledger.failure_reasons} />
         </Card>
       </div>
+
+      <h3 className="section-title">系统</h3>
+      <ControlStrip />
     </div>
   );
 }

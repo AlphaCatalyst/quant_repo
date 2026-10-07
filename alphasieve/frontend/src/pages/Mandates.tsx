@@ -2,12 +2,77 @@ import { useEffect, useState } from "react";
 import { useApi, type Json } from "../api";
 import { Badge, Card, Chart, DataTable, Empty, fmtNum, fmtPct, fmtTime, link, Loading, Progress } from "../components";
 
-const TITLES: Record<string, string> = {
+export const TITLES: Record<string, string> = {
   A: "中证 500 指数增强",
   B: "行业 ETF 轮动",
   C: "业绩超预期漂移（事件驱动）",
   D: "股指期货对冲（已降级为 A 的风险管理模块）",
 };
+
+const PURPOSE: Record<string, string> = {
+  A: "在中证 500 成分股里选股，目标是扣除交易成本后稳定跑赢中证 500 全收益指数。",
+  B: "在申万行业 ETF 之间轮动，目标是收益高于、回撤小于等权持有全部行业。",
+  C: "业绩超预期公告后买入，赚取公告后的价格漂移。",
+  D: "用中证 500 股指期货对冲 A 的市场风险；已降级为 A 的风险管理模块。",
+};
+
+const deflated = (t: Json): number => t.metrics?.search_discount?.deflated_ratio ?? -Infinity;
+
+export function bestTrial(m: Json): Json | undefined {
+  const judged = (m.trials as Json[]).filter((t) => t.acceptance?.checks && Object.keys(t.acceptance.checks).length);
+  const rank = (t: Json) => [t.acceptance.passed ? 1 : 0, t.tier === "holdout" ? 1 : 0, deflated(t)];
+  return judged.sort((a, b) => {
+    const [ap, ah, ad] = rank(a), [bp, bh, bd] = rank(b);
+    return bp - ap || bh - ah || bd - ad;
+  })[0];
+}
+
+function mandateVerdict(m: Json): { tone: string; label: string } {
+  const trials = m.trials as Json[];
+  if (trials.some((t) => t.tier === "holdout" && t.acceptance?.passed)) return { tone: "green", label: "留出集验收通过" };
+  if (m.holdout_requests.some((q: Json) => q.status === "pending")) return { tone: "amber", label: "等待你批准留出集" };
+  if (trials.some((t) => t.tier === "dev" && t.acceptance?.passed)) return { tone: "green", label: "开发期通过，可申请留出集" };
+  if (m.dev_trials >= m.budget) return { tone: "red", label: "预算用完，未通过" };
+  return { tone: "amber", label: "研究中，尚未通过" };
+}
+
+export function MandateSummary({ m, compact = false }: { m: Json; compact?: boolean }) {
+  const best = bestTrial(m);
+  const verdict = mandateVerdict(m);
+  const checks = Object.entries(best?.acceptance?.checks ?? {}) as [string, [unknown, unknown, boolean]][];
+  const failed = checks.filter(([, c]) => !c[2]);
+  const describe = ([k, [v, thr]]: [string, [unknown, unknown, boolean]]) =>
+    `${CHECK_LABEL[k] ?? k} ${fmtCheck(k, v)}（门槛 ${checkDirection(k)} ${thresholdText(k, v, thr)}）`;
+  const exhausted = m.dev_trials >= m.budget;
+  return <div className={`mandate-summary ${compact ? "compact" : ""}`}>
+    <div className="mandate-summary-head">
+      <a href={link(`/mandates?mandate=${m.mandate}`)} className="mandate-letter">{m.mandate}</a>
+      <div className="mandate-summary-title">
+        <strong>{TITLES[m.mandate] ?? m.mandate}</strong>
+        <div className="muted small">{PURPOSE[m.mandate] ?? ""}</div>
+      </div>
+      <span className={`badge ${verdict.tone}`}>{verdict.label}</span>
+    </div>
+    <p className="mandate-verdict">
+      {best ? <>
+        开发期试验 {m.dev_trials}/{m.budget}{exhausted ? "，预算已用完" : ""}。
+        {best.acceptance.passed ? "通过验收的一次" : "搜索折扣后最好的一次"}（<a href={link(`/strategy/${best.trial_id}`)} className="mono">{best.trial_id}</a>）
+        {checks.length} 项验收通过 {checks.length - failed.length} 项
+        {failed.length ? <>，差在：<b>{failed.map(describe).join("；")}</b></> : "，全部通过"}。
+      </> : <>开发期试验 {m.dev_trials}/{m.budget}，暂无带验收结果的试验。</>}
+    </p>
+    {checks.length > 0 && <div className="check-chips">
+      {checks.map(([k, [v, thr, ok]]) => <span key={k} className={`check-chip ${ok ? "ok" : "bad"}`} title={`门槛 ${checkDirection(k)} ${thresholdText(k, v, thr)}`}>
+        {ok ? "✓" : "✗"} {CHECK_LABEL[k] ?? k} <b>{fmtCheck(k, v)}</b>
+        {!compact && <span className="muted"> / {checkDirection(k)} {thresholdText(k, v, thr)}</span>}
+      </span>)}
+    </div>}
+    {!compact && <div className="two-col">
+      <Progress label="开发期试验预算" used={m.dev_trials} budget={m.budget} />
+      <Progress label="留出集读取（需人工批准）" used={m.holdout_reads.used} budget={m.holdout_reads.budget} />
+    </div>}
+  </div>;
+}
 
 export const CHECK_LABEL: Record<string, string> = {
   annual_excess: "年化净超额",
@@ -69,6 +134,15 @@ export function Mandates() {
   const toggle = (id: string) => setSelected((ids) => ids.includes(id) ? ids.filter((x) => x !== id) : [...ids.slice(-1), id]);
   return (
     <div className="page">
+      <div className="page-head"><div>
+        <h2>策略任务</h2>
+        <p className="muted small">每个任务有固定的验收门槛和开发期试验预算。每张卡片先回答“现在通过了没有、差在哪”，下方是全部试验的明细。
+          开发期（dev）用于比较配置；留出集（holdout）是锁定配置后只读一次的验证，需要人工批准。</p>
+      </div></div>
+      <div className="mandate-grid">
+        {data.mandates.map((m: Json) => <section className={`card ${selectedMandate === m.mandate ? "selected" : ""}`} key={m.mandate}><MandateSummary m={m} /></section>)}
+      </div>
+      <h3 className="section-title">试验明细</h3>
       <div className="filters">
         <label>范围 <select value={selectedMandate} onChange={(e) => setFilter("mandate", e.target.value)}>
           <option value="">全部（{data.mandates.length}）</option>
@@ -87,10 +161,10 @@ export function Mandates() {
         </span>}
       </div>
       {visible.map((m: Json) => (
-        <Card key={m.mandate} title={`${m.mandate} · ${TITLES[m.mandate] ?? ""}`}>
+        <Card key={m.mandate} title={`${m.mandate} · ${TITLES[m.mandate] ?? ""} · 试验明细（${m.trials.length}）`}>
           <div className="two-col">
-            <Progress label="dev 策略 trial 预算" used={m.dev_trials} budget={m.budget} />
-            <Progress label="holdout 读取（人工批准）" used={m.holdout_reads.used} budget={m.holdout_reads.budget} />
+            <Progress label="开发期试验预算" used={m.dev_trials} budget={m.budget} />
+            <Progress label="留出集读取（需人工批准）" used={m.holdout_reads.used} budget={m.holdout_reads.budget} />
           </div>
           {view === "matrix" && <TrialMatrix trials={m.trials} result={selectedResult} selected={selected} toggle={toggle} />}
           {view === "list" && (m.trials.length === 0 ? <Empty /> : <DataTable rows={m.trials.filter((t: Json) => matchesResult(t, selectedResult))}

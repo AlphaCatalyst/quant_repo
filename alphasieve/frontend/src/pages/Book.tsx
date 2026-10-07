@@ -1,6 +1,133 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useApi, type BookAttributionReport, type BookAttributionResponse, type BookHistoryReport, type BookHistoryResponse, type BookRebalanceReport, type BookRebalanceResponse, type BookReport, type BookSnapshot } from "../api";
-import { Card, Chart, Empty, fmtNum, fmtPct, Loading } from "../components";
+import { Card, Chart, Empty, fmtNum, fmtPct, link, Loading } from "../components";
+
+const UNLOCK_KEY = "alphasieve-book-unlocked";
+const ANNOUNCEMENT_TYPE: Record<string, string> = {
+  shareholding_change: "股东增减持", repurchase: "回购", earnings: "业绩", earnings_forecast: "业绩预告",
+  dividend: "分红", litigation: "诉讼", regulatory: "监管", major_contract: "重大合同", restructuring: "重组",
+};
+const isAuthError = (error: string | null) => !!error && /^(401|403) /.test(error);
+const signed = (v: number | null | undefined, digits = 2) => v == null ? "—" : `${v > 0 ? "+" : ""}${fmtNum(v, digits)}`;
+const signedPct = (v: number | null | undefined, digits = 2) => v == null ? "—" : `${v > 0 ? "+" : ""}${fmtPct(v, digits)}`;
+const pnlClass = (v: number | null | undefined) => v == null || v === 0 ? "" : v > 0 ? "pnl-up" : "pnl-down";
+
+function positionRows(snapshot: BookSnapshot) {
+  return snapshot.positions.map((p) => {
+    const cash = p.code === "CASH";
+    const cost = !cash && p.cost_price != null ? p.cost_price * p.quantity : null;
+    const pnl = cost != null ? p.market_value - cost : null;
+    return { ...p, cash, cost, pnl, pnlPct: cost ? pnl! / cost : null, weight: snapshot.total_value ? p.market_value / snapshot.total_value : null };
+  }).sort((a, b) => Number(a.cash) - Number(b.cash) || b.market_value - a.market_value);
+}
+
+function pnlTotals(rows: ReturnType<typeof positionRows>) {
+  const priced = rows.filter((r) => r.cost != null);
+  const cost = priced.reduce((s, r) => s + r.cost!, 0);
+  const pnl = priced.reduce((s, r) => s + r.pnl!, 0);
+  return { cost, pnl, pnlPct: cost ? pnl / cost : null };
+}
+
+export function latestByAccount(snapshots: BookSnapshot[]): BookSnapshot[] {
+  const latest = new Map<string, BookSnapshot>();
+  for (const s of snapshots) {
+    const cur = latest.get(s.account);
+    if (!cur || s.as_of > cur.as_of || (s.as_of === cur.as_of && (s.created_at ?? "") > (cur.created_at ?? ""))) latest.set(s.account, s);
+  }
+  return [...latest.values()].sort((a, b) => b.total_value - a.total_value);
+}
+
+function PositionsTable({ snapshot, compact = false }: { snapshot: BookSnapshot; compact?: boolean }) {
+  const rows = positionRows(snapshot);
+  const totals = pnlTotals(rows);
+  return <div className="table-scroll"><table className={`table ${compact ? "compact" : ""}`}>
+    <thead><tr><th>持仓</th><th className="num">数量</th><th className="num">成本价</th><th className="num">现价</th><th className="num">市值（元）</th><th className="num">占比</th><th className="num">浮动盈亏（元）</th><th className="num">盈亏比例</th></tr></thead>
+    <tbody>
+      {rows.map((r) => <tr key={r.code}>
+        <td>{r.name || r.code}{!r.cash && <div className="muted small mono">{r.code}</div>}</td>
+        <td className="num">{r.cash ? "—" : fmtNum(r.quantity, 0)}</td>
+        <td className="num">{r.cash ? "—" : value(r.cost_price, 3)}</td>
+        <td className="num">{r.cash ? "—" : value(r.price, 2)}</td>
+        <td className="num">{value(r.market_value)}</td>
+        <td className="num">{fmtPct(r.weight, 1)}</td>
+        <td className={`num ${pnlClass(r.pnl)}`}>{signed(r.pnl)}</td>
+        <td className={`num ${pnlClass(r.pnl)}`}>{signedPct(r.pnlPct)}</td>
+      </tr>)}
+      <tr className="total-row"><td>合计</td><td /><td /><td /><td className="num">{value(snapshot.total_value)}</td><td className="num">100%</td>
+        <td className={`num ${pnlClass(totals.pnl)}`}>{signed(totals.pnl)}</td><td className={`num ${pnlClass(totals.pnl)}`}>{signedPct(totals.pnlPct)}</td></tr>
+    </tbody>
+  </table></div>;
+}
+
+function RiskNotes({ snapshot }: { snapshot: BookSnapshot }) {
+  const report = snapshot.report;
+  if (!report) return <p className="small muted">这份快照还没有体检报告；在本机运行 <code>alphasieve book check {snapshot.snapshot_id}</code> 生成。</p>;
+  const names = Object.fromEntries(snapshot.positions.map((p) => [p.code, p.name || p.code]));
+  const notes: string[] = [];
+  const top = Object.entries(report.weights ?? {}).sort((a, b) => b[1] - a[1])[0];
+  if (top && top[1] > 0.3) notes.push(`单一持仓集中：${names[top[0]] ?? top[0]} 占 ${fmtPct(top[1], 1)}`);
+  if (report.portfolio_beta_60d != null && report.portfolio_beta_60d > 1.2) notes.push(`波动高于大盘：60 日 Beta ${fmtNum(report.portfolio_beta_60d, 2)}（相对 ${report.benchmark}）`);
+  const flagged = report.red_flags?.holdings ?? [];
+  if (flagged.length) notes.push(`财务风险标记 ${flagged.length} 只：${flagged.map((h) => h.name || h.code).join("、")}`);
+  const announcements = report.announcements?.items ?? [];
+  return <>
+    <div className="stats-row">
+      <div className="stat"><div className="stat-value">{fmtNum(report.portfolio_beta_60d, 2)}</div><div className="stat-label">60 日 Beta</div></div>
+      <div className="stat"><div className="stat-value">{signedPct(report.stress_returns?.benchmark_down_10pct, 1)}</div><div className="stat-label">大盘跌 10% 时估算</div></div>
+      <div className="stat"><div className="stat-value">{signedPct(report.stress_returns?.largest_position_down_30pct, 1)}</div><div className="stat-label">最大持仓跌 30% 时估算</div></div>
+      <div className="stat"><div className="stat-value">{flagged.length}</div><div className="stat-label">财务风险标记</div></div>
+    </div>
+    {notes.length > 0 && <ul className="risk-notes">{notes.map((n) => <li key={n}>{n}</li>)}</ul>}
+    {announcements.length > 0 && <>
+      <h4>近期公告（{report.announcements?.since} 至 {report.announcements?.as_of}）</h4>
+      <ul className="announcements">{announcements.slice(0, 6).map((a) => <li key={`${a.code}-${a.date}-${a.title}`}>
+        <span className="muted small nowrap">{a.date}</span> <span className="tag">{ANNOUNCEMENT_TYPE[a.type] ?? a.type}</span> <b>{names[a.code] ?? a.code}</b>{" "}
+        {a.url ? <a href={a.url} target="_blank" rel="noreferrer">{a.title}</a> : a.title}
+      </li>)}</ul>
+    </>}
+  </>;
+}
+
+function AccountSummary({ snapshot, compact = false }: { snapshot: BookSnapshot; compact?: boolean }) {
+  const totals = pnlTotals(positionRows(snapshot));
+  return <div className="account-summary">
+    <div className="account-head">
+      <div><strong>{snapshot.account}</strong> <span className="muted small">截至 {snapshot.as_of} · {snapshot.positions.filter((p) => p.code !== "CASH").length} 只持仓</span></div>
+      <div className="account-figures">
+        <span><span className="muted small">总市值</span> <b>{value(snapshot.total_value)}</b></span>
+        <span><span className="muted small">浮动盈亏</span> <b className={pnlClass(totals.pnl)}>{signed(totals.pnl)}（{signedPct(totals.pnlPct)}）</b></span>
+      </div>
+    </div>
+    <PositionsTable snapshot={snapshot} compact={compact} />
+    <RiskNotes snapshot={snapshot} />
+  </div>;
+}
+
+function LoginPrompt({ onUnlock, failed }: { onUnlock: () => void; failed?: boolean }) {
+  return <div className="login-prompt">
+    <p>持仓是个人数据，看板公开部分不显示。点击后浏览器会弹出登录框，使用 <code>web.credentials</code> 里的账号登录；同一浏览器会话内只需登录一次。</p>
+    {failed && <p className="small muted">上次登录未成功或已取消。</p>}
+    <button className="btn" onClick={onUnlock}>登录并查看持仓</button>
+  </div>;
+}
+
+export function BookSummary() {
+  const [unlocked, setUnlocked] = useState(() => localStorage.getItem(UNLOCK_KEY) === "1");
+  const [failed, setFailed] = useState(false);
+  const { data, error } = useApi<{ snapshots: BookSnapshot[] }>(unlocked ? "/api/book" : null, 60000);
+  useEffect(() => { if (data) localStorage.setItem(UNLOCK_KEY, "1"); }, [data]);
+  useEffect(() => {
+    if (isAuthError(error)) { localStorage.removeItem(UNLOCK_KEY); setUnlocked(false); setFailed(true); }
+  }, [error]);
+  const extra = <a className="small" href={link("/book")}>完整体检 →</a>;
+  if (!unlocked) return <Card title="我的持仓" extra={extra}><LoginPrompt failed={failed} onUnlock={() => setUnlocked(true)} /></Card>;
+  if (!data) return <Card title="我的持仓" extra={extra}><Loading error={error} /></Card>;
+  const accounts = latestByAccount(data.snapshots);
+  return <Card title="我的持仓" extra={extra}>
+    {accounts.length ? accounts.map((s) => <AccountSummary key={s.snapshot_id} snapshot={s} compact />)
+      : <Empty text="还没有导入持仓；在本机运行 alphasieve book import。" />}
+  </Card>;
+}
 
 const ASSET_CLASS: Record<string, string> = { stock: "股票", etf: "ETF", convertible_bond: "可转债", cash: "现金", other: "其他" };
 const BOND_FLAG: Record<string, string> = {
@@ -113,16 +240,19 @@ export default function Book() {
   const { data: history, error: historyError } = useApi<BookHistoryResponse>(data ? `/api/book/history${query ? `?${query}` : ""}` : null);
   const { data: attribution, error: attributionError } = useApi<BookAttributionResponse>(canCompare ? `/api/book/attribution?${query}&by=${by}` : null);
   const { data: rebalance, error: rebalanceError } = useApi<BookRebalanceResponse>(data ? "/api/book/rebalance" : null);
-  if (error?.startsWith("403 ")) return <div className="page"><div className="page-head"><h2>持仓体检</h2></div><Card title="访问受限">持仓属于个人数据，需认证后查看。</Card></div>;
+  useEffect(() => { if (data) localStorage.setItem(UNLOCK_KEY, "1"); }, [data]);
+  if (isAuthError(error)) return <div className="page"><div className="page-head"><h2>我的持仓</h2></div>
+    <Card title="需要登录"><LoginPrompt failed onUnlock={() => window.location.reload()} /></Card></div>;
   if (!data) return <Loading error={error} />;
-  const active = rows.find((row) => row.snapshot_id === selected) ?? rows[0];
-  return <div className="page book-page"><div className="page-head"><div><h2>持仓跟踪</h2><p className="muted small">已导入快照、净值、收益归因与持仓偏离提示。</p></div></div>
+  const active = rows.find((row) => row.snapshot_id === selected) ?? latestByAccount(rows)[0];
+  return <div className="page book-page"><div className="page-head"><div><h2>我的持仓</h2><p className="muted small">先看当前持仓和盈亏，再看风险体检；下方是历史净值、收益归因和偏离提示。数据只保存在本机，不进 git。</p></div></div>
+    {active && <Card title={`持仓与盈亏 · ${active.account}`} extra={<span className="small muted">成本价、现价来自券商导出（{active.as_of}）</span>}>
+      <AccountSummary snapshot={active} />
+    </Card>}
     <Card title={`持仓快照（${rows.length}）`}>{rows.length ? <div className="table-scroll"><table className="table"><thead><tr><th>账户</th><th>截至日期</th><th>持仓数</th><th>总市值</th><th>体检报告</th></tr></thead><tbody>
       {rows.map((row) => <tr key={row.snapshot_id} className={active?.snapshot_id === row.snapshot_id ? "best-row" : ""}><td><button className="table-sort" onClick={() => setSelected(row.snapshot_id)}>{row.account}</button></td><td>{row.as_of}</td><td>{row.positions_count}</td><td>{fmtNum(row.total_value, 2)}</td><td>{row.report ? "已保存" : "暂无"}</td></tr>)}
     </tbody></table></div> : <Empty text="暂无已导入持仓" />}</Card>
-    {active && <><Card title={`${active.account} · ${active.as_of}`} extra={<span className="small muted">总市值 {fmtNum(active.total_value, 2)}</span>}>
-      {active.report ? <p className="small muted">已保存体检报告 · {active.positions_count} 个持仓</p> : <Empty text="这份快照暂无已保存的体检报告" />}</Card>
-      {active.report && <Report report={active.report} />}</>}
+    {active?.report && <><h3 className="section-title">风险体检 · {active.account} · {active.as_of}</h3><Report report={active.report} /></>}
     <Card title="历史区间"><div className="filters">
       <label>开始日期 <input aria-label="开始日期" type="date" value={start || effectiveStart} onChange={(event) => setStart(event.target.value)} /></label>
       <label>结束日期 <input aria-label="结束日期" type="date" value={end || effectiveEnd} onChange={(event) => setEnd(event.target.value)} /></label>

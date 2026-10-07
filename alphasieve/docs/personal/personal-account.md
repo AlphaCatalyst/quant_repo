@@ -60,14 +60,14 @@ A v4 在 5 亿规模下 dev 净超额 5.3%，不计冲击为 7.1%（[acceptance-
 
 ## 5. 对 AlphaSieve 的含义
 
-现有 mandate 按 5 亿规模的中证 500 指增产品设计（[18-mandates.md](../mandates/18-mandates.md)）。服务个人账户需要以下调整，均为后续工程变更，需人工 review：
+现有 mandate 按 5 亿规模的中证 500 指增产品设计（[mandate-specs.md](../mandates/mandate-specs.md)）。服务个人账户需要以下调整，均为后续工程变更，需人工 review：
 
 1. **新增个人账户 mandate。** 规模假设 300 万；股票池为中证 1000 / 2000 或全 A 规则池；去掉跟踪误差目标，改为绝对回撤与持仓数约束；执行层加入 100 股整手与最低佣金规则。策略层 trial 预算与搜索折扣按新 mandate 单独计算。
 2. **扩展资产类型。** 优先可转债与跨资产 ETF。它们与股票多头相关性低，对组合夏普的提升可能大于继续挖 A 股因子；A 的实测瓶颈也不在信号层（[acceptance-training.md](../acceptance/acceptance-training.md) §3）。
-3. **先 paper 再实盘。** [23-forward-paper.md](../mandates/23-forward-paper.md) 的前瞻追踪是实盘前的必经步骤：先跑 3–6 个月 paper，再小资金实盘。
-4. **补执行层。** 系统目前明确不做实盘（[01-product.md](../overview/01-product.md) §5）。落地需要接入 QMT / miniQMT 或 PTrade，并完成程序化交易报告。
+3. **先 paper 再实盘。** [forward-paper.md](../mandates/forward-paper.md) 的前瞻追踪是实盘前的必经步骤：先跑 3–6 个月 paper，再小资金实盘。
+4. **补执行层。** 系统目前明确不做实盘（[product.md](../overview/product.md) §5）。落地需要接入 QMT / miniQMT 或 PTrade，并完成程序化交易报告。
 
-本文的系统化策略对应核心仓位；论点驱动的集中研究等更广义的能力见 [27-broad-quant-platform.md](27-broad-quant-platform.md)。
+本文的系统化策略对应核心仓位；论点驱动的集中研究等更广义的能力见 [broad-quant-platform.md](broad-quant-platform.md)。
 
 ## 6. 待人工决定的问题
 

@@ -1,4 +1,4 @@
-"""Walk-forward training engine (docs/19 §1.2, §2.4).
+"""Walk-forward training engine (docs/mandates/training-tasks §1.2, §2.4).
 
 At the first retrain point of each year the candidate grid is compared on inner forward-chaining folds of the
 training window (each fold purged); the winner per horizon is refit at every retrain point of that year on the

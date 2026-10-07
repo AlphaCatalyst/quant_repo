@@ -103,7 +103,7 @@ def test_inbox_and_progress_are_read_only_and_hide_restricted_trials(panel_setti
     progress = client.get("/api/progress").json()
     assert set(progress["windows"]) == {"7", "30"}
     assert "S-000000000001-H" not in json.dumps(progress)
-    assert client.get("/api/docs/23-forward-paper.md").status_code == 200
+    assert client.get("/api/docs/forward-paper.md").status_code == 200
     assert client.get("/api/docs/invalid.md").status_code == 404
 
 

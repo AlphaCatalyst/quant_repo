@@ -10,7 +10,7 @@ M0 基础 ──▶ M1 数据 ──▶ M2 因子评估 ──┬──▶ M3 Ag
                                       └──▶ F1 前端只读 ──────────▶ F2 前端交互 ─────────────────────────▶ F3 前端完整
 ```
 
-测试任务按 [12-testing.md](../research/12-testing.md) §4 随各里程碑落地，不单列里程碑。
+测试任务按 [testing.md](../research/testing.md) §4 随各里程碑落地，不单列里程碑。
 
 ## M0 · 基础（S）
 
@@ -23,7 +23,7 @@ M0 基础 ──▶ M1 数据 ──▶ M2 因子评估 ──┬──▶ M3 Ag
 - `artifacts`：内容寻址存储、manifest 规范化与哈希。
 - `cli/`：响应信封、退出码、角色解析、审计事件写入。
 - `config/`：`splits.yaml`、`gate_policy.yaml`、`models.yaml`、`costs.yaml` 的加载与版本号。
-- 存储根目录配置：`ALPHASIEVE_HOT_ROOT`、`ALPHASIEVE_STORE_ROOT`、`ALPHASIEVE_ARCHIVE_ROOT`；Ceph 挂载保护与 SQLite 定时备份（见 [03-data.md](../data/03-data.md) §8）。
+- 存储根目录配置：`ALPHASIEVE_HOT_ROOT`、`ALPHASIEVE_STORE_ROOT`、`ALPHASIEVE_ARCHIVE_ROOT`；Ceph 挂载保护与 SQLite 定时备份（见 [data-and-panels.md](../data/data-and-panels.md) §8）。
 - 合成 fixture panel 生成器（`tests/fixtures/synth.py`），供 T1、T2、T4 使用。
 
 实现状态（2026-09-26）：已完成。Ceph 挂载保护以“挂载点必须是 mountpoint”检查实现；SQLite 定时备份随 M3 orchestrator 实现。
@@ -40,7 +40,7 @@ M0 基础 ──▶ M1 数据 ──▶ M2 因子评估 ──┬──▶ M3 Ag
 目标：可信的 A 股日频 panel，三个区间物理隔离。
 
 任务：
-- BaoStock Provider（D-18）：按 [03-data.md](../data/03-data.md) §1 的接口拉取，写 raw Parquet 与 `data_snapshots`，多进程、断点续传。
+- BaoStock Provider（D-18）：按 [data-and-panels.md](../data/data-and-panels.md) §1 的接口拉取，写 raw Parquet 与 `data_snapshots`，多进程、断点续传。
 - panel 构建：后复权价格、可交易性字段（推算涨跌停）、中证 800 成分 PIT、证监会行业（非 PIT）、基本面按公告日对齐。
 - 标签：`label_{1,5,10,20}d`（T+1 开盘到 T+1+h 开盘），不可买入样本置缺失。
 - 区间切分与 embargo；dev / holdout / fresh 分目录物化；data 层按角色访问。
@@ -68,8 +68,8 @@ M0 基础 ──▶ M1 数据 ──▶ M2 因子评估 ──┬──▶ M3 Ag
 - 唯一评估入口 + ledger 写入；L0、L1、L2 gate（边际贡献先用 ridge 单模型）。
 - 评估不变量测试：指标只在声明区间计算；标签不前视（打乱未来标签后 IC 应接近 0）；embargo 生效；同输入同输出。
 - 阈值校准：用一组基础量价因子（Alpha158 子集）在 dev 区间的分布校准 L1/L2 阈值，写入 `gate_policy.yaml` v1；跑首次 T6 校准（零假设模拟与植入信号）。
-- 搜索空间：`SearchSpace` 配置与版本、派生变量库 v1、覆盖坐标与候选落格、E2 模板（残差动量、特质波动、Amihud 等）、种子库（Alpha158、GTJA191）（见 [11-factor-search-space.md](../research/11-factor-search-space.md)）。
-- B1、B2 回测实现（见 [13-backtest.md](../research/13-backtest.md)）。
+- 搜索空间：`SearchSpace` 配置与版本、派生变量库 v1、覆盖坐标与候选落格、E2 模板（残差动量、特质波动、Amihud 等）、种子库（Alpha158、GTJA191）（见 [factor-search-space.md](../research/factor-search-space.md)）。
+- B1、B2 回测实现（见 [backtest.md](../research/backtest.md)）。
 
 实现状态（2026-09-26）：DSL（36 个算子、L0 白名单与复杂度检查、规范化哈希）、派生变量 dv1、SearchSpace 与落格、评估器（L1 指标、B2、中性化、四子窗口、ridge 边际贡献）、唯一评估入口与 ledger、L0–L2 gate、状态机、`factor` / `library` / `gate calibrate` 命令、18 个经典量价种子因子已完成。推迟：E2 模板、Alpha158 / GTJA191 种子库、`gate_policy.yaml` v1（校准报告只给建议值，修改需人工 review）。
 - 命令：`factor validate`、`factor eval`、`factor show/list`、`library list/corr`、`ledger stats`。
@@ -104,7 +104,7 @@ M0 基础 ──▶ M1 数据 ──▶ M2 因子评估 ──┬──▶ M3 Ag
 任务：
 - Campaign / Turn / Directive / AgentRequest 对象与命令；停止条件与预算。
 - orchestrator：任务表、调度循环、并发上限、异常处理与自动暂停。
-- 执行器抽象 `AgentExecutor` 与本机后端：Claude Code 与 Codex；工具权限配置；独立操作系统用户运行；transcript 采集与费用统计（见 [14-agent-execution.md](../agent/14-agent-execution.md)）。
+- 执行器抽象 `AgentExecutor` 与本机后端：Claude Code 与 Codex；工具权限配置；独立操作系统用户运行；transcript 采集与费用统计（见 [agent-execution.md](../agent/agent-execution.md)）。
 - campaign 创建时选择搜索空间格子；brief.md 渲染 SearchSpace 可读版本。
 - workspace 模板：`program.md.j2`、brief / memory / directives 刷新；turn 后自动 commit。
 - 记忆 v1：成功模板、禁区、洞察的提炼与展示；`memory show`。
@@ -152,7 +152,7 @@ M0 基础 ──▶ M1 数据 ──▶ M2 因子评估 ──┬──▶ M3 Ag
 
 ## M5 · Nexus 广度搜索（M）
 
-依赖：M4；数据合规确认（[10-decisions.md](10-decisions.md) Q-9）。
+依赖：M4；数据合规确认（[decisions.md](decisions.md) Q-9）。
 
 目标：在 Nexus Cloud 上并行运行多个 miner 任务，按覆盖矩阵做广度探索，本机权威重验。
 
@@ -183,7 +183,7 @@ M0 基础 ──▶ M1 数据 ──▶ M2 因子评估 ──┬──▶ M3 Ag
 - 企业微信通知。
 
 验收：
-- 场景 S1–S5、S7（见 [01-product.md](01-product.md) §4）全部可在前端完成，且与 CLI 结果一致。
+- 场景 S1–S5、S7（见 [product.md](product.md) §4）全部可在前端完成，且与 CLI 结果一致。
 - 关键流程的 Playwright 测试通过。
 
 状态（2026-10-01）：未开始。web 仍是只读的，审批、指令、campaign 控制都通过本机 CLI 完成。只读页面已经扩到 mandate 与策略 trial（预算、验收项、净值、容量、稳健性、holdout 申请）。
@@ -201,7 +201,7 @@ M0 基础 ──▶ M1 数据 ──▶ M2 因子评估 ──┬──▶ M3 Ag
 验收：
 - 以 3–5 个手写因子构建的策略回测，与独立实现的结果一致；执行约束的单元测试覆盖涨停、停牌、T+1。
 
-状态（2026-10-01）：以不同形式实现。StrategySpec 没有实现，策略由 TrainingTask 配置定义（[19-training-tasks.md](../mandates/19-training-tasks.md)），面向四个 mandate（[18-mandates.md](../mandates/18-mandates.md)）：模型按月滚动重训，组合构建有启发式与 LP 两种，执行模拟覆盖 T+1、涨跌停与停牌、参与率与冲击。每次完整运行是一个策略层 trial，按 mandate 计预算与搜索折扣，策略层 holdout 每个 mandate 一次人工批准的读取（D-31）。四个 mandate 的 dev 预算已用完，结论见 [acceptance-training.md](../acceptance/acceptance-training.md)、[20-training-round2.md](../mandates/20-training-round2.md)、[21-a-portfolio.md](../mandates/21-a-portfolio.md)（D-32、D-33）。风格因子与协方差风险模型尚未实现，设计见 [25-risk-model.md](../mandates/25-risk-model.md)。
+状态（2026-10-01）：以不同形式实现。StrategySpec 没有实现，策略由 TrainingTask 配置定义（[training-tasks.md](../mandates/training-tasks.md)），面向四个 mandate（[mandate-specs.md](../mandates/mandate-specs.md)）：模型按月滚动重训，组合构建有启发式与 LP 两种，执行模拟覆盖 T+1、涨跌停与停牌、参与率与冲击。每次完整运行是一个策略层 trial，按 mandate 计预算与搜索折扣，策略层 holdout 每个 mandate 一次人工批准的读取（D-31）。四个 mandate 的 dev 预算已用完，结论见 [acceptance-training.md](../acceptance/acceptance-training.md)、[training-round2.md](../mandates/training-round2.md)、[a-portfolio.md](../mandates/a-portfolio.md)（D-32、D-33）。风格因子与协方差风险模型尚未实现，设计见 [risk-model.md](../mandates/risk-model.md)。
 
 ## M7 · 前瞻与 paper（M）
 
@@ -236,9 +236,9 @@ M0 基础 ──▶ M1 数据 ──▶ M2 因子评估 ──┬──▶ M3 Ag
 - 事件驱动：公告与研报事件抽取、PIT 时间戳、事件信号化。
 - 行业 / ETF 轮动配置层。
 - Reviewer agent。
-- 是否引入 QuantDesk 式平台外壳（见 [10-decisions.md](10-decisions.md)）。
+- 是否引入 QuantDesk 式平台外壳（见 [decisions.md](decisions.md)）。
 
-状态（2026-10-01）：事件驱动（业绩超预期漂移）与行业 ETF 轮动已作为 mandate C、B 实现（D-31、D-32）；事件按 westock 财报的公告日从 panel 中规则检测（D-30），不是 LLM 抽取。模型设计的自主循环与 Reviewer agent 未做；因子 campaign 与 mandate 的挂接设计见 [24-mandate-campaigns.md](../mandates/24-mandate-campaigns.md)。
+状态（2026-10-01）：事件驱动（业绩超预期漂移）与行业 ETF 轮动已作为 mandate C、B 实现（D-31、D-32）；事件按 westock 财报的公告日从 panel 中规则检测（D-30），不是 LLM 抽取。模型设计的自主循环与 Reviewer agent 未做；因子 campaign 与 mandate 的挂接设计见 [mandate-campaigns.md](../mandates/mandate-campaigns.md)。
 
 M0–M2 的验收记录见 [acceptance-m0-m2.md](../acceptance/acceptance-m0-m2.md)。
 
@@ -247,7 +247,7 @@ M0–M2 的验收记录见 [acceptance-m0-m2.md](../acceptance/acceptance-m0-m2.
 - 新增命令都有 `--json` 输出与退出码测试。
 - 新增状态变更都写事件，并在 ledger / 审计中可追溯。
 - 涉及评估或数据的改动都有不变量测试。
-- 更新本目录对应文档；接口变化同步 [06-interfaces.md](../interfaces/06-interfaces.md)。
+- 更新本目录对应文档；接口变化同步 [cli-and-api.md](../interfaces/cli-and-api.md)。
 - `uv run pytest` 全部通过；前端 `pnpm test` 通过（有前端改动时）。
 
 ## 近期第一步

@@ -1,4 +1,4 @@
-"""State database backups to the store (docs/02 §4: hourly copies on Ceph).
+"""State database backups to the store (docs/overview/architecture §4: hourly copies on Ceph).
 
 A backup is taken with SQLite's online backup API, so it is consistent while writers are active. The copy is
 checked (``PRAGMA integrity_check`` and the ledger hash chain) before it is renamed into place; a copy that fails

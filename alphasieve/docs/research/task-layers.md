@@ -6,7 +6,7 @@
 - 同时预测多少个标的；
 - 组合问题出现在哪里。
 
-同时核对 AlphaSieve 的设计与实现覆盖到哪一步。策略范围见 [design/strategy-scope.md](../../../design/strategy-scope.md)，回测细节见 [13-backtest.md](13-backtest.md)，模型侧调研见 [analysis/factor-model-co-optimization-research.md](../../../analysis/factor-model-co-optimization-research.md)。
+同时核对 AlphaSieve 的设计与实现覆盖到哪一步。策略范围见 [design/strategy-scope.md](../../../design/strategy-scope.md)，回测细节见 [backtest.md](backtest.md)，模型侧调研见 [analysis/factor-model-co-optimization-research.md](../../../analysis/factor-model-co-optimization-research.md)。
 
 ## 1. 通行做法
 
@@ -69,37 +69,37 @@
 
 | 层 | 对象 | 标签 / 目标 | 证据 | 谁来迭代 | 状态 |
 |---|---|---|---|---|---|
-| 信号 | `FactorSpec` | `label_{h}d`：T+1 开盘买入、T+1+h 开盘卖出，截面排名（03 §2.2） | B1 / B2 → L1、L2，L3 批次折扣 | agent 自主循环 | 已实现 |
-| 模型 | 固定配置模型：ridge、LightGBM、LambdaRank（04 §8） | 同上标签，以因子库成员为特征 | 综合 RankIC；B4 滚动样本外 | 先固定配置、按月重训；agent 设计模型放到后续阶段 | 已实现：TrainingTask，月度滚动的 ridge / LightGBM / LambdaRank（D-31，[19-training-tasks.md](../mandates/19-training-tasks.md)）；agent 不迭代 |
-| 组合 | `StrategySpec.portfolio`（design/system-contracts） | 中证 500 / 800 增强，只做多，Top-K 或带约束的优化（13 §4.4） | B3 日频模拟；B4 | 人配置，模板化 | 已实现：四个 mandate 的组合与验收，指数增强用 LP（D-31、D-33，[18-mandates.md](../mandates/18-mandates.md)、[21-a-portfolio.md](../mandates/21-a-portfolio.md)） |
-| 执行 | `StrategySpec.execution` | T+1、涨跌停与停牌顺延、成本与冲击（13 §4.2–4.3） | B3 | 固定规则 | 已实现：T+1、涨跌停与停牌、参与率、平方根冲击（`strategy/execution.py`） |
-| 前瞻 | 策略与信号的 fresh cohort | 不回填的每日持仓 | B5 → L5 | 系统 | 未实现，设计见 [23-forward-paper.md](../mandates/23-forward-paper.md) |
+| 信号 | `FactorSpec` | `label_{h}d`：T+1 开盘买入、T+1+h 开盘卖出，截面排名（data-and-panels §2.2） | B1 / B2 → L1、L2，L3 批次折扣 | agent 自主循环 | 已实现 |
+| 模型 | 固定配置模型：ridge、LightGBM、LambdaRank（research-core §8） | 同上标签，以因子库成员为特征 | 综合 RankIC；B4 滚动样本外 | 先固定配置、按月重训；agent 设计模型放到后续阶段 | 已实现：TrainingTask，月度滚动的 ridge / LightGBM / LambdaRank（D-31，[training-tasks.md](../mandates/training-tasks.md)）；agent 不迭代 |
+| 组合 | `StrategySpec.portfolio`（design/system-contracts） | 中证 500 / 800 增强，只做多，Top-K 或带约束的优化（backtest §4.4） | B3 日频模拟；B4 | 人配置，模板化 | 已实现：四个 mandate 的组合与验收，指数增强用 LP（D-31、D-33，[mandate-specs.md](../mandates/mandate-specs.md)、[a-portfolio.md](../mandates/a-portfolio.md)） |
+| 执行 | `StrategySpec.execution` | T+1、涨跌停与停牌顺延、成本与冲击（backtest §4.2–4.3） | B3 | 固定规则 | 已实现：T+1、涨跌停与停牌、参与率、平方根冲击（`strategy/execution.py`） |
+| 前瞻 | 策略与信号的 fresh cohort | 不回填的每日持仓 | B5 → L5 | 系统 | 未实现，设计见 [forward-paper.md](../mandates/forward-paper.md) |
 
 ## 3. 现状核对
 
 | 问题 | 设计文档 | 实现 | 差距 |
 |---|---|---|---|
 | 分层契约（信号 → 组合 → 执行） | 有：strategy-scope §3、`StrategySpec` | 无 | M6 |
-| 标签定义与可交易性 | 有：03 §2.2（买入日不可交易的样本标签记为缺失，embargo） | 已实现 | 无 |
+| 标签定义与可交易性 | 有：data-and-panels §2.2（买入日不可交易的样本标签记为缺失，embargo） | 已实现 | 无 |
 | 预测周期怎么选 | 没有规则，campaign 只有一个 `horizon` 字段 | 试点用 5 日预测财务因子 | 缺少“按信号类型定周期”的规则 |
 | 因子层评价 | 有：L1、L2 | 已实现；边际贡献只有 ridge | L2 的“成本后多头超额 > 0”是把组合层和执行层的要求压到单因子上（见 §4 P-2） |
-| 模型层 | 有：固定配置加按月重训（04 §8）；联合优化调研 | 无 | 缺模型契约（ModelSpec）、模型层的记账与关卡 |
-| 组合构建 | 有：Top-K / 约束优化，约束数值已给出（13 §4.4） | 无 | M6 |
-| 风险模型 | 无（13 §4.4 只提到“风险惩罚”） | 无 | 缺风格因子暴露与协方差的定义 |
-| 执行模拟 | 有：完整规则与成本表（13 §4.2–4.3） | 只有 B2 近似版（前 20% 等权、每周调仓、单边 0.15%） | B3 未实现 |
-| 滚动样本外 | 有：13 §5 | 无 | M6 |
-| holdout 用在哪一层 | L4 按因子检验；13 §5 提到在 holdout 上做 B4 要消耗读取预算 | 因子层 L4 已实现 | 没有定义因子层与策略层 holdout 读取的关系和预算 |
+| 模型层 | 有：固定配置加按月重训（research-core §8）；联合优化调研 | 无 | 缺模型契约（ModelSpec）、模型层的记账与关卡 |
+| 组合构建 | 有：Top-K / 约束优化，约束数值已给出（backtest §4.4） | 无 | M6 |
+| 风险模型 | 无（backtest §4.4 只提到“风险惩罚”） | 无 | 缺风格因子暴露与协方差的定义 |
+| 执行模拟 | 有：完整规则与成本表（backtest §4.2–4.3） | 只有 B2 近似版（前 20% 等权、每周调仓、单边 0.15%） | B3 未实现 |
+| 滚动样本外 | 有：backtest §5 | 无 | M6 |
+| holdout 用在哪一层 | L4 按因子检验；backtest §5 提到在 holdout 上做 B4 要消耗读取预算 | 因子层 L4 已实现 | 没有定义因子层与策略层 holdout 读取的关系和预算 |
 | 跨层多重检验 | ledger 只记因子评估 | 同左 | 模型、组合配置的试验没有记账 |
 | 多策略合并与叠加 | 有：`sleeve_blend`、`overlays` | 无 | 后续阶段 |
 | 基金、期货 | 明确不支持（strategy-scope §2.6） | — | 有意排除 |
 
 结论：分层的方向在设计里已经有了，但实现只完成了信号层。结果是信号层被迫同时承担“能不能赚钱”的判断，holdout 与前瞻验证也只落在单因子上。
 
-**更新（2026-10-01）**：上表是 2026-09-27 的核对。此后模型层、组合层、执行模拟、滚动样本外、策略层 holdout 与按层记账都已实现（D-31、D-33）。仍然缺的是：前瞻验证（[23-forward-paper.md](../mandates/23-forward-paper.md)）、风格因子与协方差风险模型（[25-risk-model.md](../mandates/25-risk-model.md)）、因子 campaign 与 mandate 的挂接（[24-mandate-campaigns.md](../mandates/24-mandate-campaigns.md)），以及多策略合并。
+**更新（2026-10-01）**：上表是 2026-09-27 的核对。此后模型层、组合层、执行模拟、滚动样本外、策略层 holdout 与按层记账都已实现（D-31、D-33）。仍然缺的是：前瞻验证（[forward-paper.md](../mandates/forward-paper.md)）、风格因子与协方差风险模型（[risk-model.md](../mandates/risk-model.md)）、因子 campaign 与 mandate 的挂接（[mandate-campaigns.md](../mandates/mandate-campaigns.md)），以及多策略合并。
 
 ## 4. 建议调整
 
-六项都已决定，记入 [10-decisions.md](../overview/10-decisions.md)。
+六项都已决定，记入 [decisions.md](../overview/decisions.md)。
 
 - **P-1 预测周期按信号类型设定（已采纳，D-24）。** 量价类默认 5 日，财务、估值类默认 20 日，事件类按事件窗口。campaign 的 `horizon` 默认取其研究方向对应的周期；同一个 campaign 只用一个周期，保证 L3 的试验口径一致。
 - **P-2 L2 去掉“成本后多头超额 > 0”这道拦截，改为只记录（已采纳，D-24）。** 因子层只判断有没有新信息：子区间稳定、中性化后保留率、边际 IC。能否赚钱交给组合层加执行层（B3 / B4）判断。换手代理仍记录，供模型层与组合层参考。
@@ -110,6 +110,6 @@
   - 这样新因子的价值可以直接用“加入后综合分数与组合表现的变化”来衡量。
 - **P-4 holdout 的最终判断放在策略层（已采纳并实现，D-31：每个 mandate 一次读取，人工申请与批准）。** 因子层 L4 保留为方向一致性检查。“是否值得上线”由策略在 holdout 上的 B4 结果决定。两层的读取预算分别计算，都需要人工批准。
 - **P-5 ledger 按层记账（已采纳并实现，D-31：`layer` / `scope` 列，按 mandate 计算搜索折扣）。** 模型配置、组合参数的每次尝试也写入 trial，带上层级标记，各层的搜索折扣分别计算。
-- **P-6 风险模型 v0（部分实现：组合约束只有行业、市值、beta；风格暴露与协方差见 [25-risk-model.md](../mandates/25-risk-model.md)，待实现）。** 用行业加上市值、beta、动量、波动率、流动性、估值的暴露，第一版只作为组合约束，不估计协方差。后续再加入因子协方差与特异风险，用于优化器和跟踪误差估计。
+- **P-6 风险模型 v0（部分实现：组合约束只有行业、市值、beta；风格暴露与协方差见 [risk-model.md](../mandates/risk-model.md)，待实现）。** 用行业加上市值、beta、动量、波动率、流动性、估值的暴露，第一版只作为组合约束，不估计协方差。后续再加入因子协方差与特异风险，用于优化器和跟踪误差估计。
 
 建议顺序：P-1、P-2（配置和关卡改动，影响当前试点）→ P-3、P-6（最小模型层与组合层）→ P-4、P-5（验证与记账口径）。

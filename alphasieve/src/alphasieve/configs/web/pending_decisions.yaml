@@ -2,7 +2,7 @@ decisions:
   - id: forward-q8
     title: paper 资金与基准
     question: A 的 paper 资金与基准已如何固定？
-    evidence: docs/mandates/23-forward-paper.md#6-人工待决问题每项含推荐默认
+    evidence: docs/mandates/forward-paper.md#6-人工待决问题每项含推荐默认
     options:
       - name: 按推荐方案冻结
         consequence: 规模同时用于参与率与冲击；价格指数及与代理的差异单列，官方全收益指数可得时另开 cohort。
@@ -15,7 +15,7 @@ decisions:
   - id: forward-shadow
     title: 首批对象与诊断 shadow
     question: 策略链路完成后，是否登记 A v4 的单一 diagnostic shadow？
-    evidence: docs/mandates/23-forward-paper.md#6-人工待决问题每项含推荐默认
+    evidence: docs/mandates/forward-paper.md#6-人工待决问题每项含推荐默认
     options:
       - name: 链路完成后由 human 登记
         consequence: 允许未通过 dev/holdout 的 A v4 仅作诊断，不产生晋升资格；正式因子 cohort 仅取 review 批准成员。
@@ -28,7 +28,7 @@ decisions:
   - id: forward-refit
     title: 部署重拟合历史用途
     question: 是否批准 system 在本机按固定参数和成熟标签作 operational_refit 例外？
-    evidence: docs/mandates/23-forward-paper.md#6-人工待决问题每项含推荐默认
+    evidence: docs/mandates/forward-paper.md#6-人工待决问题每项含推荐默认
     options:
       - name: 批准限定例外
         consequence: 沿用滚动 5 年与月度重训，单独记录用途，不作年度选参。
@@ -41,7 +41,7 @@ decisions:
   - id: forward-policy
     title: 前向统计期与 policy
     question: 是否在注册前冻结因子 60 个成熟有效日、A 策略 120 个有效收益日及统计门槛？
-    evidence: docs/mandates/23-forward-paper.md#6-人工待决问题每项含推荐默认
+    evidence: docs/mandates/forward-paper.md#6-人工待决问题每项含推荐默认
     options:
       - name: 冻结推荐 policy
         consequence: 覆盖率至少 95%、HAC p≤0.05、BH q=0.10，采用三态结论；证据不足后不自动延长。
@@ -54,7 +54,7 @@ decisions:
   - id: forward-privacy
     title: 前向隐私与运行额度
     question: 是否按隔离用户或容器、Web 认证和固定资源上限部署 fresh 追踪？
-    evidence: docs/mandates/23-forward-paper.md#6-人工待决问题每项含推荐默认
+    evidence: docs/mandates/forward-paper.md#6-人工待决问题每项含推荐默认
     options:
       - name: 采用推荐边界
         consequence: 最多 2 worker、每个 8 线程/32 GiB，单次重训 2 小时、日任务 4 小时；连续缺口 2 日暂停，超时不补目标。
@@ -67,7 +67,7 @@ decisions:
   - id: forward-isolation
     title: 前瞻隔离
     question: 接受同机 root 风险，还是将前瞻运行迁至 agent 无法进入的机器或容器？
-    evidence: docs/mandates/23-forward-paper.md#6-人工待决问题每项含推荐默认
+    evidence: docs/mandates/forward-paper.md#6-人工待决问题每项含推荐默认
     options:
       - name: 接受同机 root 风险
         consequence: 与 D-21/D-22 的 holdout 现状相同；独立用户和 0700 对 root 无效，需明确接受残余风险。
@@ -80,12 +80,12 @@ decisions:
   - id: mandate-factor-budget
     title: mandate 化因子入模预算
     question: 何时为已锁定的因子批次分配新的 A strategy trial 名额？
-    evidence: docs/mandates/24-mandate-campaigns.md#6-人工待决定的问题
+    evidence: docs/mandates/mandate-campaigns.md#6-人工待决定的问题
     options:
       - name: 现在为 0
         consequence: 只能锁定批次，工程完成后由 human 为一批另批 1 个新名额并登记用途。
       - name: 现在新增预算
-        consequence: 需人工明确名额与用途；不得挪用 docs/22 的两个成本试验名额。
+        consequence: 需人工明确名额与用途；不得挪用 docs/mandates/a-cost-aware 的两个成本试验名额。
     recommendation: 现在为 0；工程完成后再由 human 决定。
     status: open
     decision: null
@@ -93,7 +93,7 @@ decisions:
   - id: risk-v1
     title: 风险模型 v1
     question: 是否实施组合层风险模型 v1 的报告与实际持仓闭环设计？
-    evidence: docs/mandates/25-risk-model.md#6-人工待决定问题
+    evidence: docs/mandates/risk-model.md#6-人工待决定问题
     options:
       - name: 先实现报告与合成验收
         consequence: 非 PIT 行业只作带警告的 provisional dev 报告；固定暴露、协方差和 bias 口径；暂缓 QP、硬 TE 与真实 trial。
@@ -101,25 +101,25 @@ decisions:
         consequence: 保留当前组合约束与报告能力，不新增风险模型路径。
     recommendation: 先按文档固定口径实现报告和合成验收；真实试验、预算、约束另行批准。
     status: decided
-    decision: 先实现报告与合成验收（docs/25 §5 第 1、2、4 步）；行业用申万历史并注明可能事后重述；冻结 rm1 参数；不做 QP、硬 TE、闭环，不新增 A 名额，新增风格上下限全部关闭。
+    decision: 先实现报告与合成验收（docs/mandates/risk-model §5 第 1、2、4 步）；行业用申万历史并注明可能事后重述；冻结 rm1 参数；不做 QP、硬 TE、闭环，不新增 A 名额，新增风格上下限全部关闭。
     decided_at: 2026-10-04
   - id: paid-data
     title: 数据源付费升级
     question: 免费源已补上全收益指数、两融、股东户数和历史指数权重（DoltHub 镜像），卖方预测由 westock 研报覆盖。是否购买 Tushare 2000 积分补 PIT 申万行业？（个人研究用途已确认，权重镜像可用，D-40）
-    evidence: docs/data/17-data-vendors.md
+    evidence: docs/data/data-vendors.md
     options:
       - name: Tushare 2000 积分（个人约 200 元/年）
         consequence: 补 PIT 申万行业，消除行业中性化和风险模型的前视偏差；指数权重可改走 Tushare 接口，DoltHub 镜像作对账。
       - name: 暂缓升级
         consequence: 研究照常进行；历史行业仍用当前快照，行业中性化和风险模型保留前视偏差。
-    recommendation: 暂缓（docs/17 §8，2026-10-04 更新）。申万官网已免费提供带计入日期的行业历史并已接入，唯一的必需项已补上；Tushare 只剩与免费源交叉核对的用途。原推荐为 Tushare 2000 积分（§7.4–7.6）。
+    recommendation: 暂缓（docs/data/data-vendors §8，2026-10-04 更新）。申万官网已免费提供带计入日期的行业历史并已接入，唯一的必需项已补上；Tushare 只剩与免费源交叉核对的用途。原推荐为 Tushare 2000 积分（§7.4–7.6）。
     status: open
     decision: null
     decided_at: null
   - id: benchmark-basis
     title: mandate 默认基准是否切换为官方权重
     question: dev 窗口实测，官方月末权重加后复权价格重建的中证 500 全收益与官方 H00905 年化差 -0.01%、跟踪误差 0.47%；D-31 自算代理年化高 0.58%、跟踪误差 1.24%。是否把 mandate 默认基准改为 benchmark_basis=official_weights？
-    evidence: docs/data/17-data-vendors.md
+    evidence: docs/data/data-vendors.md
     options:
       - name: 切换到官方权重（新 task 默认）
         consequence: 验收与跟踪误差更接近真实基准；旧 trial 数字保持原样、新旧不可直接比较，报告里同时给出 D-31 口径；权重来自 DoltHub 上的 Tushare 镜像，授权待 paid-data 决定。
@@ -132,9 +132,9 @@ decisions:
   - id: a-c1-rerun
     title: A 的 C1 是否另批名额重跑
     question: C1 因平台缺冻结分数来源而未产生结果（abandoned），C2 未通过。是否另批 1 个 A 名额（N=16）按原预注册配置重跑 C1？
-    evidence: docs/mandates/22-a-cost-aware.md
+    evidence: docs/mandates/a-cost-aware.md
     options:
-      - name: 不重跑（按 docs/22 §4 停止）
+      - name: 不重跑（按 docs/mandates/a-cost-aware §4 停止）
         consequence: A 的组合研究停止，v4 保持 dev 参考；转向数据（一致预期、PIT 行业）或风险模型。
       - name: 另批 1 个名额重跑 C1
         consequence: 配置与代码冻结不变，C1 结果从未被看到；折扣按 N=16 计，所有候选的折扣后 IR 再降约 0.01。
@@ -145,7 +145,7 @@ decisions:
   - id: approval-key
     title: 登记审批签名公钥
     question: human 是否提供笔记本 SSH 公钥，以启用每次审批的独立签名复核？
-    evidence: docs/interfaces/06-interfaces.md
+    evidence: docs/interfaces/cli-and-api.md
     options:
       - name: 登记公钥
         consequence: human 在笔记本用私钥签名；审批记录可独立验签。

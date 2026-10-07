@@ -4,7 +4,7 @@
 
 ## 1. 数据源
 
-第一阶段使用免费数据源 BaoStock（无需 token），实现在 `src/alphasieve/data/providers/baostock.py`，同步逻辑在 `src/alphasieve/data/sync.py`。接口层按 provider 抽象，后续可替换为 Tushare 或自有数据库（见 [10-decisions.md](../overview/10-decisions.md) D-18）。
+第一阶段使用免费数据源 BaoStock（无需 token），实现在 `src/alphasieve/data/providers/baostock.py`，同步逻辑在 `src/alphasieve/data/sync.py`。接口层按 provider 抽象，后续可替换为 Tushare 或自有数据库（见 [decisions.md](../overview/decisions.md) D-18）。
 
 | 数据 | BaoStock 接口 | 用途 |
 |---|---|---|
@@ -30,9 +30,9 @@
 | 东方财富 | 单股历史股东户数 | 保留统计截止日和公告日；公告日后首个交易日才可用，暂不进 panel |
 | DoltHub `investment_data` | Tushare `index_weight` 镜像的历史月末成分权重 | 按指数与年份回补；官方权重基准为显式选项，D-31 默认代理不变；镜像许可须人工确认 |
 | 通达信专业财务包 | 公开季度 zip，含公告日、股东与机构持仓等字段 | 原包与中文字段解析结果只入 raw，暂不进 panel 或搜索空间；历史修订风险见 D-39 |
-| Tushare Pro / 商业数据 | 可选升级 | 需要中证 1000 历史成分、申万 PIT 行业、交易所涨跌停价或 2020 年以前的分钟线时再评估；历史权重先核对 DoltHub 镜像与许可，渠道与价格见 [17-data-vendors.md](17-data-vendors.md) |
+| Tushare Pro / 商业数据 | 可选升级 | 需要中证 1000 历史成分、申万 PIT 行业、交易所涨跌停价或 2020 年以前的分钟线时再评估；历史权重先核对 DoltHub 镜像与许可，渠道与价格见 [data-vendors.md](data-vendors.md) |
 
-原则：同一字段只有一个权威源；其他来源只做对账（见 [12-testing.md](../research/12-testing.md) T3）。
+原则：同一字段只有一个权威源；其他来源只做对账（见 [testing.md](../research/testing.md) T3）。
 
 ### 1.3 westock 报表与资金流向（D-30）
 
@@ -53,7 +53,7 @@
 
 `--dataset free_returns` 全量刷新中证官网全收益指数，存于 `data/raw/csindex/total_return/`；`--dataset cs_weights` 只追加最新月末权重，存于 `data/raw/csindex/weights/`。`--dataset exchange_margin --start 2010-01-01` 按交易日保存全市场两融明细，单日失败可重试；`--dataset em_holders --universe ashare_all` 按股票保存股东户数全历史。各目录均镜像到 store 的 `raw/` 同名目录，写入 `data_snapshots`。真实历史回补须由人审查后运行。
 
-`--dataset dolthub_weights` 按指数和年份取得历史月末权重，每个指数一个 parquet，记录 DoltHub master 提交哈希；`--dataset gpcw` 保存通达信季度原始 zip 和逐季度中文字段 parquet。财务包的 `财报公告日期` 缺失时整行不得用于特征，有效值从公告日之后首个交易日起可用。两类数据当前都不加入 panel；回补、许可与财务修订核对见 [17-data-vendors.md](17-data-vendors.md) §7.6–7.7。
+`--dataset dolthub_weights` 按指数和年份取得历史月末权重，每个指数一个 parquet，记录 DoltHub master 提交哈希；`--dataset gpcw` 保存通达信季度原始 zip 和逐季度中文字段 parquet。财务包的 `财报公告日期` 缺失时整行不得用于特征，有效值从公告日之后首个交易日起可用。两类数据当前都不加入 panel；回补、许可与财务修订核对见 [data-vendors.md](data-vendors.md) §7.6–7.7。
 
 交易所两融映射到既有 `FinanceValue`、`FinanceBuyValue`：两市均为元。深市的 `SecurityValue` 和 `TradingValue` 为元，缺 `FinanceRefundValue`；沪市有 `FinanceRefundValue`（元），但融券余量、卖出量、偿还量单位为股，不能填入金额字段 `SecurityValue`，`TradingValue` 也缺。缺失值保持空。panel 对各源分别计算两融特征；每只股票从首个 westock 快照日起只用 westock，已有取值及快照间沿用值不变；更早日期按可用字段得到部分特征。2019-10-11 与 2022-01-07 的重叠抽样字段逐项一致，全时段口径仍须回补后审计。交易所日期 T 的两融数据从下一交易日起可用。股东户数仅保存与解析，公告日 T 的数据从下一交易日起可用，尚未加入 panel 或搜索空间。
 
@@ -61,7 +61,7 @@
 
 `report` 列表从 2010 年起，`report detail` 正文中的年度 EPS 预测、券商、评级和发布时间用于自建历史一致预期。原始列表与正文存于本机 `data/raw/westock/reports/reports.sqlite`，解析后的每报告每财年一行存于同目录 parquet；平台仅上传截断到 dev 末日的副本。报告发布日 T 的内容从 **T 之后的第一个交易日** 才可用，不能按报告中的预测年度回填到此前日期。每券商在窗口内只取最新报告，再计算横截面中位数或覆盖数。历史评级缺失时保留缺失，不以当前评级回填。
 
-`consensus` 一致预期、四个指数成分及申万一至三级行业成分都只有当前快照，按交易日期只追加保存供前瞻使用；不能当作历史 PIT 数据。申万一、二级行业指数日线从 2012 年起回补；净收益指数 `csN00905`、`csN00300` 仅从 2024-05-08 起，不能用于 dev 基准。覆盖范围与仍需购买的数据见 [17-data-vendors.md](17-data-vendors.md) §6。
+`consensus` 一致预期、四个指数成分及申万一至三级行业成分都只有当前快照，按交易日期只追加保存供前瞻使用；不能当作历史 PIT 数据。申万一、二级行业指数日线从 2012 年起回补；净收益指数 `csN00905`、`csN00300` 仅从 2024-05-08 起，不能用于 dev 基准。覆盖范围与仍需购买的数据见 [data-vendors.md](data-vendors.md) §6。
 
 ### 1.2 第一版的已知局限
 
@@ -125,7 +125,7 @@
 | fresh | 项目启动日之后 | system（评估）；human 只看评估结果 | L5 前瞻验证，不回填 |
 
 - 区间边界写在 `src/alphasieve/configs/splits.yaml`（可用 `ALPHASIEVE_CONFIG_DIR` 覆盖），项目启动时由 human 确认并锁定；锁定后修改需要人工审批并记录，且会让已有的 holdout 证据全部标记为 `contaminated`。
-- dev、holdout、fresh 分别物化到不同目录（见 [02-architecture.md](../overview/02-architecture.md) §4），holdout 目录权限为 0700；`data/access.py` 的 `load_panel` 按角色检查：dev 对 agent / human / system 开放，holdout / fresh 只允许 system 读取。
+- dev、holdout、fresh 分别物化到不同目录（见 [architecture.md](../overview/architecture.md) §4），holdout 目录权限为 0700；`data/access.py` 的 `load_panel` 按角色检查：dev 对 agent / human / system 开放，holdout / fresh 只允许 system 读取。
 - 每个区间的 panel 都包含从 2011-01-01 起的预热数据，指标只在区间窗口内计算。
 - 标签跨区间：窗口末尾 `1 + h` 个交易日的 `label_{h}d` 置为缺失（embargo 按周期分别计算），dev 标签不使用 holdout 价格。
 - 已知局限：LLM 预训练语料可能覆盖 holdout 期间的市场信息；只有 fresh 区间对此免疫。这也是 L5 不可省略的原因。

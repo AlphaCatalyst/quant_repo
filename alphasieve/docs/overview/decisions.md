@@ -41,22 +41,22 @@ verifier 统计功效最高、最贴近 A 股实盘约束；其他策略按 [des
 L3 需要整批 trial 计数，不能在单次评估中执行；通过 L2 的候选先进入 `robust_passed` 等待批次 gate。已同步到 [design/system-contracts.md](../../../design/system-contracts.md)。
 
 **D-13 存储分四层：git / 本地热存储 / Ceph / taijifs**
-沿用 scicomp-foundry 的做法。SQLite 状态库与工作 panel 放本地盘（`/data/alphasieve/`），原始数据权威副本、artifact、transcript、备份放 Ceph（`/mnt/private_felixjjiang/alphasieve/`），发布归档放 taijifs。SQLite 不放 ceph-fuse。详见 [03-data.md](../data/03-data.md) §8。
+沿用 scicomp-foundry 的做法。SQLite 状态库与工作 panel 放本地盘（`/data/alphasieve/`），原始数据权威副本、artifact、transcript、备份放 Ceph（`/mnt/private_felixjjiang/alphasieve/`），发布归档放 taijifs。SQLite 不放 ceph-fuse。详见 [data-and-panels.md](../data/data-and-panels.md) §8。
 
 **D-14 研究循环执行后端：先本机 Claude Code / Codex，后 Nexus Cloud**
-Cursor（含 subagent）用于开发 AlphaSieve 本身，不作为研究循环后端，因为难以施加操作系统用户隔离与 CLI 白名单，也无法由 orchestrator 无人值守调度。Nexus Cloud 用于广度搜索，云端结果只作筛查，本机 canonical 重验为权威，任务内 trial 全部入账、按 batch 计数。详见 [14-agent-execution.md](../agent/14-agent-execution.md)。
+Cursor（含 subagent）用于开发 AlphaSieve 本身，不作为研究循环后端，因为难以施加操作系统用户隔离与 CLI 白名单，也无法由 orchestrator 无人值守调度。Nexus Cloud 用于广度搜索，云端结果只作筛查，本机 canonical 重验为权威，任务内 trial 全部入账、按 batch 计数。详见 [agent-execution.md](../agent/agent-execution.md)。
 
 **D-15 因子搜索空间用表达能力分级 + 覆盖坐标定义**
-E1 公式、E2 模板、E3 受限程序、E4 学习型、E5 文本事件；覆盖坐标为数据域 × 变换形态 × 时间尺度。窗口参数离散化；扩大搜索空间由人决定。详见 [11-factor-search-space.md](../research/11-factor-search-space.md)。
+E1 公式、E2 模板、E3 受限程序、E4 学习型、E5 文本事件；覆盖坐标为数据域 × 变换形态 × 时间尺度。窗口参数离散化；扩大搜索空间由人决定。详见 [factor-search-space.md](../research/factor-search-space.md)。
 
 **D-16 回测分 B1–B5 五级，引擎自研并用 Qlib 交叉验证**
-详见 [13-backtest.md](../research/13-backtest.md)。
+详见 [backtest.md](../research/backtest.md)。
 
 **D-17 系统测试分 T0–T8 九级，其中不变量测试与 gate 校准是必需项**
-verifier 本身的正确性要靠测试证明；gate 阈值用零假设模拟与植入信号校准。详见 [12-testing.md](../research/12-testing.md)。
+verifier 本身的正确性要靠测试证明；gate 阈值用零假设模拟与植入信号校准。详见 [testing.md](../research/testing.md)。
 
 **D-18 第一版使用免费数据源 BaoStock，股票池为中证 800**
-没有 Tushare 账号，改用 BaoStock：提供不复权日线、复权因子、`tradestatus` 停牌、`isST`、沪深 300 / 中证 500 按日期查询的历史成分，以及带 `pubDate` 的季度财务数据，满足 PIT 要求。因此第一版股票池为中证 800（沪深 300 ∪ 中证 500）；中证 1000 缺少免费的历史成分来源，暂缓。涨跌停价按板块规则推算，流通市值由换手率反推，行业分类只有当前快照（非 PIT），这些局限写入 panel 的 `meta.json`。westock-data 作为对账源（比较日价格变动与成交量）。取代 D-7 中“股票池沪深 300 / 中证 500 / 中证 1000”的表述，以及 [03-data.md](../data/03-data.md) 原先以 Tushare 为主源的设计。
+没有 Tushare 账号，改用 BaoStock：提供不复权日线、复权因子、`tradestatus` 停牌、`isST`、沪深 300 / 中证 500 按日期查询的历史成分，以及带 `pubDate` 的季度财务数据，满足 PIT 要求。因此第一版股票池为中证 800（沪深 300 ∪ 中证 500）；中证 1000 缺少免费的历史成分来源，暂缓。涨跌停价按板块规则推算，流通市值由换手率反推，行业分类只有当前快照（非 PIT），这些局限写入 panel 的 `meta.json`。westock-data 作为对账源（比较日价格变动与成交量）。取代 D-7 中“股票池沪深 300 / 中证 500 / 中证 1000”的表述，以及 [data-and-panels.md](../data/data-and-panels.md) 原先以 Tushare 为主源的设计。
 
 **D-19 L1 阈值暂不调整，等 L3 上线后重新校准**
 首次校准显示 v0 的 `min_icir = 0.25` 高于约 80% 的种子因子；但降到种子中位数 0.186 会让超过 10% 的盲目搜索候选满足 ICIR 条件，筛选压力转到尚未实现的 L3。因此 M3 期间继续使用 gate_policy v0；M4 完成 L3（DSR、BH-FDR）后，在 L3 下重新跑校准，再决定是否发布 v1。依据见 [acceptance-m0-m2.md](../acceptance/acceptance-m0-m2.md) §5。
@@ -118,8 +118,8 @@ verifier 本身的正确性要靠测试证明；gate 阈值用零假设模拟与
 - 预测周期：`search_space.yaml` 的 `default_horizon` 按数据领域给出默认值：量价、成交量、换手流动性 5 日；市值估值、盈利、成长 20 日。
   - campaign 不写 `horizon` 时，取重点格子所在领域默认值的最大值，写入规格后固定不变；
   - 同一 campaign 只有一个周期，候选周期不一致判为 L0 的 `campaign_horizon` 失败。周期不一致的提交不算重复提交。
-- L2：gate_policy v2 把 `cost_adjusted_excess` 标为只记录（`informational`）。照常计算和记录，但不影响是否通过，也不计入失败原因。能否扣成本后赚钱交给组合层与执行层判断（15 §4 P-2）。agent 规程同步修改。
-- 已有的试点 `pilot-fundamental-001` 按 5 日、v1 口径运行，不追溯修改，由采用新口径的 campaign 取代（见 [16-scaling.md](../data/16-scaling.md) S-5）。
+- L2：gate_policy v2 把 `cost_adjusted_excess` 标为只记录（`informational`）。照常计算和记录，但不影响是否通过，也不计入失败原因。能否扣成本后赚钱交给组合层与执行层判断（task-layers §4 P-2）。agent 规程同步修改。
+- 已有的试点 `pilot-fundamental-001` 按 5 日、v1 口径运行，不追溯修改，由采用新口径的 campaign 取代（见 [scaling.md](../data/scaling.md) S-5）。
 
 **D-25 常驻评估服务（S-3，2026-09-27）**
 - `evaluate_spec` 拆成三段：
@@ -205,13 +205,13 @@ verifier 本身的正确性要靠测试证明；gate 阈值用零假设模拟与
 - 融资融券：westock 的 `fund margin` 每次只能查一只股票、一个日期（历史从 2018 年起），全 A 逐日回补需要数百万次调用，不可行。折中：
   - 对 `hs300_2020` 的约 505 只股票按周回补（每周最后一个交易日），2019-10 至今约 18 万次调用；两融余额变化慢，周频足够；
   - 交易所次日早上公布前一日两融数据，所以快照在其日期之后的第一个交易日才可用，最多沿用 10 个交易日；
-  - 全 A 每天做一次快照，从首次运行起积累；全 A 的历史回补需要付费数据源（见 [17-data-vendors.md](../data/17-data-vendors.md)）。
+  - 全 A 每天做一次快照，从首次运行起积累；全 A 的历史回补需要付费数据源（见 [data-vendors.md](../data/data-vendors.md)）。
   - 搜索空间新增 `margin` 域（默认预测周期 20 天）：融资余额/流通市值、融资余额 4 周变化、融资买入占买入加偿还的比例、融券余额/融资余额。
 - 搜索空间 v3 新增 `fin_quality`、`fin_growth`（默认预测周期 20 天）、`fund_flow`（5 天）和 `margin`（20 天）。新增股票池 `ashare_2020`：全 A 规则股票池，dev 为 2020-03 至 2022-12，与资金流向的覆盖区间一致。
 - 平台上只放 dev 区间的原始数据：上传到 taijifs 的 tar 截断到 2022-12-31。检查时发现之前的全 A tar 含有 2023 年以后的日线（S-4 的疏漏），已换成截断版并删除旧文件。
 
 **D-31 训练任务与 mandate 的实现口径（2026-09-29）**
-- 按 [19-training-tasks.md](../mandates/19-training-tasks.md) 实现训练任务（`src/alphasieve/training/`），四个 mandate 的配置在 `configs/training_tasks/`。一次完整运行是一个策略层 trial；换任何配置都是新 trial。
+- 按 [training-tasks.md](../mandates/training-tasks.md) 实现训练任务（`src/alphasieve/training/`），四个 mandate 的配置在 `configs/training_tasks/`。一次完整运行是一个策略层 trial；换任何配置都是新 trial。
 - 验收基准用全收益口径：组合收益是后复权的全收益，而指数是价格指数。A、D 对照中证 500 成员按流通市值加权的全收益代理，C、B 对照各自股票池的全收益基准；对价格指数的结果作为参考一并报告。
 - 指数增强的组合构建增加线性规划选项（`construction: lp`）：在个股主动权重、行业、市值、beta、单边换手这些线性约束下最大化分数加权持仓。原来的启发式方法会向基准混合，实际在复制基准。
 - ledger：`trials` 表新增 `layer` 和 `scope`，只有策略层记录把这两列纳入哈希；新增 `strategy_holdout_requests` 表；启用 `void` 记录，只能作废重复的结果记录，被作废的行仍留在哈希链里。按 mandate 计算搜索折扣：零假设下 N 次尝试的最优年化信息比率期望，从实测值中扣除。
@@ -219,22 +219,22 @@ verifier 本身的正确性要靠测试证明；gate 阈值用零假设模拟与
 - dev 结果与阻塞项见 [acceptance-training.md](../acceptance/acceptance-training.md)。
 
 **D-32 训练第二轮：事件与因子接入 A、B 行业映射、D 真实期货（2026-09-30）**
-- 按 [20-training-round2.md](../mandates/20-training-round2.md) 实现，dev 结果见 [acceptance-training.md](../acceptance/acceptance-training.md) §2a；四项都没有达到验收门槛。
+- 按 [training-round2.md](../mandates/training-round2.md) 实现，dev 结果见 [acceptance-training.md](../acceptance/acceptance-training.md) §2a；四项都没有达到验收门槛。
 - A 保持 v4。C 事件分数（按 1 日滞后、月初前 250 日分位）和 13 个衍生因子提高了 RankIC，但没有提高组合 IR。A 的策略层预算（N ≤ 9）已用完，新的 A 配置需要先扩大预算并记录理由。
 - 衍生因子的筛选只用覆盖率和与现有特征的相关性，不看收益；筛选报告存于 store 的 `models/_screens/`。
 - B 的 ETF 映射固定在 2026-09-30 的当前前二十大持仓和当前证监会行业，对全历史使用；bundle 冻结持仓快照的 sha256。headline 和验收只看真实 ETF 段，新增 RankIC ≥ 0.03。
-- 股指期货数据用新浪期货接口：IC 连续合约 2017-01 起，逐合约 2019-04 起。D 只在逐合约精确段判定。精确段对冲后为负收益，主要是贴水成本（对“多股票、空期货”的组合，贴水是成本；18 §6 原先写反，已更正）。D 不再作为独立 mandate 推进，降级为 A 的风险管理模块；`basis_head` 不实现。
+- 股指期货数据用新浪期货接口：IC 连续合约 2017-01 起，逐合约 2019-04 起。D 只在逐合约精确段判定。精确段对冲后为负收益，主要是贴水成本（对“多股票、空期货”的组合，贴水是成本；mandate-specs §6 原先写反，已更正）。D 不再作为独立 mandate 推进，降级为 A 的风险管理模块；`basis_head` 不实现。
 - 期货和 ETF 行业特征都只构建 dev 层。holdout 层由人工在批准读取前在本机构建，不上传平台。
 
 **D-33 A 的组合构建预算与结论（2026-09-30）**
-- 用户批准把 A 的策略层预算从 9 扩到 13，用于 [21-a-portfolio.md](../mandates/21-a-portfolio.md) 的四个组合构建配置。各 mandate 的预算写入 `mandates.STRATEGY_TRIAL_BUDGET`（A 13、B 5、C 4、D 4），`start_trial` 超出即拒绝；再扩预算需要新的决策记录。
+- 用户批准把 A 的策略层预算从 9 扩到 13，用于 [a-portfolio.md](../mandates/a-portfolio.md) 的四个组合构建配置。各 mandate 的预算写入 `mandates.STRATEGY_TRIAL_BUDGET`（A 13、B 5、C 4、D 4），`start_trial` 超出即拒绝；再扩预算需要新的决策记录。
 - 组合 trial 复用 A v4 冻结的样本外分数（bundle 冻结 sha256），不重训模型。
 - 配置哈希对后来新增、取默认值的字段不敏感，已入账配置的哈希不随 schema 扩展而变化。
 - 四个配置都没有通过验收。成本感知目标最接近（超额 5.82%，只差 6% 门槛），但按预注册规则停止 A 的组合研究；v4 仍是 A 的 dev 参考。继续成本感知方向需要新的预算。
 
 **D-34 A 的成本感知续研预算（2026-10-02）**
-- 用户批准 A 再增加恰好 2 个策略层 trial，累计预算从 N≤13 扩至 N≤15，按 [22-a-cost-aware.md](../mandates/22-a-cost-aware.md) 的固定顺序执行 C1 `a_csi500_portfolio_cost_scale_v2`、C2 `a_csi500_portfolio_cost_capacity_v2`。两者分别只改因果 10 日收益尺度和按 20 亿设计规模定价冲击，不互相继承，复用 v4 冻结分数；每配置至多一次 started，失败和 abandoned 也占预算。
-- 沿用原 A 验收与 [22-a-cost-aware.md](../mandates/22-a-cost-aware.md) §4 的稳健性、容量筛选和停止规则。合格候选按统一 N≤15 中的 **N=15** 搜索折扣后 IR 排序；IR 差不超过 0.02 时依次比较 20 亿容量下降、5 亿实际单边换手及 C1→C2 固定顺序。两者都不通过即再次停止 A 组合研究，无救援、调参、换种子或重跑名额；有胜出者也结束本轮，留待人工评审，不自动读取 holdout。
+- 用户批准 A 再增加恰好 2 个策略层 trial，累计预算从 N≤13 扩至 N≤15，按 [a-cost-aware.md](../mandates/a-cost-aware.md) 的固定顺序执行 C1 `a_csi500_portfolio_cost_scale_v2`、C2 `a_csi500_portfolio_cost_capacity_v2`。两者分别只改因果 10 日收益尺度和按 20 亿设计规模定价冲击，不互相继承，复用 v4 冻结分数；每配置至多一次 started，失败和 abandoned 也占预算。
+- 沿用原 A 验收与 [a-cost-aware.md](../mandates/a-cost-aware.md) §4 的稳健性、容量筛选和停止规则。合格候选按统一 N≤15 中的 **N=15** 搜索折扣后 IR 排序；IR 差不超过 0.02 时依次比较 20 亿容量下降、5 亿实际单边换手及 C1→C2 固定顺序。两者都不通过即再次停止 A 组合研究，无救援、调参、换种子或重跑名额；有胜出者也结束本轮，留待人工评审，不自动读取 holdout。
 
 **D-35 人工审批采用 SSH 签名（2026-10-02）**
 - 策略与因子 holdout 申请、review 决定及 agent 请求回复，由 human 用笔记本私钥对一次性、短期有效的规范化挑战签名；服务端用 git 跟踪的 allowed_signers 公钥校验，默认要求签名。公钥为空时审批失败。
@@ -244,7 +244,7 @@ verifier 本身的正确性要靠测试证明；gate 阈值用零假设模拟与
 **D-36 前瞻观察政策与部署重拟合（2026-10-02）**
 - human 决定“模拟资金100w RMB，其他全部选择默认”。A 观察与 paper 账簿固定 100 万元人民币、初始 NAV=1、全现金、零申赎；基准为 CSI 500 PIT 前日流通市值加权全收益代理，sh.000905 价格指数单列参考。100 万元下参与率截断和平方根冲击接近零；前瞻结果不能证明 dev 的 5 亿/20 亿大资金容量。
 - 先完成策略链路。是否登记 A v4 单一 diagnostic shadow 留待届时 human 签名决定，本决定不登记 cohort。批准仅 system、本机、固定参数与成熟标签的 operational_refit 部署例外：rolling 5 年、每月首个交易日重训，不年度选参；不得用于 dev 搜索或新 holdout 评估。
-- 冻结 [23-forward-paper.md](../mandates/23-forward-paper.md) §3.6 默认统计政策：因子 60 个成熟有效日、策略 120 个有效收益日、覆盖率 ≥95%、HAC 单侧 p≤0.05、BH q=0.10、三态裁决，证据不足不自动延长。forward Web 强制 human 认证；最多 2 worker、每 worker 8 线程/32 GiB，重训 2 小时、日任务 4 小时；关键缺口连续 2 个交易日暂停，超时目标不追补。真实启用仍逐 cohort 签名批准。
+- 冻结 [forward-paper.md](../mandates/forward-paper.md) §3.6 默认统计政策：因子 60 个成熟有效日、策略 120 个有效收益日、覆盖率 ≥95%、HAC 单侧 p≤0.05、BH q=0.10、三态裁决，证据不足不自动延长。forward Web 强制 human 认证；最多 2 worker、每 worker 8 线程/32 GiB，重训 2 小时、日任务 4 小时；关键缺口连续 2 个交易日暂停，超时目标不追补。真实启用仍逐 cohort 签名批准。
 - 本机 agent 以 root 运行，独立 system 用户和目录 0700 均不能阻止 root 读取。真正隔离须把 agent 排除在运行机器或容器之外；是否接受同机 root 残余风险（沿 D-21/D-22 现状）或迁移，仍待 human 决定。当前不能宣称隔离完成。
 
 **D-37 westock 研报作为卖方预测来源（2026-10-02）**
@@ -263,13 +263,13 @@ verifier 本身的正确性要靠测试证明；gate 阈值用零假设模拟与
 - 通达信专业财务包只落原 zip 与季度中文字段 parquet，不入 panel、搜索空间或现有验收。`财报公告日期` 为空或 0 的行不可用于特征；其他财务字段从公告日下一交易日起可用。文件可能被事后修订，EPS/ROE 须与 BaoStock 带 `pubDate` 的首发值抽查后再决定是否接入。季度新文件或最近两季 hash 变化才下载更新，失败只记 warning。
 
 **D-40 新 mandate task 使用官方权重基准（2026-10-03，human 决定）**
-- human 确认本项目为个人研究、非商用，DoltHub 镜像权重可用于研究。dev 实测：官方权重重建与 H00905 年化差 -0.01%、跟踪误差 0.47%；D-31 代理年化 +0.58%、跟踪误差 1.24%（docs/17 §7.6）。
+- human 确认本项目为个人研究、非商用，DoltHub 镜像权重可用于研究。dev 实测：官方权重重建与 H00905 年化差 -0.01%、跟踪误差 0.47%；D-31 代理年化 +0.58%、跟踪误差 1.24%（docs/data/data-vendors §7.6）。
 - 新建的 index_enhancement / futures_hedged task 显式写 `benchmark_basis: official_weights`。schema 默认值仍为 `member_cap_proxy`，已登记 task 的配置哈希与重跑结果不变；旧 trial 数字不重算。
 - 采用官方权重时，结果同时输出 `execution_vs_member_proxy`（D-31 口径）供新旧对照；验收按官方权重口径判定。
-- 平台只放截断到 dev 末日（2022-12-31）的权重文件，路径 `<remote_root>/hot/data/raw/dolthub/index_weights/`。前向追踪（D-36）仍用 D-31 代理，切换须按 docs/23 另开 cohort，由 human 决定。
+- 平台只放截断到 dev 末日（2022-12-31）的权重文件，路径 `<remote_root>/hot/data/raw/dolthub/index_weights/`。前向追踪（D-36）仍用 D-31 代理，切换须按 docs/mandates/forward-paper 另开 cohort，由 human 决定。
 
 **D-41 控制面：基础设施失败不计预算，旧实现可硬删（2026-10-06，human 决定）**
-- 按 [34-control-plane.md](../interfaces/34-control-plane.md) 完整实现 C-1–C-6 与看板计算资源面板。本机只做控制面，计算放 Ray 与 orbenchtest（docs/16 §6）。
+- 按 [control-plane.md](../interfaces/control-plane.md) 完整实现 C-1–C-6 与看板计算资源面板。本机只做控制面，计算放 Ray 与 orbenchtest（docs/data/scaling §6）。
 - 失败分两类。基础设施失败（Ray 节点或 head 被回收、作业丢失、集群不可达、SSH 255、codex-lb 不可达、心跳超时）由作业层自动重提，沿用原 trial 与 bundle，不新开 trial、不计入策略试验预算，每次尝试仍记入作业记录与审计事件。任务失败（代码异常、数据错误、校验不通过）照旧记账、不重试。分不清时按任务失败处理并告警。
 - 被替代的旧实现直接删除，不保留兼容层，除非仍有调用方。
 - D-23 的数据隔离不变：上 Ray 的输入只限 dev（≤2022-12-31）；orbenchtest 只在内存中中转供应商响应。
@@ -297,5 +297,5 @@ verifier 本身的正确性要靠测试证明；gate 阈值用零假设模拟与
 | Q-12 | ~~预测周期是否按信号类型设定~~ 已决定：见 D-24 | — | 已关闭 |
 | Q-13 | ~~L2 成本后超额是否改为只记录~~ 已决定：见 D-24 | — | 已关闭 |
 | Q-14 | ~~是否先做最小模型层与组合层，并把 holdout 的最终判断放在策略层~~ 已决定并实现：见 D-28、D-31（每个 mandate 一次人工批准的策略层 holdout 读取） | — | 已关闭 |
-| Q-15 | ~~ledger 按层记账与风险模型 v0~~ 已决定：按层记账见 D-31。风险模型 v0 只实现了行业、市值、beta 约束，风格暴露与协方差的设计见 [25-risk-model.md](../mandates/25-risk-model.md)，实现另行决定 | — | 已关闭 |
-| Q-16 | ~~扩容顺序 S-1…S-7 各项是否采纳~~ 已全部采纳并实施：S-2 见 D-24，S-3 见 D-25，S-4 见 D-26，S-5 见 D-27，S-6 / S-7 见 D-28（S-6 后由 D-31 的训练任务取代），S-1 见 [16-scaling.md](../data/16-scaling.md) §2.1 | — | 已关闭 |
+| Q-15 | ~~ledger 按层记账与风险模型 v0~~ 已决定：按层记账见 D-31。风险模型 v0 只实现了行业、市值、beta 约束，风格暴露与协方差的设计见 [risk-model.md](../mandates/risk-model.md)，实现另行决定 | — | 已关闭 |
+| Q-16 | ~~扩容顺序 S-1…S-7 各项是否采纳~~ 已全部采纳并实施：S-2 见 D-24，S-3 见 D-25，S-4 见 D-26，S-5 见 D-27，S-6 / S-7 见 D-28（S-6 后由 D-31 的训练任务取代），S-1 见 [scaling.md](../data/scaling.md) §2.1 | — | 已关闭 |

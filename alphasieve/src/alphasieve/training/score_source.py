@@ -1,9 +1,9 @@
-"""Frozen walk-forward scores of a completed dev run, reused by portfolio-construction trials (docs/21 §3).
+"""Frozen walk-forward scores of a completed dev run, reused by portfolio-construction trials (docs/mandates/a-portfolio §3).
 
 The bundle records the sha256 of the source run's ``scores.parquet`` and ``manifest.json`` and the source's identity
 (task, trial, config hash, panel signature); a run accepts only the same bytes. No model is refitted on dev.
 
-Frozen dev scores cannot score another tier (docs/21 §6). A holdout read of such a trial instead re-runs the source
+Frozen dev scores cannot score another tier (docs/mandates/a-portfolio §6). A holdout read of such a trial instead re-runs the source
 trial's own training bundle, which its frozen ``manifest.json`` carries, on the holdout window
 (``source_bundle``), and feeds those scores to the locked portfolio configuration.
 """

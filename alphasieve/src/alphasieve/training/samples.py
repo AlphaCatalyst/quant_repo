@@ -1,4 +1,4 @@
-"""Samples, labels and features for training tasks (docs/19 §1, §2.1–2.3).
+"""Samples, labels and features for training tasks (docs/mandates/training-tasks §1, §2.1–2.3).
 
 Everything here works on wide (date x code) grids of one dev-tier panel and returns a long sample table:
 ``date_pos`` / ``code_pos`` index the grid, ``X`` holds preprocessed features, ``Y[h]`` the training label for

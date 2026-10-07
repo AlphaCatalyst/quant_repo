@@ -1,4 +1,4 @@
-"""Mandate C: post-earnings drift as an event-level training task (docs/19 §3).
+"""Mandate C: post-earnings drift as an event-level training task (docs/mandates/training-tasks §3).
 
 Events are the first panel day on which a new statement period (``ws_stat_date``), a new earnings forecast
 (``fc_age == 0``) or a new preliminary result (a change in the ``ex_*`` values) becomes visible. The panel shows a

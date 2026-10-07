@@ -1,4 +1,4 @@
-"""Strategy-layer holdout reads (15 §4 P-4, docs/19 §1.2).
+"""Strategy-layer holdout reads (15 §4 P-4, docs/mandates/training-tasks §1.2).
 
 A completed dev trial of a TrainingTask can be locked into a request; only a human can approve it, each mandate
 has a budget of one approved read, and the approved read re-runs exactly the locked configuration (same config

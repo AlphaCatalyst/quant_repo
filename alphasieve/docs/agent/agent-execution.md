@@ -29,7 +29,7 @@ Claude Code / Codex         阶段二：Nexus Cloud 广度搜索（本地链路�
 ```
 
 - 开发阶段用 Cursor 及其 subagent 做代码编写、并行调研与 review，效率高；这类工作的产物是代码，由 CI 和人审把关，不需要研究隔离。
-- 研究循环必须满足 [05-agent-harness.md](05-agent-harness.md) 的隔离规则（操作系统用户、工具白名单、holdout 不可见），因此只用能被 orchestrator 无人值守调度、且能施加这些限制的后端。
+- 研究循环必须满足 [agent-harness.md](agent-harness.md) 的隔离规则（操作系统用户、工具白名单、holdout 不可见），因此只用能被 orchestrator 无人值守调度、且能施加这些限制的后端。
 
 ## 3. 执行器抽象
 
@@ -50,7 +50,7 @@ class AgentExecutor(Protocol):
 - 每个 turn 一个子进程，cwd 为 campaign workspace，环境变量 `ALPHASIEVE_ROLE=agent`，以 `alphasieve-agent` 操作系统用户运行。
 - 评估在本机直接调用 service 层，trial 实时写入权威 ledger。
 - 并发默认 2；每周额度与费用预算用尽时暂停调度。
-- 模型：Claude Code 与 Codex 各配置一个默认模型（待定，见 [10-decisions.md](../overview/10-decisions.md) Q-4）；同一 campaign 可交替使用两种 harness 以增加探索多样性，trial 记录 harness 与模型。
+- 模型：Claude Code 与 Codex 各配置一个默认模型（待定，见 [decisions.md](../overview/decisions.md) Q-4）；同一 campaign 可交替使用两种 harness 以增加探索多样性，trial 记录 harness 与模型。
 
 ### codex-lb 断联与续跑
 
@@ -91,7 +91,7 @@ planner（本机）：按覆盖矩阵选 K 个格子，生成 K 个 MinerTask
 
 - 例：一个 batch 50 个任务 × 每任务 30 次 trial = 1500 次 trial。广度上去了，但 batch 级 DSR 门槛也随之升高。
 - 因此 Nexus 适合“广度探索、快速证伪大量方向”，而不是在单一方向上深挖；深挖用本机后端的连续 turn 更合适。
-- 镜像大小：中证 1000 股票池 dev panel 压缩后约数百 MB（见 [03-data.md](../data/03-data.md) §7），应烘焙进任务镜像，而不是每个任务单独携带。
+- 镜像大小：中证 1000 股票池 dev panel 压缩后约数百 MB（见 [data-and-panels.md](../data/data-and-panels.md) §7），应烘焙进任务镜像，而不是每个任务单独携带。
 
 ### 5.4 引入条件
 
@@ -102,7 +102,7 @@ planner（本机）：按覆盖矩阵选 K 个格子，生成 K 个 MinerTask
 ## 6. 模型选择
 
 - 参考 scicomp-foundry 的实测：不同模型在同一任务上的强弱并不一致，单模型会同时高估和低估难度；因此研究循环中保留至少两种模型与两种 harness。
-- 默认模型、接入方式与试点费用约束见 [10-decisions.md](../overview/10-decisions.md) D-20：主力 Codex + GPT-6 Sol，第二通道 Claude Code + Claude Opus 5（经 AIHub）。
+- 默认模型、接入方式与试点费用约束见 [decisions.md](../overview/decisions.md) D-20：主力 Codex + GPT-6 Sol，第二通道 Claude Code + Claude Opus 5（经 AIHub）。
 - 模型切换不改变任何评估逻辑；trial 记录模型信息，用于事后分析“哪种模型提出的候选更能通过 holdout”。
 
 ## 平台批量任务（D-23）

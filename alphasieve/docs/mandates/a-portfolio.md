@@ -1,6 +1,6 @@
 # 21 · A 的组合构建设计
 
-状态：已实现核心部分，四个配置已在运行前随代码一起提交（预注册），结果见 §7。日期 2026-09-30。用户已批准扩大 A 的策略层预算；本设计将累计上限从 9 个扩到 13 个。依据为 [18-mandates.md](18-mandates.md) §3、[19-training-tasks.md](19-training-tasks.md)、[20-training-round2.md](20-training-round2.md) §6、§8、[acceptance-training.md](../acceptance/acceptance-training.md) §2、§2a、§3 和 D-31、D-32。
+状态：已实现核心部分，四个配置已在运行前随代码一起提交（预注册），结果见 §7。日期 2026-09-30。用户已批准扩大 A 的策略层预算；本设计将累计上限从 9 个扩到 13 个。依据为 [mandate-specs.md](mandate-specs.md) §3、[training-tasks.md](training-tasks.md)、[training-round2.md](training-round2.md) §6、§8、[acceptance-training.md](../acceptance/acceptance-training.md) §2、§2a、§3 和 D-31、D-32。
 
 只研究组合构建。固定 A v4 的样本外分数、股票池、全收益成员代理基准和 b3 成本模型，不重训、不加特征。本文件不授权读取 holdout/fresh；设计阶段只修改本文和文档索引。
 
@@ -207,7 +207,7 @@ headline 仍为 2016–2022 样本外、5 亿人民币、扣 b3 和冲击、全�
 
 ## 6. 防过拟合与 ledger
 
-- 延续 docs/20 §6：四个配置一次性固定；看到 dev 曲线后改成本尺度、分段数、EMA、ADV 上限、规模、市值约束、频率、股票池、基准或任何训练字段都是新配置，不得挤入原名额。未来诊断可形成下一份设计，不能改变本轮。
+- 延续 docs/mandates/training-round2 §6：四个配置一次性固定；看到 dev 曲线后改成本尺度、分段数、EMA、ADV 上限、规模、市值约束、频率、股票池、基准或任何训练字段都是新配置，不得挤入原名额。未来诊断可形成下一份设计，不能改变本轮。
 - 预算按 `strategy_trial_count(scope="A",tier="dev")` 的 started 数执行；当前 N=9，下一次启动前经 CLI 检查，N≥13 拒绝。CLI 可在不改 ledger schema 的前提下验证四份预注册 bundle hash 和各自至多一次 started；不能只写在文档里。失败、abandoned、无效尝试保留并消耗名额。修复后的真实重跑是新尝试，不能替换原记录；本轮未预留重跑名额，不得绕过每配置一次的规则，须停止并另行登记/审批修复后的计划。不静默扩大预算。
 - 固定目标的容量、费用对照、分期与归因属于该配置的一组预注册诊断，随同一个 trial 记录，不是额外选参。另开完整 v4 或其他配置回测仍是 strategy trial。已给定 N=9 本轮不重审或手工减掉旧计数。
 - 所有真实计算只走 `alphasieve` JSON CLI，唯一入口先记 started，终态和全部指标进 artifact/ledger；不直接编辑 registry 或补写 ledger。`void` 只用于重复结果行，不能作废差结果或减少 started 计数。原 v4 保留，不晋升新结果覆盖它。

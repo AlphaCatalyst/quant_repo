@@ -271,7 +271,7 @@ platform: {cluster: http://21.234.200.155:8081, remote_root: /taijifs_zw35/r2/fe
 | `events.py` | C 的事件识别、累计超额标签、事件组合（按时点阈值入场、固定槽位权重） |
 | `etf.py` | B 的 ETF 特征、相对等权标签、前 k 只等权轮动 |
 | `run.py` / `holdout.py` | 一次运行 = 一个策略层 trial；平台任务包；结果记账；策略层 holdout 申请与人工批准 |
-| `event_features.py` / `derived.py` / `etf_industry.py` | 第二轮新增：C 事件分数特征、衍生因子与筛选、ETF 行业映射特征（见 [20-training-round2.md](20-training-round2.md) §8） |
+| `event_features.py` / `derived.py` / `etf_industry.py` | 第二轮新增：C 事件分数特征、衍生因子与筛选、ETF 行业映射特征（见 [training-round2.md](training-round2.md) §8） |
 
 命令：
 

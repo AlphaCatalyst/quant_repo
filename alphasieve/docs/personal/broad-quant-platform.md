@@ -1,10 +1,10 @@
 # 27 · 广义量化分析平台：面向 50 万–1000 万个人持仓的 agent 能力
 
-状态：构想，未实现，未立项。日期 2026-10-03。只交付本文，不改代码、配置或预算，不运行 trial，不读取 holdout/fresh。本文把 AlphaSieve 从"A 股日频因子研究系统"扩展为"个人持仓的广义量化分析平台"，列出可以结合 agent 的能力、各自的验证方式和优先级。是否立项及范围由 human 决定，立项后记入 [10-decisions.md](../overview/10-decisions.md)。资金体量相关的约束沿用 [26-personal-account.md](26-personal-account.md)，本文把范围放宽到 50 万–1000 万。文中收益区间是粗略经验值，不是验收结论，也不构成投资建议。
+状态：构想，未实现，未立项。日期 2026-10-03。只交付本文，不改代码、配置或预算，不运行 trial，不读取 holdout/fresh。本文把 AlphaSieve 从"A 股日频因子研究系统"扩展为"个人持仓的广义量化分析平台"，列出可以结合 agent 的能力、各自的验证方式和优先级。是否立项及范围由 human 决定，立项后记入 [decisions.md](../overview/decisions.md)。资金体量相关的约束沿用 [personal-account.md](personal-account.md)，本文把范围放宽到 50 万–1000 万。文中收益区间是粗略经验值，不是验收结论，也不构成投资建议。
 
 ## 1. 为什么要扩展
 
-- [26-personal-account.md](26-personal-account.md) 的分散化系统策略，合理预期是夏普 1.0–1.5、年化 10%–20%。这是稳健的底仓，但收益上限不高。
+- [personal-account.md](personal-account.md) 的分散化系统策略，合理预期是夏普 1.0–1.5、年化 10%–20%。这是稳健的底仓，但收益上限不高。
 - 收益上限更高的是**论点驱动的集中研究**：押注少数标的的一个核心变量，看对时一年有几十个百分点到翻倍，看错时回撤 40%–60%。上限更高的代价是方差更大，不是白拿的收益。
 - 个人在这类研究上有结构性优势：容量不是问题，可以持有 1–3 年，没有赎回压力，也愿意做机构研究员嫌麻烦的细节核对。
 - LLM agent 在这类工作上的适配度高于挖因子：检索与阅读公告、研报、纪要，搭建估值模型，逐项核对参数，对抗式复核。
@@ -32,7 +32,7 @@
 | 档位 | 能做的 | 主要约束 |
 |---|---|---|
 | 50 万–100 万 | 两融、股指期货、期权、科创板的资产门槛刚好够；ETF 跨资产配置、可转债、15–30 只股票、1–2 个论点仓位 | 最低佣金 5 元影响更大，需"免五"；一手 IC / IM 名义本金约 100 万以上，无法对冲；10% 的收益只有 5 万–10 万元，研究时间要算性价比 |
-| 100 万–500 万 | [26-personal-account.md](26-personal-account.md) 的全部方向 | 对冲只能 1–4 手，颗粒度粗 |
+| 100 万–500 万 | [personal-account.md](personal-account.md) 的全部方向 | 对冲只能 1–4 手，颗粒度粗 |
 | 500 万–1000 万 | 多策略并行；股指期货对冲 4–8 手；期权策略更完整；港股通 | 冲击成本仍可忽略；单一论点仓位的绝对金额变大，仓位纪律更重要 |
 
 推荐结构是"核心加卫星"：核心仓位约 60%–80% 放系统化组合（多因子选股、可转债、ETF 跨资产配置），目标夏普约 1.0；卫星仓位约 20%–40% 放论点驱动的集中仓位，单个论点设上限（例如 10%–15%）。整体上限主要由卫星部分决定：一年能找到几个真正有优势的论点（现实中约 2–5 个），以及仓位纪律守得住多少。长期年化 20%–30% 已是很顶尖的个人水平。
@@ -65,8 +65,8 @@ agent 层   Miner（已有）＋ Researcher、Reviewer、Monitor、Portfolio Ana
 | 能力 | agent 做什么 | 验证方式 | 复用 |
 |---|---|---|---|
 | 论点深度研究 | 还原论证结构，逐项核对参数并分级，搭建估值公式与情景矩阵，反推市场隐含预期 | 每个参数带出处；估值公式由后端计算；输出"我方估计 vs 市场隐含值"的分歧点 | 研报文本（westock 约 95 万篇）、财报与事件数据 |
-| 对抗式复核 | 独立 Reviewer 会话专门找错：口径混用、时点错配、自我批评是否成立 | 与 Researcher 不共享记忆；意见附在论点上，只供人参考 | [05-agent-harness.md](../agent/05-agent-harness.md) §8 的 Reviewer 设计 |
-| 可结算预测 | 把论点拆成可结算命题，例如"LH2709 结算价 > 15 元，概率 40%" | 写入 forecast ledger；到期由后端按预先指定的数据源结算；长期统计 Brier 分数与校准曲线 | ledger 的哈希链与只追加机制；[23-forward-paper.md](../mandates/23-forward-paper.md) 的前瞻结算 |
+| 对抗式复核 | 独立 Reviewer 会话专门找错：口径混用、时点错配、自我批评是否成立 | 与 Researcher 不共享记忆；意见附在论点上，只供人参考 | [agent-harness.md](../agent/agent-harness.md) §8 的 Reviewer 设计 |
+| 可结算预测 | 把论点拆成可结算命题，例如"LH2709 结算价 > 15 元，概率 40%" | 写入 forecast ledger；到期由后端按预先指定的数据源结算；长期统计 Brier 分数与校准曲线 | ledger 的哈希链与只追加机制；[forward-paper.md](../mandates/forward-paper.md) 的前瞻结算 |
 | 证伪条件监控 | 跟踪论点的关键变量，触发预注册的证伪条件时告警，例如"上行期玉米涨幅超过一成" | 证伪条件在建仓前登记；告警后由人决定是否退出 | 事件流与通知 |
 | 行业研究模板 | 按行业沉淀分析框架：周期股（供给去化 → 价格 → 成本 → 盈利 → 隐含预期）、消费、科技、金融 | 模板版本化；同一模板下的论点可横向比较命中率 | SearchSpace 的版本化思路 |
 
@@ -79,15 +79,15 @@ agent 层   Miner（已有）＋ Researcher、Reviewer、Monitor、Portfolio Ana
 | 公告解析 | 结构化回购、增持、减持、解禁、股权激励、并购重组、业绩预告 | 输出带原文定位；按公告时间 PIT 对齐 | 事件 panel（`data/events.py`） |
 | 纪要与口径变化检测 | 对比管理层在投资者关系记录、业绩会中的表述，标出口径变化（如"成长不一定是出栏量增长"） | 引用原文与日期；变化本身不构成结论 | — |
 | 卖方观点审计 | 解析研报中的盈利预测与评级，追踪分析师与券商的历史准确率和修正方向 | 只用发布时可得的预测；准确率按事后实际值结算 | westock 研报；可派生 `wr_*` 因子进入因子 campaign |
-| 文本事件因子（E5） | 从文本抽取结构化事件特征，交给系统化研究 | 带发布时间戳；按事件驱动规则走 L0–L4 | [11-factor-search-space.md](../research/11-factor-search-space.md) §2 |
+| 文本事件因子（E5） | 从文本抽取结构化事件特征，交给系统化研究 | 带发布时间戳；按事件驱动规则走 L0–L4 | [factor-search-space.md](../research/factor-search-space.md) §2 |
 | 政策与宏观解读 | 摘要政策文件、宏观数据发布，关联到受影响的行业和持仓 | 只做整理和关联，不自动生成交易信号 | — |
 
 ### 5.3 持仓风控与排雷
 
 | 能力 | agent 做什么 | 验证方式 | 复用 |
 |---|---|---|---|
-| 财报排雷 | 检查应收与存货异常、利润与现金流背离、商誉、关联交易、审计意见、大股东质押 | 规则指标由后端计算；agent 写解读并标出处 | westock 全报表、通达信财务包（[17-data-vendors.md](../data/17-data-vendors.md) §7.7） |
-| 持仓体检 | 汇总行业与风格暴露、集中度、相关性、压力情景（如"小盘风格踩踏重演"） | 暴露与压力测试由后端计算 | [25-risk-model.md](../mandates/25-risk-model.md) 的风格暴露设计 |
+| 财报排雷 | 检查应收与存货异常、利润与现金流背离、商誉、关联交易、审计意见、大股东质押 | 规则指标由后端计算；agent 写解读并标出处 | westock 全报表、通达信财务包（[data-vendors.md](../data/data-vendors.md) §7.7） |
+| 持仓体检 | 汇总行业与风格暴露、集中度、相关性、压力情景（如"小盘风格踩踏重演"） | 暴露与压力测试由后端计算 | [risk-model.md](../mandates/risk-model.md) 的风格暴露设计 |
 | 每周持仓简报 | 持仓变化、论点状态、证伪告警、待办决定 | 只引用已记录的数据与论点 | 前端"待你决定" |
 | 现金与成本管理 | 提示季末逆回购、货基与短债配置、税费与佣金优化 | 收益率与费用由后端计算 | — |
 
@@ -105,7 +105,7 @@ agent 层   Miner（已有）＋ Researcher、Reviewer、Monitor、Portfolio Ana
 |---|---|---|
 | 因子挖掘 | 现有 Miner 循环 | L0–L4、trial ledger、搜索折扣（已实现） |
 | 研究复现 | 读券商金工报告或学术论文，写成预注册的因子 spec 或 TrainingTask | 预注册后按现有链路评估，复现失败也入账 |
-| 个人账户 mandate | 见 [26-personal-account.md](26-personal-account.md) §5 | 策略层 trial 与 holdout 规则 |
+| 个人账户 mandate | 见 [personal-account.md](personal-account.md) §5 | 策略层 trial 与 holdout 规则 |
 | 新资产类型 | 可转债、跨资产 ETF、商品期货 CTA 的数据接入与回测适配 | 按 mandate 单独记预算与搜索折扣 |
 
 ### 5.6 宏观与资产配置
@@ -127,7 +127,7 @@ agent 层   Miner（已有）＋ Researcher、Reviewer、Monitor、Portfolio Ana
 
 | 能力 | agent 做什么 | 验证方式 |
 |---|---|---|
-| 新数据源接入 | 调研接口、写 provider、原始落盘、记录 provenance | 与已有来源交叉核对重叠期（[17-data-vendors.md](../data/17-data-vendors.md) §7.4 已按此执行） |
+| 新数据源接入 | 调研接口、写 provider、原始落盘、记录 provenance | 与已有来源交叉核对重叠期（[data-vendors.md](../data/data-vendors.md) §7.4 已按此执行） |
 | 口径核对 | 同一指标多来源的口径差异与修订检测 | 差异写入数据质量报告 |
 
 ## 6. 新增对象（草案）
@@ -159,10 +159,10 @@ agent 层   Miner（已有）＋ Researcher、Reviewer、Monitor、Portfolio Ana
 |---|---|---|
 | P0 | 论点研究加 forecast ledger，以猪周期样例跑通；decision journal；持仓体检 | 直接服务卫星仓位；补上样例报告缺少的可结算预测和校准 |
 | P1 | 公告、纪要、研报文本管线；财报排雷；周期行业监控与证伪告警 | 为论点研究供料，同时服务持仓风控 |
-| P2 | 个人账户 mandate 与可转债、跨资产 ETF（[26-personal-account.md](26-personal-account.md) §5）；特殊情况扫描 | 搭建核心仓位 |
+| P2 | 个人账户 mandate 与可转债、跨资产 ETF（[personal-account.md](personal-account.md) §5）；特殊情况扫描 | 搭建核心仓位 |
 | P3 | 宏观配置、期权辅助、港股通与海外市场、执行接入 | 依赖前面的数据与账本 |
 
-实现评估与快速可做项见 [28-platform-implementation.md](28-platform-implementation.md)。
+实现评估与快速可做项见 [platform-implementation.md](platform-implementation.md)。
 
 ## 9. 风险与非目标
 
@@ -179,7 +179,7 @@ agent 层   Miner（已有）＋ Researcher、Reviewer、Monitor、Portfolio Ana
 
 ## 10. 待人工决定的问题
 
-1. 是否把 AlphaSieve 定位扩展为个人广义量化分析平台；若扩展，[01-product.md](../overview/01-product.md) 的范围与非目标需要同步修改。
+1. 是否把 AlphaSieve 定位扩展为个人广义量化分析平台；若扩展，[product.md](../overview/product.md) 的范围与非目标需要同步修改。
 2. P0 的范围：是否以猪周期样例作为第一个论点，以及 forecast ledger 的结算数据源。
 3. 核心与卫星的仓位比例、单论点上限。
 4. 论点研究的 agent 是否允许联网检索（现有 Miner 禁止联网）；若允许，如何记录检索来源与时间戳。

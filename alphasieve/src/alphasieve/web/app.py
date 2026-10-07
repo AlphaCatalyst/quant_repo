@@ -104,7 +104,7 @@ def _pending_decisions(settings: Settings) -> list[dict]:
 
 
 def _recent_decisions(settings: Settings) -> list[dict]:
-    path = DOCS / "overview" / "10-decisions.md"
+    path = DOCS / "overview" / "decisions.md"
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except OSError:
@@ -113,7 +113,7 @@ def _recent_decisions(settings: Settings) -> list[dict]:
     for line in lines:
         match = re.match(r"^\*\*(D-(\d+)\s+[^*]+)\*\*", line)
         if match:
-            rows.append({"id": f"D-{match[2]}", "title": match[1], "evidence": "docs/overview/10-decisions.md"})
+            rows.append({"id": f"D-{match[2]}", "title": match[1], "evidence": "docs/overview/decisions.md"})
     return rows[-5:][::-1]
 
 
@@ -831,10 +831,11 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
 
     @app.get("/api/docs/{name}", response_class=PlainTextResponse)
     def decision_doc(name: str, user: str = Depends(auth)):
-        allowed = (r"(?:06-interfaces|10-decisions|17-data-vendors|23-forward-paper|"
-                   r"24-mandate-campaigns|25-risk-model|26-personal-account|"
-                   r"27-broad-quant-platform|28-platform-implementation|29-coverage-review|"
-                   r"30-financial-red-flags|31-announcements|32-sw-industry-sensitivity|33-monitoring|34-control-plane)\.md")
+        allowed = (r"(?:cli-and-api|decisions|data-vendors|forward-paper|"
+                   r"mandate-campaigns|risk-model|personal-account|"
+                   r"broad-quant-platform|platform-implementation|coverage-review|"
+                   r"financial-red-flags|announcements|sw-industry-sensitivity|monitoring|control-plane|"
+                   r"personal-decision-tasks)\.md")
         if not re.fullmatch(allowed, name):
             raise HTTPException(404, "document not found")
         path = next(DOCS.glob(f"*/{name}"), None)

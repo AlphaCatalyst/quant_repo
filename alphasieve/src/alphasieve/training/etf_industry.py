@@ -1,4 +1,4 @@
-"""Industry-level features of the sector ETFs for mandate B (docs/20 §4).
+"""Industry-level features of the sector ETFs for mandate B (docs/mandates/training-round2 §4).
 
 westock only serves each ETF's current top-20 holdings and the panel's industry is a current CSRC snapshot, so every
 mapping here is fixed at ``mapping_asof`` and applied to all history. Two mappings are built:

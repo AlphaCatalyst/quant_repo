@@ -1,6 +1,6 @@
 # M3 / M4 / F1 验收记录
 
-日期：2026-09-27。范围与约定见 [10-decisions.md](../overview/10-decisions.md) D-21，实现中的决定见 D-22。
+日期：2026-09-27。范围与约定见 [decisions.md](../overview/decisions.md) D-21，实现中的决定见 D-22。
 
 ## 1. 结论
 

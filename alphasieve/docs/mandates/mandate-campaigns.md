@@ -1,6 +1,6 @@
 # 24 · 从属于 mandate 的因子 campaign
 
-状态：设计，未实现、未运行。日期 2026-10-01。只交付本文，不改代码、配置、测试或索引，不运行 trial、Ray 或训练，不读取 holdout/fresh。本文落实 [18-mandates.md](18-mandates.md) §1；任务分层沿用 [15-task-layers.md](../research/15-task-layers.md)，预算纪律沿用 [21-a-portfolio.md](21-a-portfolio.md) §6。
+状态：设计，未实现、未运行。日期 2026-10-01。只交付本文，不改代码、配置、测试或索引，不运行 trial、Ray 或训练，不读取 holdout/fresh。本文落实 [mandate-specs.md](mandate-specs.md) §1；任务分层沿用 [task-layers.md](../research/task-layers.md)，预算纪律沿用 [a-portfolio.md](a-portfolio.md) §6。
 
 ## 1. 目标与非目标
 
@@ -27,13 +27,13 @@
 | `training/task.py::Features`；`training/run.py::resolve_features/make_bundle/_frames` | `factor_refs: library` 在打包时解析；bundle 冻结表达式、方向、panel fields 和 feature_version。新一次解析 library 可能改变 A 输入 |
 | `training/derived.py::screen` | 24 个预注册候选，仅按覆盖≥0.8、相关绝对值≤0.7筛选，收益只记录；保留 13 个进入 v5。不是 mandate 边际筛选，也不是新的 campaign 入模入口 |
 
-`campaigns/ws-fundamental-002.yaml` 沿用领域推导周期；`fund-flow-001.yaml` 显式指定 ashare_2020/5 日；`prog-evolve-001.yaml` 是独立的 400 次程序搜索。都没有 mandate 关联。并行 lane、模板变体和程序搜索继续按 [16-scaling.md](../data/16-scaling.md) §2.3–§4 计数，不能因吞吐增加而降低门槛。
+`campaigns/ws-fundamental-002.yaml` 沿用领域推导周期；`fund-flow-001.yaml` 显式指定 ashare_2020/5 日；`prog-evolve-001.yaml` 是独立的 400 次程序搜索。都没有 mandate 关联。并行 lane、模板变体和程序搜索继续按 [scaling.md](../data/scaling.md) §2.3–§4 计数，不能因吞吐增加而降低门槛。
 
-A 参考是 `a_csi500_residual_v4`、`S-1f2df27729ff`。配置实际在 `src/alphasieve/configs/training_tasks/`：CSI 800 训练、CSI 500 预测；5 日/20 日残差标签；library 加 15 个 panel fields；行业内 rank 后 z-score；ridge/LGBM/LambdaRank，月度滚动、每年内层选参。综合 walk-forward 分数已冻结；实际调仓为 10 个交易日，不能沿用 docs/18 早期的 5 日描述。
+A 参考是 `a_csi500_residual_v4`、`S-1f2df27729ff`。配置实际在 `src/alphasieve/configs/training_tasks/`：CSI 800 训练、CSI 500 预测；5 日/20 日残差标签；library 加 15 个 panel fields；行业内 rank 后 z-score；ridge/LGBM/LambdaRank，月度滚动、每年内层选参。综合 walk-forward 分数已冻结；实际调仓为 10 个交易日，不能沿用 docs/mandates/mandate-specs 早期的 5 日描述。
 
-[20-training-round2.md](20-training-round2.md) §3–§6 的入模意图与实际 §8 不同：实际筛选未用模型边际贡献。v5 的 5 日 RankIC 从 0.056 升到 0.058–0.059，组合 IR 却从 v4 的 1.09 降为事件 0.96、因子 0.84、合并 0.57、敏感性 0.81，主要差在 2021–2022。IC 增益不是成本后 IR 增益，也不能把下降全部归因于交易成本。
+[training-round2.md](training-round2.md) §3–§6 的入模意图与实际 §8 不同：实际筛选未用模型边际贡献。v5 的 5 日 RankIC 从 0.056 升到 0.058–0.059，组合 IR 却从 v4 的 1.09 降为事件 0.96、因子 0.84、合并 0.57、敏感性 0.81，主要差在 2021–2022。IC 增益不是成本后 IR 增益，也不能把下降全部归因于交易成本。
 
-截至本次核对，A v4 仍是未通过验收的 dev 参考；没有 mandate 通过 dev 验收。代码预算 A/B/C/D 为 13/5/4/4；docs/21 的 A 名额已用完。docs/22 的两个成本试验另有批准，但代码仍为 13；这些名额不得挪给因子入模。
+截至本次核对，A v4 仍是未通过验收的 dev 参考；没有 mandate 通过 dev 验收。代码预算 A/B/C/D 为 13/5/4/4；docs/mandates/a-portfolio 的 A 名额已用完。docs/mandates/a-cost-aware 的两个成本试验另有批准，但代码仍为 13；这些名额不得挪给因子入模。
 
 ## 3. 设计
 
@@ -147,7 +147,7 @@ agents: [{harness: codex, model: gpt-6-sol}]
 - factor trial 仍唯一经 `evaluate_spec`，先 started 再纯计算及终态；新记录在已参与哈希的 metrics/manifest 中写 mandate、baseline_id、label_version、factor搜索来源。不要把 factor 的 scope 当已被哈希保护的字段；不改旧哈希链。并发配额检查与 started 预留要在同一写事务，失败、无效和进行中均计数；重复拒绝在 started 前，不补录或删行。
 - factor L3 仍对单因子主标签 ICIR 做 DSR（有效日数/20）和 BH（q=0.10，p≤0.05，shortlist≤10），不是对未经校准的 ΔIC 做 DSR。`N_factor` 取该 campaign 所有 started trial，ICIR 方差只取有限终态值；缺指标不减少 N。续开同一搜索的 campaign 要绑定原 search_group 并累计其 N，不能重置折扣；程序搜索与 LLM 搜索分别建组，不互相稀释。缺少可估计的方差时不产统计通过结论。
 - `N_strategy` 仍为 `strategy_trial_count(scope="A",tier="dev")` 的全部 started，折扣仍用 `training.run.search_discount` 的 IR 减零假设最优值。不能用 factor 的 200 替代 strategy N，也不能把 5 个因子算成 5 个 strategy trial。批次 lineage 同时展示每个来源 campaign/search_group 的 N、DSR/BH 和 A 的 N/上限/deflated IR；两种折扣不相加，策略折扣也不能证明因子搜索偏差已消失。
-- 当前没有可供入模的 A 名额。本设计默认预留 0 个 strategy trial；有 5 个候选也只能锁批。人工要新增或明确划拨名额并留下决策记录，代码检查预算与用途后才可 plan/start；docs/22 已批准的两个用途不变。失败、abandoned、修复重跑消费 started，`void` 仅处理重复结果，不减预算。
+- 当前没有可供入模的 A 名额。本设计默认预留 0 个 strategy trial；有 5 个候选也只能锁批。人工要新增或明确划拨名额并留下决策记录，代码检查预算与用途后才可 plan/start；docs/mandates/a-cost-aware 已批准的两个用途不变。失败、abandoned、修复重跑消费 started，`void` 仅处理重复结果，不减预算。
 - 有结果后改 L2 算法、阈值、baseline、周期或批次规则必须新版本、新研究计划；不得合并旧指标排序。完整策略 trial 仍按 A 原验收与当次预注册的稳健性/容量规则判断，人工决定是否保留参考版本。过 IC gate 不触发模型发布、holdout 或 paper。
 
 ## 5. 最小实现顺序
@@ -171,6 +171,6 @@ agents: [{harness: codex, model: gpt-6-sol}]
 1. **是否首期只启用 A？** 推荐是。绑定 A v4 / S-1f2df27729ff；B/C 先拒绝，D 不独立开；旧 campaign 保持无绑定。
 2. **是否接受 aligned ridge 作为 L2 gate？** 推荐采用 (a)，固定 alpha=10、月度折、20 日 L1 与 5/20 日联合 L2；明确线性代理，不按 campaign 结果选算法。v3 阈值先 review 合成校准报告，成本代理只记录。
 3. **批次大小与不足额处理？** 推荐 5 个、按 started seq、结题后每 campaign 最多一批；不足额等待，不跑子集，不因 IC 大小改组。继续跨 campaign 搜索须明确 search_group 与累计折扣。
-4. **何时给入模 trial 预算？** 推荐现在为 0；工程完成后人工为一个锁批明确批准 1 个新的 A strategy 名额并登记用途，累计预算按当时真实 ledger 增加。不能使用 docs/22 的两个成本名额。
+4. **何时给入模 trial 预算？** 推荐现在为 0；工程完成后人工为一个锁批明确批准 1 个新的 A strategy 名额并登记用途，累计预算按当时真实 ledger 增加。不能使用 docs/mandates/a-cost-aware 的两个成本名额。
 5. **真实策略 trial 是否增加独立增益门槛？** 推荐保持 A 原验收和预注册稳健性/容量规则，并记录相对 v4 的 Δ净 IR；首期不再用未校准的“ΔIR≥0.02”自动晋升。人工若要求增益门槛，须在首个 batch plan 前冻结，不看结果再选。
 6. **dev 入模资格是否需要单因子 holdout？** 推荐不需要。L3 dev shortlist 可进入人工策略研究，holdout 只留给锁定的 mandate 策略；因子不因此成为 approved_for_shadow/paper。任何 holdout/review/paper 决定仍由人作出。

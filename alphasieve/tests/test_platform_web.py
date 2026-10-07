@@ -143,12 +143,13 @@ def test_book_analysis_endpoints_only_serve_saved_matching_reports(platform_clie
 
 def test_platform_documents_are_whitelisted(platform_client):
     client, auth, _, _ = platform_client
-    for name in ("26-personal-account.md", "27-broad-quant-platform.md",
-                 "28-platform-implementation.md", "29-coverage-review.md",
-                 "30-financial-red-flags.md", "31-announcements.md",
-                 "32-sw-industry-sensitivity.md", "33-monitoring.md", "34-control-plane.md"):
+    for name in ("personal-account.md", "broad-quant-platform.md",
+                 "platform-implementation.md", "coverage-review.md",
+                 "financial-red-flags.md", "announcements.md",
+                 "sw-industry-sensitivity.md", "monitoring.md", "control-plane.md",
+                 "personal-decision-tasks.md"):
         assert client.get(f"/api/docs/{name}", auth=auth).status_code == 200
-    assert client.get("/api/docs/35-not-allowed.md", auth=auth).status_code == 404
+    assert client.get("/api/docs/not-allowed.md", auth=auth).status_code == 404
 
 
 def test_alert_visibility_requires_human_auth(platform_client, settings):

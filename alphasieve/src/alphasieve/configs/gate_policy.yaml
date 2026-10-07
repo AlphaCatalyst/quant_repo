@@ -1,4 +1,4 @@
-# v2 = v1 with cost_adjusted_excess recorded but not enforced (D-24). v1 = v0 L1/L2 thresholds (D-19) plus L3/L4. v0: placeholder thresholds from docs/research/04-research-core.md section 4.
+# v2 = v1 with cost_adjusted_excess recorded but not enforced (D-24). v1 = v0 L1/L2 thresholds (D-19) plus L3/L4. v0: placeholder thresholds from docs/research/research-core.md section 4.
 # Calibrated suggestions are written to the gate calibration report; changing
 # this file is an engineering change that requires human review.
 # L0 structural limits (windows, complexity, terminals) live in search_space.yaml.

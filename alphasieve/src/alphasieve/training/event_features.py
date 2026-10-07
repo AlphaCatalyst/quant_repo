@@ -1,4 +1,4 @@
-"""Mandate C's walk-forward event scores as sparse features of the A task (docs/20 §2).
+"""Mandate C's walk-forward event scores as sparse features of the A task (docs/mandates/training-round2 §2).
 
 The source is a frozen C run: ``event_scores.parquet`` holds one out-of-sample score per (event date, code), where
 the event date is the first panel day that shows the new report and the score uses nothing later. A may read an

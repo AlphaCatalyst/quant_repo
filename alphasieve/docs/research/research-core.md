@@ -25,7 +25,7 @@ design 中已定义：`ResearchQuestion`、`DataContract`、`FactorSpec`、`Stra
 
 ## 2. 因子 DSL
 
-第一阶段只允许表达式型因子（E1）与系统维护的模板（E2）；受限程序（E3）在 M4 之后引入。搜索空间的完整定义（表达能力分级、派生变量库、覆盖坐标）见 [11-factor-search-space.md](11-factor-search-space.md)。
+第一阶段只允许表达式型因子（E1）与系统维护的模板（E2）；受限程序（E3）在 M4 之后引入。搜索空间的完整定义（表达能力分级、派生变量库、覆盖坐标）见 [factor-search-space.md](factor-search-space.md)。
 
 - 语法：函数式表达式，例如 `cs_rank(ts_mean(ret_1d, 5) / ts_std(ret_1d, 20))`。
 - 终端变量：panel 中的白名单字段（价格、量额、估值、基本面）以及派生字段 `ret_1d`、`vwap` 等。
@@ -114,7 +114,7 @@ design 中已定义：`ResearchQuestion`、`DataContract`、`FactorSpec`、`Stra
 
 ## 7. 回测与执行模拟
 
-回测分 B1–B5 五级：B1 因子快速评估（L1）、B2 因子可交易评估（L2）、B3 组合日频模拟、B4 滚动样本外、B5 paper。成交规则、成本模型、组合构建、敏感性检查与引擎选择见 [13-backtest.md](13-backtest.md)。
+回测分 B1–B5 五级：B1 因子快速评估（L1）、B2 因子可交易评估（L2）、B3 组合日频模拟、B4 滚动样本外、B5 paper。成交规则、成本模型、组合构建、敏感性检查与引擎选择见 [backtest.md](backtest.md)。
 
 ## 8. 模型
 

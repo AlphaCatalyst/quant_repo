@@ -1,4 +1,4 @@
-"""Mandate B: sector-ETF rotation (docs/19 §4, docs/20 §4).
+"""Mandate B: sector-ETF rotation (docs/mandates/training-tasks §4, docs/mandates/training-round2 §4).
 
 Features are each ETF's own price and volume history plus, when the task sets ``etf_mapping``, the industry- or
 basket-mapped stock features built by ``etf_industry`` from the current holdings snapshot. Labels are the forward

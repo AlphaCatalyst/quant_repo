@@ -6,7 +6,7 @@
 
 把锁定策略与因子 shortlist 放到真实到来的交易日观察。T 收盘记录决策，T+1 开盘模拟成交。保留当时的数据、模型、目标、成交和统计证据。任何人都不能事后改写已经记录的 fresh 日。
 
-推荐先做 mandate 策略追踪，再做 [01-product.md](../overview/01-product.md) S6 的因子 cohort。策略直接检验模型、组合、执行和成本的联合结果；因子验证回答信息是否持续存在，两者不能互相代替。当前没有 mandate 通过 dev 验收，因此第一批最多是人工登记的 shadow，不是已批准策略。
+推荐先做 mandate 策略追踪，再做 [product.md](../overview/product.md) S6 的因子 cohort。策略直接检验模型、组合、执行和成本的联合结果；因子验证回答信息是否持续存在，两者不能互相代替。当前没有 mandate 通过 dev 验收，因此第一批最多是人工登记的 shadow，不是已批准策略。
 
 不做实盘、broker、自动选参、动态资金分配、regime 门或回撤叠加层。不在本期混入新的机器/人工/LLM 信号池；以后接入也必须先锁定来源与时间戳。连续 20 个交易日无人干预是工程验收，不是统计验收或 paper 晋升。
 
@@ -26,7 +26,7 @@
 | `gates/state_machine.py`；`campaigns/lifecycle.py`：`decide_review` | 因子已有 `approved_for_shadow` 到 `fresh_observing/fresh_supported/approved_for_paper` 的状态边；review 由 human 决定。缺实际前瞻作业、L5 policy 和 paper 审批服务；这些因子状态不能直接套到策略 |
 | `frontend/src/pages/`；`src/alphasieve/web/app.py`：`create_app` | 只有 Overview、Campaign、Factors、Ledger，API 只读；没有 forward 页。支持 `ALPHASIEVE_WEB_AUTH=none`，不能据此声称 agent 无法看见未来指标 |
 
-A v4 `S-1f2df27729ff` 是未通过 dev 验收的参考。[21-a-portfolio.md](21-a-portfolio.md) §6 要求冻结 dev 分数不能用于 holdout/fresh。D-21–D-33 规定人工审批、本机保管与分层 ledger；[15-task-layers.md](../research/15-task-layers.md) 的早期“模型/组合未实现”不是当前状态。预算以 `training/mandates.py::STRATEGY_TRIAL_BUDGET` 当前 A 13、B 5、C 4、D 4 为准，其他设计中的预算建议不在本文生效。
+A v4 `S-1f2df27729ff` 是未通过 dev 验收的参考。[a-portfolio.md](a-portfolio.md) §6 要求冻结 dev 分数不能用于 holdout/fresh。D-21–D-33 规定人工审批、本机保管与分层 ledger；[task-layers.md](../research/task-layers.md) 的早期“模型/组合未实现”不是当前状态。预算以 `training/mandates.py::STRATEGY_TRIAL_BUDGET` 当前 A 13、B 5、C 4、D 4 为准，其他设计中的预算建议不在本文生效。
 
 ## 3. 设计
 
@@ -68,9 +68,9 @@ daily-update 后由 system 调 `fresh daily --asof T`；human 手动 daily-updat
 
 重训点 p 使用截至 T 的可得历史，但样本仍严格 `date_pos < p-purge_days`、`label_end<=T`，embargo 不缩短；rolling/expanding 和 stride 按锁定配置。只更新模型系数，不更改参数、feature set、seed 或 early-stop 规则；若原规则需要监测集，只能取过去已成熟训练内数据。模型 snapshot 记最大训练日期/标签端点、cutoff、行数、模型 digest 和环境，之后 T 日分数引用唯一 model id。失败暂停新目标，不静默改种子、旧模型或阈值。
 
-这里的历史可能含 2023 年后的已成熟样本。D-36 已批准仅 system、本机、固定参数的 `operational_refit` 部署例外；每个 cohort 仍须单独签名批准并锁定时间范围和用途。它不签发 holdout approval，不生成 holdout verdict，不增加读取机会；正式 validation 仍须先走原一次人工 holdout 流程。此例外见 docs/19 §1.2，不改变 dev 调参规则。
+这里的历史可能含 2023 年后的已成熟样本。D-36 已批准仅 system、本机、固定参数的 `operational_refit` 部署例外；每个 cohort 仍须单独签名批准并锁定时间范围和用途。它不签发 holdout approval，不生成 holdout verdict，不增加读取机会；正式 validation 仍须先走原一次人工 holdout 流程。此例外见 docs/mandates/training-tasks §1.2，不改变 dev 调参规则。
 
-任何 `score_source` bundle 先于 panel/source 文件读取被 forward 入口拒绝。若跟踪 docs/21/22 的组合配置，须用其源训练 bundle 的 dev 选定参数加锁定组合构造一个明确的 `forward_config_hash`，保留源 hash，登记 `scoring_mode=operational_refit`；不是删除 `score_source` 后冒充原 hash。资格须人工审查该映射，缺少一致训练 provenance 时不得入组。C-to-A 等依赖也需同样因果 scorer，禁止读冻结 dev 分数补未来、外推或向前填充。
+任何 `score_source` bundle 先于 panel/source 文件读取被 forward 入口拒绝。若跟踪 docs/mandates/a-portfolio/22 的组合配置，须用其源训练 bundle 的 dev 选定参数加锁定组合构造一个明确的 `forward_config_hash`，保留源 hash，登记 `scoring_mode=operational_refit`；不是删除 `score_source` 后冒充原 hash。资格须人工审查该映射，缺少一致训练 provenance 时不得入组。C-to-A 等依赖也需同样因果 scorer，禁止读冻结 dev 分数补未来、外推或向前填充。
 
 ### 3.4 paper 账簿与缺失日
 

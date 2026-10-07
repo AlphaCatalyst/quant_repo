@@ -1,6 +1,6 @@
 # 验收记录：M0–M2（2026-09-27）
 
-本记录对应 [09-milestones.md](../overview/09-milestones.md) 的 M0、M1、M2。所有数字来自本机实际运行；日志在 `/data/alphasieve/logs/`，artifact 在 Ceph `/mnt/private_felixjjiang/alphasieve/artifacts/`。
+本记录对应 [milestones.md](../overview/milestones.md) 的 M0、M1、M2。所有数字来自本机实际运行；日志在 `/data/alphasieve/logs/`，artifact 在 Ceph `/mnt/private_felixjjiang/alphasieve/artifacts/`。
 
 ## 1. 环境
 

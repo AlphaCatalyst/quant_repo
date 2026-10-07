@@ -1,16 +1,16 @@
 # 22 · A 的成本感知续研
 
-状态：**已运行，两配置都未通过，按 §4 停止 A 的组合研究**（2026-10-02）。设计日期 2026-10-01，实现与 D-34 记录日期 2026-10-02。用户已批准新增恰好 **2 个 A strategy trial**，累计 `N<=15`；不是重开 docs/21 的四个名额。未申请或读取 holdout/fresh。
+状态：**已运行，两配置都未通过，按 §4 停止 A 的组合研究**（2026-10-02）。设计日期 2026-10-01，实现与 D-34 记录日期 2026-10-02。用户已批准新增恰好 **2 个 A strategy trial**，累计 `N<=15`；不是重开 docs/mandates/a-portfolio 的四个名额。未申请或读取 holdout/fresh。
 
 - C1 `S-d93428e231cc`（第 14 个 A trial）：经 `train submit` 提交到平台后启动即失败。冻结分数来源 `a_csi500_portfolio_cost_v1/S-05cc830d4f41` 只在本机 store，平台 store 没有；未产生任何结果，按 §5 记为 abandoned 并占名额，不重跑。P1–P4 当时是本机 `train run`，复用冻结分数的任务提交平台前须先把来源目录同步到平台 store。
 - C2 `S-10570ee00d4b`（第 15 个 A trial，artifact `7f0e2b1c5b9619315ad40c4c`）：来源目录同步到平台 store 后运行完成（首次排到的集群没有 192 CPU 的节点，作业未启动即停止，同一 bundle 改投另一集群，未新增 started）。原验收未通过：5 亿净超额 4.92%/年（<6%）；IR 1.058、TE 4.65%、超额回撤 −7.79%、7 年 6 年正、无 AUM 减 5 亿 0.90 个百分点均通过。筛选：剔除 2016 后净超额 2.76%/年（<3%）未通过，IR 0.645；三段 8.79% / 3.16% / 0.85% 均为正；20 亿净超额 4.43%、IR 0.963。N=15 折扣后 IR **0.377**，低于 P1 0.558 与 v4 0.404。年单边换手 3.23，年成本 1.55%（其中冲击 0.90%）。逐年超额 2016 18.5%、2017 3.5%、2018 4.7%、2019 0.1%、2020 6.0%、2021 −2.5%、2022 4.0%。
 - 结论：无合格候选，v4 保持未通过验收的 dev 参考；本轮没有救援、换参数或重跑名额。是否为 C1 另批名额由 human 决定（看板“待你决定”）。
 
-依据为 [21-a-portfolio.md](21-a-portfolio.md)（尤其 §2.1、§4、§6、§7）、[18-mandates.md](18-mandates.md) §3、D-31–D-34 和 [acceptance-training.md](../acceptance/acceptance-training.md) §2b。`STRATEGY_TRIAL_BUDGET["A"]` 已从 13 改为 15；D-34 记录用户批准两次成本感知试验，原验收与停止纪律不变。
+依据为 [a-portfolio.md](a-portfolio.md)（尤其 §2.1、§4、§6、§7）、[mandate-specs.md](mandate-specs.md) §3、D-31–D-34 和 [acceptance-training.md](../acceptance/acceptance-training.md) §2b。`STRATEGY_TRIAL_BUDGET["A"]` 已从 13 改为 15；D-34 记录用户批准两次成本感知试验，原验收与停止纪律不变。
 
 ## 1. 已有证据与收益尺度
 
-本次只读取用户列出的 P1–P4 `metrics.json`，均为 dev、2016–2022 OOS；v4 采用 docs/21 §1、§7 的锁定参考，不重跑。P1 为 `a_csi500_portfolio_cost_v1`、`S-05cc830d4f41`。
+本次只读取用户列出的 P1–P4 `metrics.json`，均为 dev、2016–2022 OOS；v4 采用 docs/mandates/a-portfolio §1、§7 的锁定参考，不重跑。P1 为 `a_csi500_portfolio_cost_v1`、`S-05cc830d4f41`。
 
 | 项 | P1 结果与含义 |
 |---|---|
@@ -18,7 +18,7 @@
 | 超额回撤 / 正超额年份 | −7.2% / 6 年，共 7 年 |
 | 成本 | 2.25% NAV/年，其中冲击 1.44%、线性费用 0.81% |
 | 无 AUM 净超额 / 减 5 亿 | 7.19%/年 / 1.37 个百分点；原容量验收通过 |
-| 20 亿净超额 / IR / 无 AUM 减 20 亿 | 4.92%/年 / 1.05 / 2.28 个百分点；docs/21 §4.3 的 ≤1.5 个百分点筛选失败 |
+| 20 亿净超额 / IR / 无 AUM 减 20 亿 | 4.92%/年 / 1.05 / 2.28 个百分点；docs/mandates/a-portfolio §4.3 的 ≤1.5 个百分点筛选失败 |
 | 参与率截断交易占比 | 5 亿 1.7%，20 亿 22.5%；提高目标成本不能保证解决未成交 |
 | 剔除 2016 / 2021–2022 净超额 | 3.56%/年 / 1.40%/年，从同一连续模拟切片 |
 | 单次单边目标换手 / 持仓 | 均值 14.51%、最大 15%；117 只，v4 约 91 只 |
@@ -72,7 +72,7 @@ P4 单独收紧市值至 ±0.1 后净超额 5.83%/年、IR 1.21，但其容量�
 ```yaml
 # C1；description 属于元数据，训练字段不变
 task_id: a_csi500_portfolio_cost_scale_v2
-description: Frozen A v4 scores; causal trailing 10-day return scale (docs/22 C1)
+description: Frozen A v4 scores; causal trailing 10-day return scale (docs/mandates/a-cost-aware C1)
 portfolio:
   alpha_scale_mode: trailing_10d
 ```
@@ -80,7 +80,7 @@ portfolio:
 ```yaml
 # C2；从 P1 复制，不能从 C1 复制
 task_id: a_csi500_portfolio_cost_capacity_v2
-description: Frozen A v4 scores; impact priced at 2 billion CNY (docs/22 C2)
+description: Frozen A v4 scores; impact priced at 2 billion CNY (docs/mandates/a-cost-aware C2)
 portfolio:
   impact_design_aum: 2000000000
 ```
@@ -99,10 +99,10 @@ portfolio:
 | `training/task.py`：`PortfolioLink`、`_portfolio_rules`、`LATER_FIELDS` | 两字段、校验与 hash 兼容；不改 `ScoreSource` 或训练 schema |
 | `strategy/portfolio_lp.py`：`build_weights_lp`、小型尺度辅助函数 | 抽出与现有数值完全一致的截面 z-score；仅开关启用时按 §2.1 计算调仓日系数，以 `cost["alpha_scale"]` 传入已有 `_solve`；目标规模取 `impact_design_aum or cfg.aum`。`_solve` 的变量、四段、风险约束和失败路径保持 |
 | `training/mandates.py`：`index_enhancement`、`STRATEGY_TRIAL_BUDGET` | A 13→15，其他预算不变；透传/汇总新诊断。`robustness`、`ACCEPTANCE`、`ema_scores` 和容量规模表不改 |
-| `training/run.py`：`start_trial`、bundle/结果输出；必要时 `cli/commands_train.py` 的打包入口 | 延续 docs/21 §6 的预注册清单：启动前校验两份 task/bundle 身份、共用源和成本 digest、每配置至多一次 started；既有 budget 检查同时执行。输出尺度/目标诊断 artifact，后端按原 `search_discount` 报 N=15 与胜出结果 |
-| 两份上述 YAML、`docs/overview/10-decisions.md` D-34 | 与代码和预注册清单在首跑前一起提交；不覆盖 P1/v4 |
+| `training/run.py`：`start_trial`、bundle/结果输出；必要时 `cli/commands_train.py` 的打包入口 | 延续 docs/mandates/a-portfolio §6 的预注册清单：启动前校验两份 task/bundle 身份、共用源和成本 digest、每配置至多一次 started；既有 budget 检查同时执行。输出尺度/目标诊断 artifact，后端按原 `search_discount` 报 N=15 与胜出结果 |
+| 两份上述 YAML、`docs/overview/decisions.md` D-34 | 与代码和预注册清单在首跑前一起提交；不覆盖 P1/v4 |
 
-`execution.simulate/trailing_liquidity`、`training/score_source.py` 复用，不修改成本或冻结分数加载语义；不增加求解器、闭环前仓、训练拟合或全套 docs/21 未实现归因。继续 ADV/vol 截至 T 的 20 日、至少 5 日窗口与缺失规则。源 score/manifest digest 和 panel signature 以 P1 bundle 锁定值为准，每次校验，不能重新选择 latest 或重训替代。
+`execution.simulate/trailing_liquidity`、`training/score_source.py` 复用，不修改成本或冻结分数加载语义；不增加求解器、闭环前仓、训练拟合或全套 docs/mandates/a-portfolio 未实现归因。继续 ADV/vol 截至 T 的 20 日、至少 5 日窗口与缺失规则。源 score/manifest digest 和 panel signature 以 P1 bundle 锁定值为准，每次校验，不能重新选择 latest 或重训替代。
 
 实现先用隔离合成 fixture 做 focused tests（扩展 `tests/test_portfolio_round3.py`、`tests/test_training.py`；不接真实 ledger）：
 
@@ -118,7 +118,7 @@ portfolio:
 
 原 A 验收保持：5 亿、2016–2022 OOS、扣 b3/冲击、全收益 CSI 500 成员市值加权代理；净超额 ≥6%/年、IR ≥1.0、超额回撤 ≥−8%、7 年至少 5 年正超额、无 AUM 减 5 亿 ≤1.5 个百分点；胜出同时要求 TE 4%–6%/年。不改变股票池、基准、训练字段或 frozen source，不把 20 亿定价写成 headline 20 亿。
 
-完整沿用 docs/21 §4.3：hash/时间审计、LP 无解/换手放宽先排除；剔除 2016 后净超额 ≥3%/年、IR ≥0.5；三段至少两段净超额为正且 2021–2022 必须为正；20 亿净超额 >0、IR ≥0.8、无 AUM 减 20 亿 ≤1.5 个百分点。候选全部通过后按统一 **N=15** 折扣后 IR 排序；差 ≤0.02 时先选 20 亿容量下降较小者，再选 5 亿实际单边换手较低者，再按本轮固定顺序 C1 → C2。只在本轮两配置中选择，P1/P4/v4 是锁定参考。
+完整沿用 docs/mandates/a-portfolio §4.3：hash/时间审计、LP 无解/换手放宽先排除；剔除 2016 后净超额 ≥3%/年、IR ≥0.5；三段至少两段净超额为正且 2021–2022 必须为正；20 亿净超额 >0、IR ≥0.8、无 AUM 减 20 亿 ≤1.5 个百分点。候选全部通过后按统一 **N=15** 折扣后 IR 排序；差 ≤0.02 时先选 20 亿容量下降较小者，再选 5 亿实际单边换手较低者，再按本轮固定顺序 C1 → C2。只在本轮两配置中选择，P1/P4/v4 是锁定参考。
 
 `training.run.search_discount` 的原公式不变，`γ=0.5772156649`、`Y=days/252`：
 

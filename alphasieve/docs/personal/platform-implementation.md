@@ -1,6 +1,6 @@
 # 28 · 广义平台的实现评估：快速可做项与重构判断
 
-状态：R-1、R-2、Q1–Q6 已实现（2026-10-03），实现状态与偏差见 §9；§5、§6 未实现。评估日期 2026-10-03。依据为 [27-broad-quant-platform.md](27-broad-quant-platform.md) 的能力清单与当前代码（`src/alphasieve/`，约 1.7 万行）。只交付本文，不改代码、配置或预算。工作量是单人估算，不含 review 与真实数据回补。
+状态：R-1、R-2、Q1–Q6 已实现（2026-10-03），实现状态与偏差见 §9；§5、§6 未实现。评估日期 2026-10-03。依据为 [broad-quant-platform.md](broad-quant-platform.md) 的能力清单与当前代码（`src/alphasieve/`，约 1.7 万行）。只交付本文，不改代码、配置或预算。工作量是单人估算，不含 review 与真实数据回补。
 
 ## 1. 结论
 
@@ -47,7 +47,7 @@
 - 新增 Reviewer profile：只读论点目录，允许联网，只写复核意见。
 - `orchestrator` 的多 turn 循环暂不泛化，论点研究先用单次运行。等 Monitor 这类需要定时运行的角色出现后，再考虑抽象。
 
-是否允许联网检索由 human 决定（[27-broad-quant-platform.md](27-broad-quant-platform.md) §10 第 4 项）。未决定前，Researcher 只能使用本地数据和 westock 研报。
+是否允许联网检索由 human 决定（[broad-quant-platform.md](broad-quant-platform.md) §10 第 4 项）。未决定前，Researcher 只能使用本地数据和 westock 研报。
 
 ## 4. 快速可做项
 
@@ -72,11 +72,11 @@
 | 卖方观点审计 | 基于 `data/reports.py` 的 EPS 预测解析，按分析师与券商统计预测误差和修正方向；可派生 `wr_*` 因子进入因子 campaign |
 | 公告与纪要文本管线 | 需要新增公告来源 provider（巨潮或交易所），原文落盘并记录 provenance；结构化抽取的结果带原文定位 |
 | 周期行业监控 | 需要行业数据（生猪价格、能繁母猪存栏、商品期货曲线等）；Monitor 定时运行，对照论点的证伪条件告警，这一步需要泛化 orchestrator 的调度 |
-| 风险模型 v1 | 按 [25-risk-model.md](../mandates/25-risk-model.md) 实现后，替换持仓体检 v0 的简化暴露 |
+| 风险模型 v1 | 按 [risk-model.md](../mandates/risk-model.md) 实现后，替换持仓体检 v0 的简化暴露 |
 
 ## 6. 长期项
 
-个人账户 mandate 与新资产类型（可转债、跨资产 ETF、商品期货 CTA，见 [26-personal-account.md](26-personal-account.md) §5）、特殊情况扫描、宏观配置、期权辅助、港股通、执行接入。这些需要新的数据资产类型或回测适配，按 mandate 单独记预算。
+个人账户 mandate 与新资产类型（可转债、跨资产 ETF、商品期货 CTA，见 [personal-account.md](personal-account.md) §5）、特殊情况扫描、宏观配置、期权辅助、港股通、执行接入。这些需要新的数据资产类型或回测适配，按 mandate 单独记预算。
 
 ## 7. 命名与边界约定
 

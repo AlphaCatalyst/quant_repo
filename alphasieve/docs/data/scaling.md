@@ -1,6 +1,6 @@
 # 16 · 扩大算力与数据量
 
-目标：在不削弱验证纪律的前提下，把每小时能完成的有效评估数提高 1–2 个数量级，并把数据从中证 800 日频扩到全 A、更长历史和更多数据种类。本文件只给出实测依据和建议方案；各项是否采纳在 [10-decisions.md](../overview/10-decisions.md) Q-16 中决定。分层（模型层、组合层）的调整见 [15-task-layers.md](../research/15-task-layers.md)。
+目标：在不削弱验证纪律的前提下，把每小时能完成的有效评估数提高 1–2 个数量级，并把数据从中证 800 日频扩到全 A、更长历史和更多数据种类。本文件只给出实测依据和建议方案；各项是否采纳在 [decisions.md](../overview/decisions.md) Q-16 中决定。分层（模型层、组合层）的调整见 [task-layers.md](../research/task-layers.md)。
 
 ## 1. 现状与实测瓶颈（2026-09-27）
 
@@ -65,7 +65,7 @@
   - 结果通过 taijifs 回传，也可以用 Ray actor 常驻 panel。
 - 需要先解决两件事：本机能否直接连平台上的 Ray actor（Ray Client 端口是否可达，待实测）；如果连不上，就用 taijifs 做队列目录，延迟是秒级。
 
-**S-3 实施结果**：见 [10-decisions.md](../overview/10-decisions.md) D-25。本机常驻 worker 已作为 systemd 服务运行；平台 worker 按需通过 `deploy/ray/start_workers.sh` 启动，配合 `systemctl start alphasieve-evalbridge` 使用。
+**S-3 实施结果**：见 [decisions.md](../overview/decisions.md) D-25。本机常驻 worker 已作为 systemd 服务运行；平台 worker 按需通过 `deploy/ray/start_workers.sh` 启动，配合 `systemctl start alphasieve-evalbridge` 使用。
 
 ### 2.3 让搜索能用上算力
 
@@ -77,7 +77,7 @@
 
 ### 2.4 模型层训练
 
-模型层（15 §4 P-3）的滚动训练放到平台：
+模型层（task-layers §4 P-3）的滚动训练放到平台：
 - LightGBM 与排序模型用 CPU 并行，按月份切分成独立任务；
 - 深度模型用 H20；
 - 模型与特征物化存放在 taijifs 的 `models/` 下，实验记录写到 RunLab。
@@ -101,7 +101,7 @@
 
 - **S-4**：完成。全 A 日线已同步，dev panel 在平台构建，holdout 只在本机，全 A campaign 经平台 worker 评估跑通（见 [acceptance-scaling.md](../acceptance/acceptance-scaling.md)）。全 A 财报改用 westock 三大报表，另加资金流向（D-30）。
 - **S-5**：并行 lane 与模板展开已完成，并做过真实验证（D-27）。
-- **S-6**：`strategy backtest` 可以作为平台任务运行，结果写入 RunLab（D-28）。组合层补上了市值与行业约束，需要重跑。后来模型层与组合层由训练任务取代（D-31，[19-training-tasks.md](../mandates/19-training-tasks.md)），训练同样在平台 Ray 集群上运行。
+- **S-6**：`strategy backtest` 可以作为平台任务运行，结果写入 RunLab（D-28）。组合层补上了市值与行业约束，需要重跑。后来模型层与组合层由训练任务取代（D-31，[training-tasks.md](../mandates/training-tasks.md)），训练同样在平台 Ray 集群上运行。
 - **S-7**：完成。事件数据已纳入中证 800 panel；`hs300_2020` 日内 panel 已构建（15 分钟线）；程序化搜索在独立的 `program` campaign 中运行，400 个 trial 已完整结题（D-28）。稀疏的事件字段用 `fill_na` 把没有事件的日子填为中性值。
 
 常用命令：
@@ -123,7 +123,7 @@ deploy/ray/submit.sh strategy strategy backtest --universe csi800 --horizon 20 -
 - **试验数。** L3 的门槛随试验数上升（DSR 的期望最大值大致随 \(\sqrt{2\ln N}\) 增长）。从几百次扩到几万次后，只有很强的信号才能通过，这是正确的行为，不应为了通过率放松。
 - **holdout 是真正稀缺的资源。** 算力可以加，holdout 区间不会变长。对策：
   1. 扩股票池来提高 holdout 的统计功效；
-  2. holdout 只在策略层检验（15 §4 P-4），读取次数严格按预算；
+  2. holdout 只在策略层检验（task-layers §4 P-4），读取次数严格按预算；
   3. 前瞻验证（fresh）从 M7 开始持续积累，作为最终证据。
 - **分开记账。** 程序化搜索、LLM 搜索、模型层与组合层的试验分别记账，各自计算折扣，统一出现在 ledger 与 RunLab 中。
 - **隔离的外延。** taijifs 在本机也有挂载，而 Codex 的沙箱不限制读取。如果平台上存放了 holdout 区间的原始数据，本机的 agent 理论上能读到。完整性扫描需要把 taijifs 上的数据路径加入敏感路径列表；holdout panel 仍然只在本机构建、只由 system 角色读取。
@@ -133,11 +133,11 @@ deploy/ray/submit.sh strategy strategy backtest --universe csi800 --horizon 20 -
 | 步骤 | 内容 | 预期效果 | 依赖 |
 |---|---|---|---|
 | S-1 | 评估内核提速（§2.1），加上一致性回归测试 | 单次 L2 从约 226 秒降到 30 秒以内 | 无 |
-| S-2 | 分层调整 P-1、P-2（预测周期、L2 口径） | 搜索方向正确 | 15 §4 的决定 |
+| S-2 | 分层调整 P-1、P-2（预测周期、L2 口径） | 搜索方向正确 | task-layers §4 的决定 |
 | S-3 | 常驻评估服务（§2.2），先在本机，再扩到平台 worker | 评估不再是瓶颈 | S-1 |
 | S-4 | 全 A 股票池与 2005 年起的历史（§3 第一、二行），在平台上同步和构建 | 统计功效提高 4–6 倍 | S-3（本机内存不够） |
 | S-5 | 并行 agent 与模板展开（§2.3 第 1、2 点） | 吞吐与探索面扩大 | S-3 |
-| S-6 | 最小模型层与组合层上平台（§2.4，15 §4 P-3） | 能按策略层评价 | S-2、S-3 |
+| S-6 | 最小模型层与组合层上平台（§2.4，task-layers §4 P-3） | 能按策略层评价 | S-2、S-3 |
 | S-7 | 分钟线派生特征、事件数据、程序化搜索 | 新信息源 | S-4、S-6 |
 
 S-1 与 S-2 不改变系统结构，可以立即开始。S-3 之后的步骤会改变部署方式或数据契约，应逐项确认后再做。
@@ -154,4 +154,4 @@ S-1 与 S-2 不改变系统结构，可以立即开始。S-3 之后的步骤会�
 | 日更里的 westock-data 调用 | orbenchtest | `ALPHASIEVE_WESTOCK_CLI=deploy/remote/westock-ssh`：SSH 复用连接在远端执行，响应不落远端盘；SSH 失败时回退本机，最多 3 个并发。50 次调用本机 CPU 由 41.5 s 降到 1.3 s |
 | 日更其余步骤（BaoStock、巨潮、新浪、状态库登记） | 本机 | 单次 CPU 约 0.01–0.02 s，以等网络为主；unit 设 `Nice=10`、`CPUWeight=20` |
 | 排雷扫描 | 本机 | 读取 2022 年后的财报，不能上 Ray；`--jobs` 默认 2 |
-| 全量测试 | orbenchtest | `deploy/remote/pytest.sh [pytest 参数]`，约 2.6 分钟（本机 5 分 20 秒），本机 CPU 不到 1 s；见 [12-testing.md](../research/12-testing.md) |
+| 全量测试 | orbenchtest | `deploy/remote/pytest.sh [pytest 参数]`，约 2.6 分钟（本机 5 分 20 秒），本机 CPU 不到 1 s；见 [testing.md](../research/testing.md) |

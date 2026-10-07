@@ -1,6 +1,6 @@
-"""Portfolio construction, backtests and dev acceptance per mandate (docs/18 §3–6, docs/19 §2.5, §5).
+"""Portfolio construction, backtests and dev acceptance per mandate (docs/mandates/mandate-specs §3–6, docs/mandates/training-tasks §2.5, §5).
 
-Acceptance thresholds are the dev thresholds written in docs/18; results are reported against them, they never
+Acceptance thresholds are the dev thresholds written in docs/mandates/mandate-specs; results are reported against them, they never
 change a gate. The futures-hedged mandate shorts index futures from Sina's contract bars (``data.futures``); there
 is no futures data before 2017, so those years use the index proxy and are reported but not judged.
 """
@@ -19,7 +19,7 @@ ACCEPTANCE = {
     "C": {"car_spread_t_min": 3.0, "decile_monotonicity_min": 0.8, "annual_excess_min": 0.05},
     "B": {"rank_ic_min": 0.03, "annual_excess_min": 0.05, "sharpe_min": 0.8},
 }
-# approved dev strategy-trial budgets: docs/20 §1 (B, C, D) and docs/22 (A)
+# approved dev strategy-trial budgets: docs/mandates/training-round2 §1 (B, C, D) and docs/mandates/a-cost-aware (A)
 STRATEGY_TRIAL_BUDGET = {"A": 15, "B": 5, "C": 4, "D": 4}
 CAPACITY_AUMS = (1e8, 5e8, 2e9)
 FUTURES_ROLL_COST = 0.0002   # open the next contract, slippage and the settlement fee, per unit of notional
@@ -32,7 +32,7 @@ def _clean(sim: dict) -> dict:
 
 
 def proxy_tracking(panel: Panel, members: np.ndarray, index_returns: np.ndarray | None) -> dict:
-    """How well the cap-weighted member proxy tracks the real index (docs/18 G-2)."""
+    """How well the cap-weighted member proxy tracks the real index (docs/mandates/mandate-specs G-2)."""
     if index_returns is None:
         return {"available": False}
     cap = panel.wide("circ_mv").to_numpy(dtype=float)
@@ -100,7 +100,7 @@ def _excess_stats(excess: pd.Series) -> dict:
 
 
 def robustness(main: dict, large: dict, base: dict) -> dict:
-    """Slices of one continuous simulation (docs/21 §4.2) and the extra screens of the docs/21 §4.3 winner rule."""
+    """Slices of one continuous simulation (docs/mandates/a-portfolio §4.2) and the extra screens of the docs/mandates/a-portfolio §4.3 winner rule."""
     excess = main["_daily"]["ret"] - main["_daily"]["bench"]
     periods = {k: _excess_stats(excess.loc[lo:hi]) for k, (lo, hi) in PERIODS.items()}
     large_excess = large["_daily"]["ret"] - large["_daily"]["bench"]
@@ -205,7 +205,7 @@ def futures_hedged(panel: Panel, long_result: dict, beta: np.ndarray, cfg, index
     """Long the A portfolio, short ``ratio x beta_hat`` index futures; capital also funds margin and a cash buffer.
 
     ``leg`` is the futures hedge leg (``data.futures.hedge_leg``). On days without futures data the short leg is
-    the total-return member proxy, which omits the basis. Only the exact single-contract span is judged (docs/20
+    the total-return member proxy, which omits the basis. Only the exact single-contract span is judged (docs/mandates/training-round2
     §5.4); the ratio 1.0 is the headline, the other ``cfg.hedge_ratios`` are pre-registered and reported.
     """
     daily = long_result["_daily"]

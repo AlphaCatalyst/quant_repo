@@ -341,7 +341,7 @@ function Robustness({ rob }: { rob: Json }) {
   if (!rob) return null;
   const periods = Object.entries(rob.periods ?? {}) as [string, Json][];
   return (
-    <Card title={`稳健性筛选（docs/21 §4.3）：${rob.screens_passed ? "全部通过" : "未全部通过"}`}>
+    <Card title={`稳健性筛选（docs/mandates/a-portfolio §4.3）：${rob.screens_passed ? "全部通过" : "未全部通过"}`}>
       <Checks checks={rob.screens} />
       {periods.length > 0 && (
         <table className="table">

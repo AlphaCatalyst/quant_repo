@@ -19,7 +19,7 @@
 | `training/run.py::run_cross_sectional`、`training/samples.py::rolling_beta` | beta 是股票 `ret_1d` 对价格指数收益的 60 日滚动估计，至少 30 日；传入组合层 | beta 不是完整风险模型；缺失值在 LP 中填 1，不能解释成已观测暴露 |
 | `training/task.py::PortfolioLink/LATER_FIELDS/config_hash` | 严格 schema；后来增加的字段取默认值时从 hash 输入剔除 | 新行为必须显式入 hash；报告参数不能混进策略配置使历史身份变化 |
 
-[13-backtest.md](../research/13-backtest.md) §4.4 的风险惩罚是设计目标；[15-task-layers.md](../research/15-task-layers.md) §4 P-6 和 [18-mandates.md](18-mandates.md) G-3 的完整暴露尚未实现。以 D-31–D-33、[21-a-portfolio.md](21-a-portfolio.md) §1/§2/§6 和 [22-a-cost-aware.md](22-a-cost-aware.md) 为当前行为与预算依据，不能把早期文档的“未实现”表格当最新状态。
+[backtest.md](../research/backtest.md) §4.4 的风险惩罚是设计目标；[task-layers.md](../research/task-layers.md) §4 P-6 和 [mandate-specs.md](mandate-specs.md) G-3 的完整暴露尚未实现。以 D-31–D-33、[a-portfolio.md](a-portfolio.md) §1/§2/§6 和 [a-cost-aware.md](a-cost-aware.md) 为当前行为与预算依据，不能把早期文档的“未实现”表格当最新状态。
 
 ## 3. 设计
 
@@ -82,7 +82,7 @@ dev 验证固定为 2016–2022，沿用 `robustness.PERIODS`、逐年与三个�
 
 ### 3.4 从实际持仓出发的最小闭环
 
-新增显式 `holdings_mode="actual_close"`，默认 `"previous_target"`。新路径只支持冻结 dev 分数的 A LP；不把它插入 docs/22 两配置。预测层仍输出分数；组合和执行通过一个小状态对象逐日交互，不把执行规则写进 LP。
+新增显式 `holdings_mode="actual_close"`，默认 `"previous_target"`。新路径只支持冻结 dev 分数的 A LP；不把它插入 docs/mandates/a-cost-aware 两配置。预测层仍输出分数；组合和执行通过一个小状态对象逐日交互，不把执行规则写进 LP。
 
 1. `ExecutionState` 保存按 code 顺序的股票持仓市值、cash、NAV、日期、是否已首次建仓、上一目标（仅留作诊断）。决策前归一得 `p_T=holdings_value_T/NAV_T`，含此前开盘/盘中漂移、实际成交、费用和未成交留下的资产。
 2. 新 `simulate_closed_loop(..., target_at_close)` 按日运行：执行 T−1 目标 → 算 T 收盘状态/收益 → 回调 T 的组合 → 排队 T+1 目标。首次分数决策日以全现金状态调用；调仓日历严格复用旧 `active[::rebalance_every]`，不按成交情况重排。
@@ -91,7 +91,7 @@ dev 验证固定为 2016–2022，沿用 `robustness.PERIODS`、逐年与三个�
 5. 保存每笔 `goal−current_open`、最终成交增量、差额及原因：禁买、禁卖、ADV 截断、现金调整，原因可多值；按实际执行顺序归因。未成交仍到下一调仓重算，不新增续单。费用、现金与漂移继续原数值顺序；原路径可能出现的微小负现金只报告，不能借此重写旧结果。
 6. 新闭环/新约束路径不静默放宽约束：无解或清除 `<1e-6` 权重后误差 >1e-6，保持实际持仓和现金、不发新订单，记录失败；该真实 trial 不合格且占预算。所有实际约束违反单列。旧路径的换手放宽与权重清理行为完整保留。
 
-闭环下规模会改变前仓，从而改变后续目标。每个新预注册 trial 固定 headline 规模，并事前声明无 AUM、1 亿、5 亿、20 亿各自连续的闭环路径，计同一个 trial 的诊断；这是“各规模独立闭环”的容量口径。同时可用 headline 目标在其他规模做固定目标执行对照，两表分开，不按容量结果选规模。docs/21、docs/22 既有“同目标各规模模拟”的口径不追溯改写。
+闭环下规模会改变前仓，从而改变后续目标。每个新预注册 trial 固定 headline 规模，并事前声明无 AUM、1 亿、5 亿、20 亿各自连续的闭环路径，计同一个 trial 的诊断；这是“各规模独立闭环”的容量口径。同时可用 headline 目标在其他规模做固定目标执行对照，两表分开，不按容量结果选规模。docs/mandates/a-portfolio、docs/mandates/a-cost-aware 既有“同目标各规模模拟”的口径不追溯改写。
 
 ### 3.5 对象、产物与 CLI
 
@@ -116,7 +116,7 @@ agent/human 可运行上述 dev 命令；system 可作为已登记运行的后�
 - 单纯观测/报告不改变订单、NAV、已有指标、config hash、ledger 记录或验收。缺历史轨迹不允许免费重跑 v4/P1；完整策略重跑经原入口计 strategy trial。历史数值不能补写覆盖，非 PIT 临时报表不能追认为严格 PIT。
 - 新约束、新目标、闭环前仓、变更市值/beta 定义或容量重优化都是新 A strategy trial。`PortfolioLink` 拟增 `risk_model_version: Literal["rm1"]|None=None`、`exposure_constraints: dict[str,tuple[float,float]]`（默认工厂生成空 dict）、`holdings_mode: Literal["previous_target","actual_close"]="previous_target"`；约束只允许上表四个新增风格，有限 lower≤upper，非空时要求 rm1、PIT 可用、A 冻结 dev 分数和 LP。闭环与非空约束都须另行授权，非默认字段进 hash；report 的 rm1 选择只在独立 manifest，不写进原任务。
 - 默认字段加入 `LATER_FIELDS`，缺省和显式默认 hash 相同；默认走旧两遍构建/执行，保留旧求解输入、归一化、迭代顺序和旧诊断。v4 `18fc9302845d11b2`、P1 `488b1f8c2b00ddfa` 不变；原 ledger 和记录配置不可追溯更新。未来新策略冻结完整风险 spec、代码、成本、分数 provenance 和输入 digest。
-- 当前 `STRATEGY_TRIAL_BUDGET` 为 A 13、B 5、C 4、D 4，A 13 已耗尽。docs/22 仅批准两个成本感知配置，计划累计 N≤15，代码尚未提高上限；本文新增名额 **0**，不能占用或替换这两个配置。任何风险约束/闭环/QP 的真实试验须人工另批预算与预注册，先记 started，失败/abandoned 也计数。`void` 不能减少失败尝试；模型报告不是策略胜出或 promotion。
+- 当前 `STRATEGY_TRIAL_BUDGET` 为 A 13、B 5、C 4、D 4，A 13 已耗尽。docs/mandates/a-cost-aware 仅批准两个成本感知配置，计划累计 N≤15，代码尚未提高上限；本文新增名额 **0**，不能占用或替换这两个配置。任何风险约束/闭环/QP 的真实试验须人工另批预算与预注册，先记 started，失败/abandoned 也计数。`void` 不能减少失败尝试；模型报告不是策略胜出或 promotion。
 
 ## 5. 最小实现计划
 

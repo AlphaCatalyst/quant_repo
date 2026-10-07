@@ -50,7 +50,7 @@
 | web | `web/` | 只读 FastAPI 与构建好的前端静态文件 |
 | cli | `cli/` | JSON CLI（唯一写入入口） |
 | 前端工程 | 仓库根目录 `frontend/` | React + Vite + ECharts；构建产物输出到 `web/dist` |
-| fresh（规划） | — | 前瞻验证与 paper 追踪，设计见 [23-forward-paper.md](../mandates/23-forward-paper.md) |
+| fresh（规划） | — | 前瞻验证与 paper 追踪，设计见 [forward-paper.md](../mandates/forward-paper.md) |
 
 ## 3. 进程模型
 
@@ -70,7 +70,7 @@
 
 ## 4. 存储
 
-存储分为 git、本地热存储、Ceph、taijifs 四层，存放位置与理由见 [03-data.md](../data/03-data.md) §8。下面是本地热存储根目录（`ALPHASIEVE_HOT_ROOT`，生产环境为 `/data/alphasieve/`）的结构；artifact 与 transcript 写入 Ceph（`ALPHASIEVE_STORE_ROOT`）。
+存储分为 git、本地热存储、Ceph、taijifs 四层，存放位置与理由见 [data-and-panels.md](../data/data-and-panels.md) §8。下面是本地热存储根目录（`ALPHASIEVE_HOT_ROOT`，生产环境为 `/data/alphasieve/`）的结构；artifact 与 transcript 写入 Ceph（`ALPHASIEVE_STORE_ROOT`）。
 
 ```text
 <HOT_ROOT>/
@@ -91,7 +91,7 @@
   reports/                    日报与批次报告
 ```
 
-- **SQLite 表**（2026-10-01 实际）：`trials`（ledger，factor 与 strategy 两层）、`factor_specs`、`library`、`data_snapshots`、`campaigns`、`turns`、`directives`、`agent_requests`、`memory_items`、`shortlists`、`holdout_requests`（因子层）、`strategy_holdout_requests`（策略层）、`review_packets`、`decisions`、`events`、`schema_version`。原规划的 `research_questions`、`data_contracts`、`promotion_records`、`strategy_specs`、`fresh_cohorts`、`jobs`、`users` 没有建：策略配置以 TrainingTask YAML 加 artifact manifest 冻结，fresh 见 [23-forward-paper.md](../mandates/23-forward-paper.md)，web 用单个 Basic 认证凭据。
+- **SQLite 表**（2026-10-01 实际）：`trials`（ledger，factor 与 strategy 两层）、`factor_specs`、`library`、`data_snapshots`、`campaigns`、`turns`、`directives`、`agent_requests`、`memory_items`、`shortlists`、`holdout_requests`（因子层）、`strategy_holdout_requests`（策略层）、`review_packets`、`decisions`、`events`、`schema_version`。原规划的 `research_questions`、`data_contracts`、`promotion_records`、`strategy_specs`、`fresh_cohorts`、`jobs`、`users` 没有建：策略配置以 TrainingTask YAML 加 artifact manifest 冻结，fresh 见 [forward-paper.md](../mandates/forward-paper.md)，web 用单个 Basic 认证凭据。
 - **ledger 完整性**：`trials` 只允许 INSERT；每行包含前一行哈希，形成哈希链；`alphasieve ledger verify` 校验，每次备份也会在副本上校验一遍。
 - **artifact**：目录名为 manifest 内容哈希；manifest 记录代码版本（git commit）、数据快照签名、配置、gate policy 版本、随机种子。
 - **为什么不用 Postgres**：第一阶段单机、写入量小，SQLite 足够且零运维；service 层通过仓储接口访问，后续可迁移。
@@ -104,11 +104,11 @@
 | 数据处理 | pandas + pyarrow，重查询用 DuckDB | Parquet 原生；DuckDB 适合在 panel 与 artifact 上做即席查询 |
 | schema | pydantic v2 | 契约校验与 JSON Schema 导出（前端类型也由此生成） |
 | 模型 | LightGBM / XGBoost / scikit-learn（ridge） | 固定配置基线与参考模型组 |
-| 回测 | 自研向量化（B1、B2）+ 自研逐日模拟器（B3–B5） | A 股规则固定，自研便于写不变量测试；用 Qlib 回测交叉验证，见 [13-backtest.md](../research/13-backtest.md) |
+| 回测 | 自研向量化（B1、B2）+ 自研逐日模拟器（B3–B5） | A 股规则固定，自研便于写不变量测试；用 Qlib 回测交叉验证，见 [backtest.md](../research/backtest.md) |
 | 统计 gate | `deflated-sharpe` + 自研 | DSR、BH-FDR |
 | API | FastAPI + uvicorn | 与核心同语言；自动 OpenAPI |
-| 前端 | React + TypeScript + Vite；TanStack Query / Router；ECharts；Tailwind + shadcn/ui | 见 [07-frontend.md](../interfaces/07-frontend.md) |
-| agent runtime | 本机 Claude Code CLI、Codex CLI；规模化阶段 Nexus Cloud | 不自研，见 [05-agent-harness.md](../agent/05-agent-harness.md)、[14-agent-execution.md](../agent/14-agent-execution.md) |
+| 前端 | React + TypeScript + Vite；TanStack Query / Router；ECharts；Tailwind + shadcn/ui | 见 [frontend.md](../interfaces/frontend.md) |
+| agent runtime | 本机 Claude Code CLI、Codex CLI；规模化阶段 Nexus Cloud | 不自研，见 [agent-harness.md](../agent/agent-harness.md)、[agent-execution.md](../agent/agent-execution.md) |
 | 依赖管理 | uv（Python）、pnpm（前端） | |
 
 ## 6. 安全与隔离边界
@@ -133,4 +133,4 @@
 | Review Gate / Promotion Service | `campaigns/`（结题、Review Packet、因子层 holdout）、`training/holdout.py`（策略层 holdout）；审批是 human 角色的 CLI 命令 |
 | Memory Service | `campaigns/memory.py` |
 | Model / Portfolio Service | `training/`（模型、mandate 组合与验收）+ `strategy/`（执行与 LP） |
-| Forward / Paper Service | 未实现，设计见 [23-forward-paper.md](../mandates/23-forward-paper.md) |
+| Forward / Paper Service | 未实现，设计见 [forward-paper.md](../mandates/forward-paper.md) |

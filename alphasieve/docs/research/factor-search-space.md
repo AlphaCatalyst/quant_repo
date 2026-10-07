@@ -16,7 +16,7 @@
 
 | 级别 | 形式 | 能覆盖的因子 | 约束方式 | 引入阶段 |
 |---|---|---|---|---|
-| E1 公式 | DSL 表达式（见 [04-research-core.md](04-research-core.md) §2） | 量价、估值、财务比率及其时序/截面变换、组内相对 | 语法白名单，前视在构造上不可表达 | M2 |
+| E1 公式 | DSL 表达式（见 [research-core.md](research-core.md) §2） | 量价、估值、财务比率及其时序/截面变换、组内相对 | 语法白名单，前视在构造上不可表达 | M2 |
 | E2 模板 | 带槽位的因子模板 + 参数 | 学术异象的标准形式（残差动量、特质波动、Amihud 非流动性、盈余惊喜等） | 模板由系统维护，agent 只填槽位与参数 | M2 后期 |
 | E3 受限程序 | Python 函数 `compute(view) -> Series`，在沙箱中执行 | 条件逻辑、事件窗口、滚动回归、分段规则、多步计算等 DSL 难以表达的形式 | PIT 数据视图（只暴露截至 t 的数据）、静态检查、截断不变性测试、资源上限 | M4 后 |
 | E4 学习型 | walk-forward 训练的小模型输出分数 | 非线性组合、交互项 | 属于模型设计循环，按联合优化规则执行 | M8 |
@@ -36,7 +36,7 @@
 
 ### 3.1 终端变量
 
-来自 panel 的白名单字段（见 [03-data.md](../data/03-data.md) §2），按数据域分组，campaign 可以只开放其中一部分。
+来自 panel 的白名单字段（见 [data-and-panels.md](../data/data-and-panels.md) §2），按数据域分组，campaign 可以只开放其中一部分。
 
 ### 3.2 派生变量库（系统维护）
 
@@ -57,11 +57,11 @@
 
 派生变量的定义变化会生成新版本；已有 trial 通过版本号判断是否受影响。
 
-搜索空间 v3（D-30）新增三个数据域：`fin_quality`（westock 报表的盈利、现金流、杠杆比率和四个金额）、`fin_growth`（资产与营收同比、单季净利同比与变化），`fund_flow`（按单笔金额分档的净流入除以成交额，2020 年起，配合 `ashare_2020` 股票池使用），以及 `margin`（融资融券周频快照，配合 `hs300_2020` 股票池使用）。字段定义见 [03-data.md](../data/03-data.md) §1.3。
+搜索空间 v3（D-30）新增三个数据域：`fin_quality`（westock 报表的盈利、现金流、杠杆比率和四个金额）、`fin_growth`（资产与营收同比、单季净利同比与变化），`fund_flow`（按单笔金额分档的净流入除以成交额，2020 年起，配合 `ashare_2020` 股票池使用），以及 `margin`（融资融券周频快照，配合 `hs300_2020` 股票池使用）。字段定义见 [data-and-panels.md](../data/data-and-panels.md) §1.3。
 
 ### 3.3 算子与限制
 
-- 算子分类见 [04-research-core.md](04-research-core.md) §2；campaign 可以关闭部分算子（例如只允许线性算子）。
+- 算子分类见 [research-core.md](research-core.md) §2；campaign 可以关闭部分算子（例如只允许线性算子）。
 - 窗口参数：取值集合默认为 {3, 5, 10, 20, 40, 60, 120, 250}，避免连续参数带来的隐性搜索。
 - 复杂度上限：节点数、深度、终端变量种类数；默认节点 ≤ 30、深度 ≤ 8、终端 ≤ 4。
 
@@ -91,10 +91,10 @@
 
 ### 4.3 覆盖矩阵的用途
 
-- **进展展示**：前端按格子展示“尝试数 / L2 通过数 / 入库数 / 禁区”，一眼看出哪些区域没碰过、哪些已经饱和（见 [08-progress-and-interaction.md](../interfaces/08-progress-and-interaction.md)）。
+- **进展展示**：前端按格子展示“尝试数 / L2 通过数 / 入库数 / 禁区”，一眼看出哪些区域没碰过、哪些已经饱和（见 [progress-and-interaction.md](../interfaces/progress-and-interaction.md)）。
 - **campaign 规划**：创建 campaign 时选一组格子作为研究范围；系统可以按“未覆盖程度 × 先验价值 − 已饱和惩罚”推荐格子（思路参考 scicomp-foundry 的 coverage planner）。
 - **记忆与禁区**：禁区以格子加结构模式表示，例如“换手与流动性 × 水平 × 任意尺度：与库内 F-0012 高相关”。
-- **并行分派**：规模化运行时（见 [14-agent-execution.md](../agent/14-agent-execution.md)），每个并行任务分到不同格子，避免重复劳动。
+- **并行分派**：规模化运行时（见 [agent-execution.md](../agent/agent-execution.md)），每个并行任务分到不同格子，避免重复劳动。
 
 ## 5. SearchSpace 配置
 
@@ -125,6 +125,6 @@ seeds: [alpha158, gtja191]
 
 - **扩大空间要付出代价**：DSR 的试验数按 campaign 累计，开放更多格子和原料只会让门槛更高。
 - **离散参数**：窗口只能取预设集合，避免 agent 通过连续微调参数“拟合”历史。
-- **default-first**：模板和程序的参数先用默认值，失败时只允许有限的邻域救援（见 [04-research-core.md](04-research-core.md) §4）。
+- **default-first**：模板和程序的参数先用默认值，失败时只允许有限的邻域救援（见 [research-core.md](research-core.md) §4）。
 - **格子内的假设先行**：program.md 要求 agent 在提交前写下假设与预期方向；方向与预期相反却“显著”的候选在 Review Packet 中高亮。
 - **原料版本化**：派生变量、模板、种子的变化都有版本号，保证 trial 可复现、可归因。

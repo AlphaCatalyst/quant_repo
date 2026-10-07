@@ -1,4 +1,4 @@
-"""Linear-programming index enhancement (docs/18 G-3): maximise the score-weighted holding subject to linear risk
+"""Linear-programming index enhancement (docs/mandates/mandate-specs G-3): maximise the score-weighted holding subject to linear risk
 limits, instead of the heuristic fill-then-blend of ``portfolio.build_weights``.
 
 Per rebalance date, with benchmark weights b (cap-weighted members) and previous weights p:
@@ -11,7 +11,7 @@ Per rebalance date, with benchmark weights b (cap-weighted members) and previous
 z is the cross-sectional z-score of the model score. When the turnover limit makes the problem infeasible (for
 example after large index changes) the date is re-solved without it and counted in the diagnostics.
 
-Two options from docs/21 §2: ``cap`` may be a per-name active limit (liquidity-scaled), and the objective may be
+Two options from docs/mandates/a-portfolio §2: ``cap`` may be a per-name active limit (liquidity-scaled), and the objective may be
 net of trading costs, ``alpha_scale * z'w - c_buy * sum(u) - c_sell * sum(v) - sum(e)``, where e_i bounds the
 square-root impact ``kappa_i * q_i ** 1.5`` of the traded weight q_i = u_i + v_i from above by its chords on
 0, 1/4, ..., 1 of the largest feasible trade (kappa_i = impact_k * vol_i * sqrt(aum / adv_i), as in execution).
@@ -140,7 +140,7 @@ def build_weights_lp(scores: pd.DataFrame, panel: Panel, universe_mask: np.ndarr
                      beta_range: tuple[float, float] | None = None, cfg=None,
                      costs: dict | None = None,
                      benchmark_weights: np.ndarray | None = None) -> tuple[pd.DataFrame, dict]:
-    """``cfg`` (a PortfolioLink) switches on the docs/21 options: ``objective="net_alpha_pwl"`` and
+    """``cfg`` (a PortfolioLink) switches on the docs/mandates/a-portfolio options: ``objective="net_alpha_pwl"`` and
     ``active_liquidity_adv_fraction``; both read liquidity through the decision day's close only."""
     dates, codes = panel.dates, panel.codes
     s = scores.reindex(index=dates, columns=codes).to_numpy(dtype=float)

@@ -1,1 +1,1 @@
-"""Control plane: job layer, scheduling, health, compute resources and LLM availability (docs/34)."""
+"""Control plane: job layer, scheduling, health, compute resources and LLM availability (docs/interfaces/control-plane)."""

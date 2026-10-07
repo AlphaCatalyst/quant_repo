@@ -1,4 +1,4 @@
-# Compute targets used by the job layer and the resources panel (docs/34, docs/16 §6).
+# Compute targets used by the job layer and the resources panel (docs/interfaces/control-plane, docs/data/scaling §6).
 # Ray clusters are shared with other users; nodes or heads may be reclaimed at any time.
 ray_clusters:
   - name: zw35-a

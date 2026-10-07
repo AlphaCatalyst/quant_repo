@@ -1,4 +1,4 @@
-"""Frozen rm1 report-only factor risk model (docs/25). All returns and variances are daily."""
+"""Frozen rm1 report-only factor risk model (docs/mandates/risk-model). All returns and variances are daily."""
 
 from __future__ import annotations
 

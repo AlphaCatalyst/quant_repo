@@ -1,4 +1,4 @@
-"""Sina Finance daily bars for CFFEX index futures (the free source AKShare also uses; see docs/17).
+"""Sina Finance daily bars for CFFEX index futures (the free source AKShare also uses; see docs/data/data-vendors).
 
 Single contracts (e.g. ``IC2212``) are available from 2019-03 on; ``IC0`` is Sina's unadjusted main-contract splice
 from 2017-01-17. Fields: d/o/h/l/c/v/p, where ``p`` is open interest (zero in the early IC0 rows).

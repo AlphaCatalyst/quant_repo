@@ -1,4 +1,4 @@
-"""TrainingTask: the declarative definition of a model-training task for one mandate (docs/mandates/19-training-tasks.md).
+"""TrainingTask: the declarative definition of a model-training task for one mandate (docs/mandates/training-tasks.md).
 
 A task fixes the label, the sample, the features, the dev-only split, the candidate grid and the output contract
 before any result is seen. Every full run of a task is one strategy-layer trial; changing any field is a new trial.
@@ -64,7 +64,7 @@ class ScoreSource(_Model):
 
 
 class EtfMapping(_Model):
-    """Current ETF holdings mapped to industries or used as a basket (docs/20 §4.1); fixed at ``mapping_asof``."""
+    """Current ETF holdings mapped to industries or used as a basket (docs/mandates/training-round2 §4.1); fixed at ``mapping_asof``."""
     mode: Literal["industry_map", "basket_map"]
     mapping_asof: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
 
@@ -199,12 +199,12 @@ class TrainingTask(_Model):
         if weights and (bad_cover or abs(sum(weights.values()) - 1) > 1e-9):
             errors.append("horizon_weights must cover every horizon and sum to 1")
         if self.mandate == "D" and self.portfolio.basis_head == "enabled":
-            errors.append("basis_head is not implemented (docs/20 §5.3)")
+            errors.append("basis_head is not implemented (docs/mandates/training-round2 §5.3)")
         if self.features.event_source is not None:
             if self.mandate not in ("A", "D"):
                 errors.append("event-score features are for the cross-sectional mandates A and D")
             if self.features.event_lag_days < 1:
-                errors.append("event_lag_days must be >= 1 (docs/20 §2.1)")
+                errors.append("event_lag_days must be >= 1 (docs/mandates/training-round2 §2.1)")
             if not self.features.event_half_lives or any(h <= 0 for h in self.features.event_half_lives):
                 errors.append("event_half_lives must be positive")
         if self.features.etf_mapping is not None and self.mandate != "B":
@@ -218,7 +218,7 @@ class TrainingTask(_Model):
         return self
 
     def _portfolio_rules(self) -> list[str]:
-        """docs/21 §5: the construction mechanisms exist only in the LP and the frozen-score mode only for A."""
+        """docs/mandates/a-portfolio §5: the construction mechanisms exist only in the LP and the frozen-score mode only for A."""
         pf, errors = self.portfolio, []
         uses_new = (pf.objective != "score" or pf.score_ema_half_life is not None
                     or pf.active_liquidity_adv_fraction is not None)
@@ -240,7 +240,7 @@ class TrainingTask(_Model):
                 errors.append("cost-aware fields require frozen A net-alpha LP; trailing_10d needs 10-day rebalance"
                               " and 0.005 fallback")
         if pf.impact_segments != 4:
-            errors.append("impact_segments is fixed at 4 (docs/21 §2.1)")
+            errors.append("impact_segments is fixed at 4 (docs/mandates/a-portfolio §2.1)")
         if pf.score_ema_half_life is not None and pf.score_ema_half_life <= 0:
             errors.append("score_ema_half_life must be positive")
         frac = pf.active_liquidity_adv_fraction

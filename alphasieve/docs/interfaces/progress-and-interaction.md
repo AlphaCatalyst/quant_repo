@@ -34,7 +34,7 @@
 - holdout 读取预算按 campaign 与全局分别展示。
 
 **搜索空间覆盖矩阵**
-- 格子 = 数据域 × 变换形态 × 时间尺度（见 [11-factor-search-space.md](../research/11-factor-search-space.md) §4）。
+- 格子 = 数据域 × 变换形态 × 时间尺度（见 [factor-search-space.md](../research/factor-search-space.md) §4）。
 - 每格：尝试数、L2 通过数、入库数、是否禁区；颜色表示“未探索 / 探索中 / 有产出 / 饱和”。
 - 用于回答“还有哪些方向没试过”“哪些方向已经挖透”。
 

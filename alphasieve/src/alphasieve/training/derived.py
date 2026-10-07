@@ -1,4 +1,4 @@
-"""Pre-registered derived factor candidates for the A task (docs/20 §3) and their outcome-free screen.
+"""Pre-registered derived factor candidates for the A task (docs/mandates/training-round2 §3) and their outcome-free screen.
 
 Every candidate is a function of panel fields at or before day t (statement fields are already shown from the first
 trading day after publication). The screen that decides which candidates enter a task looks only at data coverage

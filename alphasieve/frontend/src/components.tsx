@@ -225,7 +225,7 @@ export function Glossary() {
     <button className="glossary-trigger" onClick={() => setOpen(true)}>指标口径</button>
     {open && <div className="drawer" onClick={() => setOpen(false)}><div className="drawer-body glossary" onClick={(e) => e.stopPropagation()}>
       <button className="btn close" onClick={() => setOpen(false)}>关闭</button>
-      <h2>指标口径</h2><p className="muted">摘要依据 docs/research/04-research-core.md、docs/mandates/18-mandates.md 与 docs/mandates/21-a-portfolio.md；各策略的具体阈值以其验收检查为准。</p>
+      <h2>指标口径</h2><p className="muted">摘要依据 docs/research/research-core.md、docs/mandates/mandate-specs.md 与 docs/mandates/a-portfolio.md；各策略的具体阈值以其验收检查为准。</p>
       <dl>{TERMS.map(([term, definition]) => <div key={term}><dt>{term}</dt><dd>{definition}</dd></div>)}</dl>
     </div></div>}
   </>;

@@ -16,7 +16,7 @@ class AgentAdapter(Protocol):
 
 `TurnContext` 包含 workspace 路径、prompt、允许的工具、超时、模型；`TurnResult` 包含退出状态、transcript 路径、token 与费用、agent 自述的摘要。
 
-执行后端的选型（本机 Claude Code / Codex、Cursor、Nexus Cloud）与上云时的 ledger 规则见 [14-agent-execution.md](14-agent-execution.md)；agent 可探索的因子空间见 [11-factor-search-space.md](../research/11-factor-search-space.md)。
+执行后端的选型（本机 Claude Code / Codex、Cursor、Nexus Cloud）与上云时的 ledger 规则见 [agent-execution.md](agent-execution.md)；agent 可探索的因子空间见 [factor-search-space.md](../research/factor-search-space.md)。
 
 ## 2. Campaign Workspace
 
@@ -75,7 +75,7 @@ orchestrator 选择下一个要推进的 campaign
   → 判断是否需要批次 gate
 ```
 
-turn 的实时输出（agent 的工具调用、评估结果）通过事件流推送给前端，见 [06-interfaces.md](../interfaces/06-interfaces.md)。
+turn 的实时输出（agent 的工具调用、评估结果）通过事件流推送给前端，见 [cli-and-api.md](../interfaces/cli-and-api.md)。
 
 ## 6. 调度与三层节奏
 

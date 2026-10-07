@@ -8,7 +8,7 @@
 
 AlphaSieve 里有两种“检验”，不要混淆：
 
-- **研究验证**：检验一个因子候选是否有效，即 L0–L5 分层 verifier（见 [04-research-core.md](04-research-core.md) §4）。
+- **研究验证**：检验一个因子候选是否有效，即 L0–L5 分层 verifier（见 [research-core.md](research-core.md) §4）。
 - **系统测试**：检验 AlphaSieve 本身是否正确，即本文件。系统测试的核心目标是证明 verifier 本身可信——如果评估代码有前视或计数漏洞，L0–L5 再严格也没有意义。
 
 ## 1. 系统测试分级

@@ -40,6 +40,9 @@
 8. [factor-model-co-optimization-research.md](factor-model-co-optimization-research.md)
    - 因子与模型联合优化的研究综述：agent 框架的交替调度、挖掘与组合联合方法、模型侧证据（目标设计、复杂度争议、TSFM、增量学习、regime 失效）、已发表系统中的评估泄漏。
 
+9. [social-signal-literature-review.md](social-signal-literature-review.md)
+   - 社交言论、大V荐股、关注度能否成为交易信号的文献证据（扣成本与样本外视角），以及主观/LLM 策略池的定位与最小版本。
+
 ## 总体结论
 
 这些仓库不是同一类东西。它们大致分成三条主线：

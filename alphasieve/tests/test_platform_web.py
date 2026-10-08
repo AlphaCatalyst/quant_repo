@@ -151,6 +151,75 @@ def test_platform_documents_are_whitelisted(platform_client):
                  "personal-decision-tasks.md"):
         assert client.get(f"/api/docs/{name}", auth=auth).status_code == 200
     assert client.get("/api/docs/not-allowed.md", auth=auth).status_code == 404
+    assert client.get("/api/docs/TODO.md", auth=auth).status_code == 200
+    assert client.get("/api/docs/..%2Fsecret.md", auth=auth).status_code == 404
+    docs = client.get("/api/docs", auth=auth).json()["docs"]
+    product = next(d for d in docs if d["name"] == "product.md")
+    assert product["folder"] == "overview" and product["status"] and product["summary"]
+
+
+def test_saved_report_views(platform_client, settings):
+    import pandas as pd
+
+    from alphasieve.decisions.ledger import record
+
+    client, auth, _, _ = platform_client
+    decisions = settings.hot_root / "reports" / "decisions"
+    decisions.mkdir(parents=True)
+    rule = {"rule_id": "r1", "rule": {"target": "equal", "cap": None, "band": 0.05, "review_days": 5},
+            "ce_gamma4": 0.9, "cohorts": {"2010": {"ce_gamma4": 0.9, "hold_ce_gamma4": 0.8}},
+            "random": {"p": 0.01, "p_holm": 0.02}, "acceptance": {"checks": {}, "pass": True}}
+    (decisions / "p3-latest.json").write_text(json.dumps({
+        "run_id": "run", "tier": "dev", "data_end": "2022-12-31", "config": {"trial_budget": 72, "random_reps": 200},
+        "pools": [{"pool": "all", "accounts": 10, "no_action": {"ce_gamma4": 0.8}, "mechanical": {"ce_gamma4": 0.85},
+                   "rules": [rule], "selected": "r1", "selected_acceptance": {"checks": {}, "pass": True}}]}))
+    (decisions / "probe-p1.json").write_text(json.dumps({"probe": "p1", "auc": 0.6}))
+    with connect(settings.state_db) as conn:
+        record(conn, "P3", "run", "r1", "all", "hash", {"ce_gamma4": 0.9}, "test")
+    body = client.get("/api/decisions", auth=auth).json()
+    assert body["p3"]["pools"][0]["selected_cohorts"]["2010"]["hold_ce_gamma4"] == 0.8
+    assert "cohorts" not in body["p3"]["pools"][0]["rules"][0]
+    assert body["probes"]["p1"]["auc"] == 0.6 and body["probes"]["p2"] is None
+    assert body["trials"] == {"count": 1, "by_task": {"P3": 1}, "p3_budget": 72, "latest": body["trials"]["latest"]}
+
+    scan = settings.hot_root / "redflag" / "2026-10-04"
+    scan.mkdir(parents=True)
+    pd.DataFrame([
+        {"code": "sh.600000", "level": "none", "industry": "银行", "period": "2026-06-30",
+         "announcement_date": "2026-08-30", "goodwill_value": 0.01, "goodwill_level": "none"},
+        {"code": "sz.000001", "level": "red", "industry": "银行", "period": "2026-06-30",
+         "announcement_date": "2026-08-30", "goodwill_value": 0.9, "goodwill_level": "red"},
+        {"code": "sz.000002", "level": "none", "industry": "地产", "period": "2026-06-30",
+         "announcement_date": "2026-08-30", "goodwill_value": 0.0, "goodwill_level": "none"},
+    ]).to_parquet(scan / "results.parquet")
+    (scan / "results.json").write_text(json.dumps({"asof": "2026-10-04", "universe": "csi800"}))
+    basic = settings.raw_dir / "baostock_all"
+    basic.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame({"code": ["sh.600000", "sz.000001"], "code_name": ["浦发银行", "平安银行"]}).to_parquet(
+        basic / "stock_basic.parquet")
+    flags = client.get("/api/redflags", auth=auth).json()
+    assert flags["asof"] == "2026-10-04" and flags["universe"] == "csi800" and flags["held_total"] == 1
+    assert flags["levels"] == {"none": 2, "red": 1}
+    assert {r["code"]: (r["held"], r["name"]) for r in flags["rows"]} == {
+        "sh.600000": (True, "浦发银行"), "sz.000001": (False, "平安银行")}
+    assert flags["rows"][1]["flags"] == {"goodwill": {"level": "red", "value": 0.9}}
+
+    announcements = settings.raw_dir / "cninfo" / "announcements"
+    announcements.mkdir(parents=True)
+    day = date.today().isoformat()
+    pd.DataFrame([
+        {"announcement_id": "1", "code": "600000", "name": "浦发银行", "title": "关于股份回购的公告",
+         "published_at": f"{day}T00:00:00+08:00", "pdf_url": "u1"},
+        {"announcement_id": "2", "code": "000001", "name": "平安银行", "title": "董事会决议公告",
+         "published_at": f"{day}T00:00:00+08:00", "pdf_url": "u2"},
+    ]).to_parquet(announcements / f"{day}.parquet")
+    body = client.get("/api/announcements", auth=auth).json()
+    assert body["total"] == 2 and [r["announcement_id"] for r in body["rows"]] == ["1"]
+    assert body["held"][0]["event_type"] == "repurchase" and body["coverage"] == {day[:4]: 1}
+    assert len(client.get("/api/announcements?importance=all", auth=auth).json()["rows"]) == 2
+    assert client.get("/api/announcements?importance=bogus", auth=auth).status_code == 400
+    assert client.get("/api/research/sw-sensitivity", auth=auth).json() == {"report": None}
+    assert client.get("/api/decisions").status_code == 401
 
 
 def test_alert_visibility_requires_human_auth(platform_client, settings):

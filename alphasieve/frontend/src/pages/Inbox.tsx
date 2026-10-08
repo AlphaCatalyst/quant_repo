@@ -34,7 +34,7 @@ export default function Inbox() {
       <strong>{d.title}</strong><span className="small muted"> · {d.status === "open" ? "待决定" : `已决定 ${d.decided_at ?? ""}`}</span>
       <p>{d.question}</p><p><b>推荐：</b>{d.recommendation}</p>
       <ul>{d.options.map((o: Json) => <li key={o.name}><b>{o.name}：</b>{o.consequence}</li>)}</ul>
-      <a href={`/api/docs/${d.evidence.split("/").pop()?.split("#")[0]}`} target="_blank" rel="noreferrer" className="small">依据：{d.evidence}</a>
+      <a href={link(`/docs/${d.evidence.split("/").pop()}`)} className="small">依据：{d.evidence}</a>
       {d.decision && <p>决定：{d.decision}</p>}
     </article>)}</div></Card>
     <Card title="审批签名公钥"><p className="small">{status?.approval_fingerprints?.length ? status.approval_fingerprints.join("、") : "尚未登记公钥"}</p></Card>

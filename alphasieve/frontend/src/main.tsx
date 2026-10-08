@@ -15,6 +15,10 @@ import Forecasts from "./pages/Forecasts";
 import Book from "./pages/Book";
 import Alerts from "./pages/Alerts";
 import { Health, Jobs, Resources } from "./pages/Control";
+import Decisions from "./pages/Decisions";
+import RedFlags from "./pages/RedFlags";
+import Announcements from "./pages/Announcements";
+import Docs from "./pages/Docs";
 import { Glossary } from "./components";
 
 function useHashPath(): string {
@@ -32,9 +36,10 @@ function useHashPath(): string {
 
 const NAV: [string, [string, string][]][] = [
   ["", [["/", "总览"], ["/inbox", "待你决定"]]],
-  ["我的账户", [["/book", "持仓"], ["/theses", "论点"], ["/forecasts", "预测"], ["/alerts", "告警"]]],
+  ["我的账户", [["/book", "持仓"], ["/decisions", "决策任务"], ["/theses", "论点"], ["/forecasts", "预测"], ["/alerts", "告警"]]],
+  ["市场", [["/redflags", "排雷"], ["/announcements", "公告"]]],
   ["研究", [["/mandates", "策略任务"], ["/factors", "因子"], ["/ledger", "试验记录"], ["/forward", "前瞻"]]],
-  ["系统", [["/resources", "资源"], ["/jobs", "作业"], ["/health", "健康"], ["/data", "数据"]]],
+  ["系统", [["/resources", "资源"], ["/jobs", "作业"], ["/health", "健康"], ["/data", "数据"], ["/docs", "文档"]]],
 ];
 
 function useTableOverflow() {
@@ -87,7 +92,8 @@ function App() {
   const [showGuide, setShowGuide] = useState(() => localStorage.getItem("alphasieve-guide-seen") !== "1");
   useEffect(() => { document.documentElement.dataset.theme = theme; localStorage.setItem("alphasieve-theme", theme); }, [theme]);
   useEffect(() => { const id = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(id); }, []);
-  const parts = path.split("?")[0].split("/").filter(Boolean);
+  const [route, anchor] = path.split("?")[0].split("#");
+  const parts = route.split("/").filter(Boolean);
   let page;
   if (parts[0] === "campaign" && parts[1]) page = <Campaign id={parts[1]} key={parts[1]} />;
   else if (parts[0] === "factor" && parts[1]) page = <Factor id={parts[1]} key={parts[1]} />;
@@ -107,6 +113,10 @@ function App() {
   else if (parts[0] === "health") page = <Health />;
   else if (parts[0] === "data") page = <Data />;
   else if (parts[0] === "inbox") page = <Inbox />;
+  else if (parts[0] === "decisions") page = <Decisions anchor={anchor} />;
+  else if (parts[0] === "redflags") page = <RedFlags />;
+  else if (parts[0] === "announcements") page = <Announcements />;
+  else if (parts[0] === "docs") page = <Docs name={parts[1]} anchor={anchor} key={parts[1] ?? ""} />;
   else page = <Overview />;
   const active = "/" + (parts[0] === "campaign" ? "" : parts[0] === "factor" ? "factors" : parts[0] === "thesis" ? "theses"
     : parts[0] === "strategy" || parts[0] === "compare" ? "mandates" : parts[0] ?? "");
@@ -149,7 +159,7 @@ function App() {
       <main>
         {showGuide && <section className="card intro-guide" aria-label="看板怎么读">
           <div className="intro-head"><h3>第一次看？这样读看板</h3><button className="btn small" onClick={() => { localStorage.setItem("alphasieve-guide-seen", "1"); setShowGuide(false); }}>知道了</button></div>
-          <p>总览从上往下：<b>待你决定</b>的事项 → <b>我的持仓</b>→ 四个<b>策略任务</b>是否通过验收、差在哪 → 因子研究进展 → 系统状态。</p>
+          <p>总览从上往下：<b>待你决定</b>的事项 → <b>我的持仓</b>与持仓的排雷、公告、调仓规则 → 四个<b>策略任务</b>是否通过验收 → 因子研究 → <b>能力地图</b>（每项能力的入口）→ 系统状态。</p>
           <p>四个任务：A 中证 500 增强、B 行业 ETF 轮动、C 业绩超预期漂移、D 股指期货对冲。每个任务都有自己的验收条件和试验预算。</p>
           <p><b>dev</b> 用于开发和比较；<b>holdout</b> 是锁定配置后的留出验证。多次尝试中挑最好的一次会高估表现，“搜索折扣”用于校正这种偏差。holdout 读取次数有限，必须由人审批，避免反复试探留出集。</p>
         </section>}

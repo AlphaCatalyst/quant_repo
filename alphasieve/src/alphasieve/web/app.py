@@ -35,6 +35,7 @@ from alphasieve.portfolio_book import history as book_history
 from alphasieve.state.backup import list_backups
 from alphasieve.thesis import evaluate_scenarios, implied, load_thesis
 from alphasieve.thesis.formula import FormulaError
+from alphasieve.web import reports
 
 DIST = Path(__file__).resolve().parent / "dist"
 DOCS = Path(__file__).resolve().parents[3] / "docs"
@@ -390,6 +391,29 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
     @app.get("/api/book/rebalance")
     def book_rebalance_view(user: str = Depends(auth)):
         return _saved_book("rebalance")
+
+    @app.get("/api/decisions")
+    def decisions_view(user: str = Depends(auth), conn=Depends(db)):
+        return reports.decisions_view(settings, conn)
+
+    @app.get("/api/redflags")
+    def redflags_view(user: str = Depends(auth), conn=Depends(db)):
+        return reports.redflags_view(settings, conn)
+
+    @app.get("/api/announcements")
+    def announcements_view(days: int = Query(30, ge=1, le=120), importance: str | None = None,
+                           user: str = Depends(auth), conn=Depends(db)):
+        if importance not in (None, "all", "high", "medium", "low", "held"):
+            raise HTTPException(400, "invalid importance")
+        return reports.announcements_view(settings, conn, days, importance)
+
+    @app.get("/api/research/sw-sensitivity")
+    def sw_sensitivity_view(user: str = Depends(auth)):
+        return {"report": reports.sw_sensitivity_view(settings)}
+
+    @app.get("/api/docs")
+    def docs_index(user: str = Depends(auth)):
+        return {"docs": reports.docs_index(DOCS)}
 
     @app.exception_handler(AlphaSieveError)
     async def _err(request, exc: AlphaSieveError):
@@ -835,14 +859,11 @@ def create_app(settings: Settings | None = None, require_auth: bool | None = Non
 
     @app.get("/api/docs/{name}", response_class=PlainTextResponse)
     def decision_doc(name: str, user: str = Depends(auth)):
-        allowed = (r"(?:cli-and-api|decisions|data-vendors|forward-paper|"
-                   r"mandate-campaigns|risk-model|personal-account|"
-                   r"broad-quant-platform|platform-implementation|coverage-review|"
-                   r"financial-red-flags|announcements|sw-industry-sensitivity|monitoring|control-plane|"
-                   r"personal-decision-tasks)\.md")
-        if not re.fullmatch(allowed, name):
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]*\.md|TODO\.md|README\.md", name):
             raise HTTPException(404, "document not found")
-        path = next(DOCS.glob(f"*/{name}"), None)
+        path = DOCS / name if name in ("TODO.md", "README.md") else next(DOCS.glob(f"*/{name}"), None)
+        if path is not None and not path.is_file():
+            path = None
         if path is None:
             raise HTTPException(404, "document not found")
         return path.read_text(encoding="utf-8")

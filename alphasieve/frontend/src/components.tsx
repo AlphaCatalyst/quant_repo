@@ -140,7 +140,13 @@ export function Chart({ option, height = 280 }: { option: EChartsOption; height?
     };
   }, []);
   useEffect(() => {
-    chart.current?.setOption(option, true);
+    const dark = document.documentElement.dataset.theme === "dark";
+    const list = <T,>(v: T | T[] | undefined): T[] => Array.isArray(v) ? v : v ? [v] : [];
+    chart.current?.setOption(dark ? {
+      ...option, textStyle: { color: "#aeb9c7" },
+      legend: list(option.legend).map((l) => ({ ...l, textStyle: { color: "#e5e7eb" } })),
+      yAxis: list(option.yAxis).map((a) => ({ ...a, splitLine: { lineStyle: { color: "#394557" } } })),
+    } as EChartsOption : option, true);
   }, [option]);
   return <div ref={ref} style={{ height, width: "100%" }} />;
 }

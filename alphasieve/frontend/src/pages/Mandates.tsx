@@ -189,8 +189,40 @@ export function Mandates() {
           {view === "holdout" && <HoldoutRequests rows={m.holdout_requests} />}
         </Card>
       ))}
+      <IndustrySensitivity />
     </div>
   );
+}
+
+const INDUSTRY_SOURCE: Record<string, string> = {
+  csrc_current: "证监会（当前）", sw1_conservative: "申万一级（保守）", sw1_as_effective: "申万一级（按生效日）",
+};
+
+function IndustrySensitivity() {
+  const report = useApi<Json>("/api/research/sw-sensitivity").data?.report;
+  if (!report) return null;
+  const summary = report.portfolio_summary as Json[];
+  return <Card title={`行业口径敏感性（已保存的 A 组合，${report.window?.join(" ~ ")}）`} extra={<a className="small" href={link("/docs/sw-industry-sensitivity.md")}>说明 →</a>}>
+    <p className="small muted">同一组合换用证监会或申万历史行业后，单个行业相对基准的最大偏离有多大；“超 2%”是偏离超过 2% 的调仓日占比。下方是因子在两种行业中性化下的 IC。</p>
+    <div className="two-col">
+      <div><DataTable rows={summary} filename="sw-portfolio-summary.csv" searchPlaceholder="搜索 trial"
+        filters={[{ label: "行业口径", value: (r: Json) => r.industry_source, options: Object.keys(INDUSTRY_SOURCE).map((k) => ({ value: k, label: INDUSTRY_SOURCE[k] })) },
+          { label: "基准", value: (r: Json) => r.benchmark, options: Array.from(new Set(summary.map((r) => r.benchmark as string))).map((v) => ({ value: v, label: v })) }]}
+        columns={[
+          { key: "trial", label: "组合", value: (r: Json) => r.trial },
+          { key: "src", label: "行业口径", value: (r: Json) => INDUSTRY_SOURCE[r.industry_source] ?? r.industry_source },
+          { key: "bm", label: "基准", value: (r: Json) => r.benchmark },
+          { key: "median", label: "中位最大偏离", value: (r: Json) => r.median_max, render: (r: Json) => fmtPct(r.median_max) },
+          { key: "p90", label: "P90", value: (r: Json) => r.p90_max, render: (r: Json) => fmtPct(r.p90_max) },
+          { key: "worst", label: "最差", value: (r: Json) => r.worst_max, render: (r: Json) => fmtPct(r.worst_max) },
+          { key: "over", label: "超 2%", value: (r: Json) => r.over_2pct, render: (r: Json) => fmtPct(r.over_2pct, 0) },
+        ]} /></div>
+      <table className="table compact"><thead><tr><th>因子</th><th>口径</th><th className="num">中性化 IC</th><th className="num">ICIR</th><th className="num">保留比例</th></tr></thead><tbody>
+        {(report.factor_neutral_ic as Json[]).map((r, i) => <tr key={i}><td><a href={link(`/factor/${r.factor_id}`)}>{r.name}</a></td><td>{INDUSTRY_SOURCE[r.industry_source] ?? r.industry_source}</td>
+          <td className="num">{fmtNum(r.ic_mean, 3)}</td><td className="num">{fmtNum(r.icir, 2)}</td><td className="num">{fmtPct(r.neutral_ratio, 0)}</td></tr>)}
+      </tbody></table>
+    </div>
+  </Card>;
 }
 
 function matchesResult(t: Json, result: string) {

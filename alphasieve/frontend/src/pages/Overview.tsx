@@ -5,6 +5,7 @@ import ResearchProgress from "./Progress";
 import { ControlStrip } from "./Control";
 import { MandateSummary } from "./Mandates";
 import { BookSummary } from "./Book";
+import { CapabilityMap, PersonalStrip } from "./Capabilities";
 const FAILURE_LABELS: Record<string, string> = {
   "l0.structure": "L0 · 结构检查未通过",
   "l0.campaign_horizon": "L0 · 预测周期不符",
@@ -38,6 +39,7 @@ export default function Overview() {
 
       <h3 className="section-title">我的账户</h3>
       <BookSummary />
+      <PersonalStrip />
 
       <h3 className="section-title">策略任务
         <span className="section-sub">{mandates.length} 个任务 · {passed} 个有试验通过验收 · {exhausted} 个开发期预算已用完</span>
@@ -91,6 +93,9 @@ export default function Overview() {
           <FailureList reasons={data.ledger.failure_reasons} />
         </Card>
       </div>
+
+      <h3 className="section-title">能力地图<span className="section-sub">仓库里已有的能力和它们在看板上的入口；标“仅命令行”的暂无页面</span></h3>
+      <CapabilityMap />
 
       <h3 className="section-title">系统</h3>
       <ControlStrip />

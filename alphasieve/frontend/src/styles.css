@@ -293,3 +293,34 @@ main { max-width: 1480px; margin: 0 auto; padding: 20px 24px 60px; }
 .control-close { float: right; background: var(--card); color: var(--text); border: 1px solid var(--line); padding: 5px 9px; cursor: pointer; }
 .control-command { display: block; padding: 8px; user-select: all; overflow-wrap: anywhere; }
 @media (max-width: 800px) { .control-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* Decision tasks, red flags, docs, capability map. */
+.three-col { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: start; }
+@media (max-width: 1100px) { .three-col { grid-template-columns: 1fr; } }
+.decision-tasks { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 1100px) { .decision-tasks { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.decision-task { display: flex; flex-direction: column; gap: 2px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--text); font-size: 13px; }
+.decision-task strong { color: var(--blue); }
+.decision-task:hover { border-color: var(--blue); text-decoration: none; }
+.decision-detail { margin-top: 14px; }
+[id^="task-"] { scroll-margin-top: 60px; }
+.mandate-verdict b.plain { color: var(--text); }
+.bar-track.stacked { display: flex; }
+.bar-fill.red { background: var(--red); }
+.bar-fill.amber { background: var(--amber); }
+.capability-map { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; align-items: start; }
+.capability-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.capability-list li { line-height: 1.45; }
+.capability-list code { font-size: 11px; }
+.markdown { line-height: 1.7; max-width: 1100px; overflow-wrap: anywhere; }
+.markdown h2 { margin: 18px 0 8px; } .markdown h2:first-child { margin-top: 0; }
+.markdown h3 { margin: 16px 0 6px; } .markdown h4 { margin: 12px 0 4px; }
+.markdown p { margin: 8px 0; }
+.markdown blockquote { margin: 8px 0; padding: 4px 12px; border-left: 3px solid var(--line); color: var(--muted); }
+.markdown hr { border: 0; border-top: 1px solid var(--line); margin: 14px 0; }
+.markdown .table-scroll { margin: 8px 0; max-height: none; }
+.md-table td { white-space: normal; min-width: 80px; max-width: 520px; }
+:root[data-theme="dark"] .table td { border-bottom-color: var(--line); }
+:root[data-theme="dark"] .table tr.clickable:hover td { background: color-mix(in srgb, var(--blue) 10%, var(--card)); }
+@media (max-width: 1360px) { .nav-group-label { display: none; } }
+@media (max-width: 1150px) { .nav-group { gap: 7px; padding-left: 7px; } }
